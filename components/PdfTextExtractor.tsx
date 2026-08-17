@@ -28,17 +28,40 @@ function buildHtml(base64Pdf: string): string {
     return bytes;
   }
 
+  // pdf.js returns a flat list of text fragments positioned by x/y, not
+  // grouped into lines. Group fragments into lines by y-coordinate so that
+  // each visual line of the statement becomes one line of text -- parseStatement
+  // matches one transaction per line, so without this every page collapses
+  // into a single unparseable line.
+  function pageItemsToText(items) {
+    const lines = [];
+    let currentLine = "";
+    let lastY = null;
+    for (const item of items) {
+      const y = item.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > 2) {
+        lines.push(currentLine);
+        currentLine = item.str;
+      } else {
+        currentLine += (currentLine ? " " : "") + item.str;
+      }
+      lastY = y;
+    }
+    if (currentLine) lines.push(currentLine);
+    return lines.join("\\n");
+  }
+
   (async () => {
     try {
       const data = base64ToUint8Array(window.PDF_BASE64);
       const doc = await pdfjsLib.getDocument({ data }).promise;
-      let text = "";
+      const pages = [];
       for (let i = 1; i <= doc.numPages; i++) {
         const page = await doc.getPage(i);
         const content = await page.getTextContent();
-        text += content.items.map((item) => item.str).join(" ") + "\\n";
+        pages.push(pageItemsToText(content.items));
       }
-      window.ReactNativeWebView.postMessage(JSON.stringify({ ok: true, text }));
+      window.ReactNativeWebView.postMessage(JSON.stringify({ ok: true, text: pages.join("\\n") }));
     } catch (err) {
       window.ReactNativeWebView.postMessage(JSON.stringify({ ok: false, error: String(err) }));
     }
