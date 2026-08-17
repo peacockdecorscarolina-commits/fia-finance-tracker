@@ -19,6 +19,7 @@ export default function RootLayout() {
         <Stack.Screen name="review" options={{ title: "Review", ...pushedScreenOptions }} />
         <Stack.Screen name="accounts" options={{ title: "Accounts", ...pushedScreenOptions }} />
         <Stack.Screen name="category/[name]" options={{ title: "Category", ...pushedScreenOptions }} />
+        <Stack.Screen name="sync" options={{ title: "Sync", ...pushedScreenOptions }} />
       </Stack>
     </SQLiteProvider>
   );

@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Card } from "../../components/Card";
 import { Screen } from "../../components/Screen";
 import {
@@ -149,6 +149,13 @@ export default function SummaryScreen() {
             label="Accounts"
             onPress={() => router.push("/accounts")}
           />
+          {Platform.OS === "web" && (
+            <QuickAction
+              icon="cloud-outline"
+              label="Sync"
+              onPress={() => router.push("/sync")}
+            />
+          )}
         </View>
 
         <Card style={styles.totalCard}>

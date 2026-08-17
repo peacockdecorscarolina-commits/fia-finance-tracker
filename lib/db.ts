@@ -283,6 +283,118 @@ export async function getCategorySummary(
   );
 }
 
+// Full snapshot of user data for backup/restore (e.g. syncing to Google
+// Drive). Rows are keyed by name/merchant instead of raw ids, since ids
+// aren't stable across a restore into a fresh database.
+export type DataSnapshot = {
+  version: 1;
+  exportedAt: string;
+  accounts: { name: string; type: string }[];
+  categories: { name: string }[];
+  merchantCategoryMap: { merchantKey: string; categoryName: string }[];
+  transactions: {
+    accountName: string;
+    date: string;
+    merchant: string;
+    amount: number;
+    categoryName: string;
+    needsReview: boolean;
+  }[];
+};
+
+export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
+  const accounts = await db.getAllAsync<{ name: string; type: string }>(
+    "SELECT name, type FROM accounts ORDER BY id"
+  );
+  const categories = await db.getAllAsync<{ name: string }>(
+    "SELECT name FROM categories ORDER BY id"
+  );
+  const merchantCategoryMap = await db.getAllAsync<{ merchantKey: string; categoryName: string }>(
+    `SELECT merchant_category_map.merchant_key as merchantKey, categories.name as categoryName
+     FROM merchant_category_map
+     JOIN categories ON categories.id = merchant_category_map.category_id`
+  );
+  const transactions = await db.getAllAsync<{
+    accountName: string;
+    date: string;
+    merchant: string;
+    amount: number;
+    categoryName: string;
+    needsReview: number;
+  }>(
+    `SELECT
+       accounts.name as accountName,
+       transactions.date as date,
+       transactions.merchant as merchant,
+       transactions.amount as amount,
+       categories.name as categoryName,
+       transactions.needs_review as needsReview
+     FROM transactions
+     JOIN accounts ON accounts.id = transactions.account_id
+     JOIN categories ON categories.id = transactions.category_id
+     ORDER BY transactions.id`
+  );
+
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    accounts,
+    categories,
+    merchantCategoryMap,
+    transactions: transactions.map((t) => ({ ...t, needsReview: t.needsReview === 1 })),
+  };
+}
+
+// Replaces all local data with the given snapshot -- used to restore from a
+// Google Drive backup. Existing local data is discarded, so this is meant
+// for restoring onto a fresh/empty database, not merging.
+export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
+  await db.execAsync(
+    "DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts;"
+  );
+
+  const categoryIds = new Map<string, number>();
+  for (const category of snapshot.categories) {
+    const result = await db.runAsync("INSERT INTO categories (name) VALUES (?)", category.name);
+    categoryIds.set(category.name, result.lastInsertRowId);
+  }
+
+  const accountIds = new Map<string, number>();
+  for (const account of snapshot.accounts) {
+    const result = await db.runAsync(
+      "INSERT INTO accounts (name, type) VALUES (?, ?)",
+      account.name,
+      account.type
+    );
+    accountIds.set(account.name, result.lastInsertRowId);
+  }
+
+  for (const entry of snapshot.merchantCategoryMap) {
+    const categoryId = categoryIds.get(entry.categoryName);
+    if (categoryId === undefined) continue;
+    await db.runAsync(
+      "INSERT OR REPLACE INTO merchant_category_map (merchant_key, category_id) VALUES (?, ?)",
+      entry.merchantKey,
+      categoryId
+    );
+  }
+
+  for (const t of snapshot.transactions) {
+    const accountId = accountIds.get(t.accountName);
+    const categoryId = categoryIds.get(t.categoryName);
+    if (accountId === undefined || categoryId === undefined) continue;
+    await db.runAsync(
+      "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review) VALUES (?, ?, ?, ?, ?, ?)",
+      accountId,
+      t.date,
+      t.merchant,
+      t.amount,
+      categoryId,
+      t.needsReview ? 1 : 0
+    );
+  }
+}
+
 export type AccountTotal = { accountName: string; total: number };
 
 export async function getAccountSummary(
