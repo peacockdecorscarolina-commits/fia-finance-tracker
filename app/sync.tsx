@@ -27,7 +27,7 @@ export default function SyncScreen() {
   async function handleSignIn() {
     setStatus({ kind: "busy", label: "Signing in..." });
     try {
-      await signIn();
+      await signIn(db);
       setSignedIn(isSignedIn());
       setStatus({ kind: "idle" });
     } catch (err) {

@@ -1,4 +1,5 @@
 import * as AuthSession from "expo-auth-session";
+import type { SQLiteDatabase } from "expo-sqlite";
 
 // Public identifier -- safe to embed client-side. The matching Client
 // Secret lives only in the Vercel serverless function (api/google-token.js),
@@ -75,7 +76,12 @@ async function exchangeToken(body: Record<string, string>): Promise<StoredTokens
 // opened it, and this site's Cross-Origin-Opener-Policy: same-origin header
 // (required for SQLite's SharedArrayBuffer usage) severs that reference,
 // which left the popup with no way to signal completion.
-export async function signIn(): Promise<void> {
+// `db` is closed before navigating away because expo-sqlite's web backend
+// holds an exclusive OPFS access handle on the database file. Without
+// closing it first, the fresh page load after Google's redirect races the
+// still-open handle from the page being left behind and fails with
+// "Access Handles cannot be created if there is another open Access Handle".
+export async function signIn(db: SQLiteDatabase): Promise<void> {
   const request = new AuthSession.AuthRequest({
     clientId: GOOGLE_CLIENT_ID,
     scopes: SCOPES,
@@ -87,6 +93,7 @@ export async function signIn(): Promise<void> {
   if (request.codeVerifier) {
     localStorage.setItem(PKCE_VERIFIER_KEY, request.codeVerifier);
   }
+  await db.closeAsync();
   window.location.href = url;
 }
 
