@@ -19,6 +19,7 @@ export type Transaction = {
   categoryId: number;
   categoryName: string;
   needsReview: boolean;
+  ignored: boolean;
 };
 
 // Shape returned by the extraction step (currently on-device, rule-based —

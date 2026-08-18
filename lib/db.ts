@@ -30,9 +30,16 @@ export async function initDatabase(db: SQLiteDatabase) {
       merchant TEXT NOT NULL,
       amount REAL NOT NULL,
       category_id INTEGER NOT NULL REFERENCES categories(id),
-      needs_review INTEGER NOT NULL DEFAULT 0
+      needs_review INTEGER NOT NULL DEFAULT 0,
+      ignored INTEGER NOT NULL DEFAULT 0
     );
   `);
+
+  // Migration for databases created before the `ignored` column existed.
+  const columns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(transactions)");
+  if (!columns.some((c) => c.name === "ignored")) {
+    await db.execAsync("ALTER TABLE transactions ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0");
+  }
 
   const existing = await db.getFirstAsync<{ count: number }>(
     "SELECT COUNT(*) as count FROM categories"
@@ -127,7 +134,7 @@ export async function insertExtractedTransactions(
     }
 
     await db.runAsync(
-      "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, ?, 0)",
       accountId,
       t.date,
       t.merchant,
@@ -148,16 +155,24 @@ const TRANSACTION_SELECT = `
     transactions.amount as amount,
     transactions.category_id as categoryId,
     categories.name as categoryName,
-    transactions.needs_review as needsReview
+    transactions.needs_review as needsReview,
+    transactions.ignored as ignored
   FROM transactions
   JOIN accounts ON accounts.id = transactions.account_id
   JOIN categories ON categories.id = transactions.category_id
 `;
 
-type TransactionRow = Omit<Transaction, "needsReview"> & { needsReview: number };
+type TransactionRow = Omit<Transaction, "needsReview" | "ignored"> & {
+  needsReview: number;
+  ignored: number;
+};
 
 function toTransaction(row: TransactionRow): Transaction {
-  return { ...row, needsReview: row.needsReview === 1 };
+  return { ...row, needsReview: row.needsReview === 1, ignored: row.ignored === 1 };
+}
+
+export async function setTransactionIgnored(db: SQLiteDatabase, id: number, ignored: boolean) {
+  await db.runAsync("UPDATE transactions SET ignored = ? WHERE id = ?", ignored ? 1 : 0, id);
 }
 
 export async function getTransactions(
@@ -240,23 +255,34 @@ export async function setMerchantCategory(
   );
 }
 
+// Category name treated as "real" income (paychecks, deposits). Any other
+// positive-amount transaction is treated as a refund/credit that nets
+// against its category's expenses instead of counting as separate income --
+// e.g. a $500 purchase with a later $13 return shows as $487 of expenses,
+// not $500 of expenses plus $13 of income.
+const INCOME_CATEGORY_NAME = "Income";
+
 export type IncomeExpenseTotals = { income: number; expenses: number };
 
 export async function getIncomeExpenseTotals(
   db: SQLiteDatabase,
   filters: { accountId?: number; start: string; end: string }
 ): Promise<IncomeExpenseTotals> {
-  const clauses = ["date >= ?", "date <= ?"];
+  const clauses = ["transactions.date >= ?", "transactions.date <= ?", "transactions.ignored = 0"];
   const params: (string | number)[] = [filters.start, filters.end];
   if (filters.accountId !== undefined) {
-    clauses.push("account_id = ?");
+    clauses.push("transactions.account_id = ?");
     params.push(filters.accountId);
   }
   const row = await db.getFirstAsync<{ income: number | null; expenses: number | null }>(
     `SELECT
-       SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as income,
-       SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END) as expenses
-     FROM transactions WHERE ${clauses.join(" AND ")}`,
+       SUM(CASE WHEN categories.name = ? THEN transactions.amount ELSE 0 END) as income,
+       SUM(CASE WHEN categories.name != ? THEN -transactions.amount ELSE 0 END) as expenses
+     FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE ${clauses.join(" AND ")}`,
+    INCOME_CATEGORY_NAME,
+    INCOME_CATEGORY_NAME,
     ...params
   );
   return { income: row?.income ?? 0, expenses: row?.expenses ?? 0 };
@@ -272,13 +298,17 @@ export async function getMonthlyTotals(
 ): Promise<MonthlyTotal[]> {
   const rows = await db.getAllAsync<MonthlyTotal>(
     `SELECT
-       substr(date, 1, 7) as month,
-       SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as income,
-       SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END) as expenses
+       substr(transactions.date, 1, 7) as month,
+       SUM(CASE WHEN categories.name = ? THEN transactions.amount ELSE 0 END) as income,
+       SUM(CASE WHEN categories.name != ? THEN -transactions.amount ELSE 0 END) as expenses
      FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE transactions.ignored = 0
      GROUP BY month
      ORDER BY month DESC
      LIMIT ?`,
+    INCOME_CATEGORY_NAME,
+    INCOME_CATEGORY_NAME,
     months
   );
   return rows.reverse();
@@ -301,10 +331,11 @@ export async function getCategorySummary(
     `SELECT categories.name as categoryName, SUM(-transactions.amount) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.amount < 0
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name != ?
      GROUP BY categories.name
      ORDER BY total DESC`,
-    `${month}%`
+    `${month}%`,
+    INCOME_CATEGORY_NAME
   );
 }
 
@@ -324,6 +355,7 @@ export type DataSnapshot = {
     amount: number;
     categoryName: string;
     needsReview: boolean;
+    ignored: boolean;
   }[];
 };
 
@@ -346,6 +378,7 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     amount: number;
     categoryName: string;
     needsReview: number;
+    ignored: number;
   }>(
     `SELECT
        accounts.name as accountName,
@@ -353,7 +386,8 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
        transactions.merchant as merchant,
        transactions.amount as amount,
        categories.name as categoryName,
-       transactions.needs_review as needsReview
+       transactions.needs_review as needsReview,
+       transactions.ignored as ignored
      FROM transactions
      JOIN accounts ON accounts.id = transactions.account_id
      JOIN categories ON categories.id = transactions.category_id
@@ -366,7 +400,11 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     accounts,
     categories,
     merchantCategoryMap,
-    transactions: transactions.map((t) => ({ ...t, needsReview: t.needsReview === 1 })),
+    transactions: transactions.map((t) => ({
+      ...t,
+      needsReview: t.needsReview === 1,
+      ignored: t.ignored === 1,
+    })),
   };
 }
 
@@ -409,13 +447,14 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     const categoryId = categoryIds.get(t.categoryName);
     if (accountId === undefined || categoryId === undefined) continue;
     await db.runAsync(
-      "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, ?, ?)",
       accountId,
       t.date,
       t.merchant,
       t.amount,
       categoryId,
-      t.needsReview ? 1 : 0
+      t.needsReview ? 1 : 0,
+      t.ignored ? 1 : 0
     );
   }
 }
@@ -430,9 +469,11 @@ export async function getAccountSummary(
     `SELECT accounts.name as accountName, SUM(-transactions.amount) as total
      FROM transactions
      JOIN accounts ON accounts.id = transactions.account_id
-     WHERE transactions.date LIKE ? AND transactions.amount < 0
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name != ?
      GROUP BY accounts.name
      ORDER BY total DESC`,
-    `${month}%`
+    `${month}%`,
+    INCOME_CATEGORY_NAME
   );
 }

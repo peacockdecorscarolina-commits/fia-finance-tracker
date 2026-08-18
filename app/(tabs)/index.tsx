@@ -12,6 +12,7 @@ import {
   getIncomeExpenseTotals,
   getMonthlyTotals,
   getTransactions,
+  setTransactionIgnored,
   type MonthlyTotal,
 } from "../../lib/db";
 import { getPeriodRange, PERIODS, type Period } from "../../lib/period";
@@ -29,17 +30,22 @@ export default function TransactionsScreen() {
   const [totals, setTotals] = useState({ income: 0, expenses: 0 });
   const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotal[]>([]);
 
-  useFocusEffect(
-    useCallback(() => {
-      const { start, end } = getPeriodRange(period);
-      const accountFilter = selectedAccountId === "all" ? undefined : selectedAccountId;
+  const load = useCallback(() => {
+    const { start, end } = getPeriodRange(period);
+    const accountFilter = selectedAccountId === "all" ? undefined : selectedAccountId;
 
-      getAccounts(db).then(setAccounts);
-      getTransactions(db, { accountId: accountFilter }).then(setTransactions);
-      getIncomeExpenseTotals(db, { accountId: accountFilter, start, end }).then(setTotals);
-      getMonthlyTotals(db, CHART_MONTHS).then(setMonthlyTotals);
-    }, [db, selectedAccountId, period])
-  );
+    getAccounts(db).then(setAccounts);
+    getTransactions(db, { accountId: accountFilter }).then(setTransactions);
+    getIncomeExpenseTotals(db, { accountId: accountFilter, start, end }).then(setTotals);
+    getMonthlyTotals(db, CHART_MONTHS).then(setMonthlyTotals);
+  }, [db, selectedAccountId, period]);
+
+  useFocusEffect(load);
+
+  async function handleToggleIgnored(transaction: Transaction) {
+    await setTransactionIgnored(db, transaction.id, !transaction.ignored);
+    load();
+  }
 
   return (
     <Screen>
@@ -95,7 +101,9 @@ export default function TransactionsScreen() {
           ListEmptyComponent={
             <Text style={styles.empty}>No transactions in this period.</Text>
           }
-          renderItem={({ item }) => <TransactionRow transaction={item} />}
+          renderItem={({ item }) => (
+            <TransactionRow transaction={item} onToggleIgnored={handleToggleIgnored} />
+          )}
         />
       </View>
     </Screen>
