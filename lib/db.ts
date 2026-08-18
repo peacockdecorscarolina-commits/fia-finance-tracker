@@ -75,6 +75,15 @@ async function getCategoryIdByName(db: SQLiteDatabase, name: string): Promise<nu
   return fallback!.id;
 }
 
+export async function insertCategory(db: SQLiteDatabase, name: string): Promise<number> {
+  const result = await db.runAsync("INSERT INTO categories (name) VALUES (?)", name);
+  return result.lastInsertRowId;
+}
+
+export async function renameCategory(db: SQLiteDatabase, id: number, name: string) {
+  await db.runAsync("UPDATE categories SET name = ? WHERE id = ?", name, id);
+}
+
 export async function insertAccount(
   db: SQLiteDatabase,
   name: string,

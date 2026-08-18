@@ -150,6 +150,11 @@ export default function SummaryScreen() {
             onPress={() => router.push("/accounts")}
           />
           <QuickAction
+            icon="pricetag-outline"
+            label="Categories"
+            onPress={() => router.push("/categories")}
+          />
+          <QuickAction
             icon="swap-horizontal-outline"
             label="Move"
             onPress={() => router.push("/move-transactions")}
