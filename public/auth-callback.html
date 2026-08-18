@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Signing in…</title>
+  </head>
+  <body>
+    <p>Signing in…</p>
+    <script>
+      // Deliberately a plain static page, not part of the app -- it never
+      // touches SQLite. Landing the OAuth redirect here first (instead of
+      // straight back into the app) gives the original tab's SQLite
+      // connection time to actually be torn down by the browser before the
+      // app reopens the database on the next hop, avoiding a race with
+      // expo-sqlite's OPFS access handle pool.
+      (async function () {
+        var params = new URLSearchParams(window.location.search);
+        var code = params.get("code");
+
+        if (code) {
+          try {
+            var res = await fetch("/api/google-token", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                grant_type: "authorization_code",
+                code: code,
+                redirect_uri: window.location.origin + "/auth-callback.html",
+              }),
+            });
+            var data = await res.json();
+            if (res.ok) {
+              localStorage.setItem(
+                "fia_google_tokens",
+                JSON.stringify({
+                  accessToken: data.access_token,
+                  refreshToken: data.refresh_token || "",
+                  expiresAt: Date.now() + data.expires_in * 1000,
+                })
+              );
+            }
+          } catch (e) {
+            // Ignore -- the app will just show "not signed in" if this failed.
+          }
+        }
+
+        window.location.href = "/sync";
+      })();
+    </script>
+  </body>
+</html>

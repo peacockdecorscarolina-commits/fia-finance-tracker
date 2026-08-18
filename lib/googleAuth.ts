@@ -55,59 +55,25 @@ async function exchangeToken(body: Record<string, string>): Promise<StoredTokens
   };
 }
 
-// Google Identity Services (GIS): loaded once and reused. Its popup only
-// ever shows Google's own consent UI and hands the result back via this JS
-// callback in the current tab -- it never loads our app a second time, so
-// there's no second SQLite connection racing the first one for the same
-// OPFS-backed database file (which is what broke both the popup-via-our-app
-// and full-page-redirect approaches tried before this).
-let gisScriptPromise: Promise<void> | null = null;
-
-function loadGisScript(): Promise<void> {
-  if (gisScriptPromise) return gisScriptPromise;
-  gisScriptPromise = new Promise((resolve, reject) => {
-    if ((window as any).google?.accounts?.oauth2) {
-      resolve();
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Failed to load Google Identity Services"));
-    document.head.appendChild(script);
+// Navigates the whole page to Google's consent screen. The redirect target
+// is public/auth-callback.html -- a plain static page outside the app that
+// completes the token exchange and only then hands off to /sync. See that
+// file for why the extra hop exists (a SQLite OPFS lock race between the
+// old and new page, hit by two earlier approaches: a same-app popup, and a
+// redirect straight back into the app).
+export function signIn(): void {
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: `${window.location.origin}/auth-callback.html`,
+    response_type: "code",
+    scope: SCOPE,
+    // Required to get a refresh_token back, not just a short-lived access
+    // token; prompt=consent ensures one is (re-)issued on every sign-in,
+    // since Google only issues it on a user's first-ever consent otherwise.
+    access_type: "offline",
+    prompt: "consent",
   });
-  return gisScriptPromise;
-}
-
-export async function signIn(): Promise<void> {
-  await loadGisScript();
-
-  const code = await new Promise<string>((resolve, reject) => {
-    const client = (window as any).google.accounts.oauth2.initCodeClient({
-      client_id: GOOGLE_CLIENT_ID,
-      scope: SCOPE,
-      ux_mode: "popup",
-      callback: (response: { code?: string; error?: string }) => {
-        if (response.error || !response.code) {
-          reject(new Error(response.error ?? "Google sign-in was cancelled"));
-          return;
-        }
-        resolve(response.code);
-      },
-    });
-    client.requestCode();
-  });
-
-  // "postmessage" is the literal redirect_uri Google expects for the
-  // JS-SDK popup code flow (not an actual URL) -- see Google's docs for
-  // google.accounts.oauth2.initCodeClient.
-  const tokens = await exchangeToken({
-    grant_type: "authorization_code",
-    code,
-    redirect_uri: "postmessage",
-  });
-  saveTokens(tokens);
+  window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
 // Returns a valid access token, refreshing it first if it's expired.

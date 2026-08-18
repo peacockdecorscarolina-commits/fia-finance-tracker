@@ -19,15 +19,9 @@ export default function SyncScreen() {
     setSignedIn(isSignedIn());
   }, []);
 
-  async function handleSignIn() {
-    setStatus({ kind: "busy", label: "Signing in..." });
-    try {
-      await signIn();
-      setSignedIn(isSignedIn());
-      setStatus({ kind: "idle" });
-    } catch (err) {
-      setStatus({ kind: "error", message: err instanceof Error ? err.message : "Sign-in failed." });
-    }
+  function handleSignIn() {
+    setStatus({ kind: "busy", label: "Redirecting to Google..." });
+    signIn();
   }
 
   function handleSignOut() {
