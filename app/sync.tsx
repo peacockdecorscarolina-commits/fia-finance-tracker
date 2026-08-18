@@ -19,9 +19,9 @@ export default function SyncScreen() {
     setSignedIn(isSignedIn());
   }, []);
 
-  function handleSignIn() {
+  async function handleSignIn() {
     setStatus({ kind: "busy", label: "Redirecting to Google..." });
-    signIn();
+    await signIn(db);
   }
 
   function handleSignOut() {

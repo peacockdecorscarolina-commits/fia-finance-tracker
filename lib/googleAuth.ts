@@ -1,3 +1,5 @@
+import type { SQLiteDatabase } from "expo-sqlite";
+
 // Public identifier -- safe to embed client-side. The matching Client
 // Secret lives only in the Vercel serverless function (api/google-token.js),
 // never in this bundle.
@@ -59,9 +61,21 @@ async function exchangeToken(body: Record<string, string>): Promise<StoredTokens
 // is public/auth-callback.html -- a plain static page outside the app that
 // completes the token exchange and only then hands off to /sync. See that
 // file for why the extra hop exists (a SQLite OPFS lock race between the
-// old and new page, hit by two earlier approaches: a same-app popup, and a
+// old and new page, hit by earlier approaches: a same-app popup, and a
 // redirect straight back into the app).
-export function signIn(): void {
+//
+// Even with that extra hop, the same lock error kept happening -- 100% of
+// the time, even in a brand new private window with zero prior state. That
+// pointed at something other than leftover state: modern Chrome can put a
+// navigated-away-from page into the back/forward cache (bfcache) instead of
+// actually unloading it, which would leave this page's SQLite worker (and
+// its OPFS lock) alive and suspended for as long as the user is on Google's
+// site, still holding the file open when the app tries to reopen it
+// afterward. Registering an `unload` listener is the standard way to opt a
+// page out of bfcache -- browsers won't cache a page that has one, forcing
+// a real teardown instead of a suspend. Combined with explicitly closing
+// the database first, this should leave nothing to race against.
+export async function signIn(db: SQLiteDatabase): Promise<void> {
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: `${window.location.origin}/auth-callback.html`,
@@ -73,6 +87,9 @@ export function signIn(): void {
     access_type: "offline",
     prompt: "consent",
   });
+
+  window.addEventListener("unload", () => {});
+  await db.closeAsync();
   window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
