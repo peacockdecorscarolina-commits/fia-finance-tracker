@@ -5,7 +5,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { AmountText } from "../components/AmountText";
 import { Card } from "../components/Card";
 import { Screen } from "../components/Screen";
-import { getCategories, getNeedsReview, setMerchantCategory } from "../lib/db";
+import { getCategories, getNeedsReview, setMerchantCategory, setTransactionIgnored } from "../lib/db";
 import { colors, radius, spacing } from "../lib/theme";
 import type { Category, Transaction } from "../lib/types";
 
@@ -28,6 +28,11 @@ export default function ReviewScreen() {
     load();
   }
 
+  async function toggleIgnored(item: Transaction) {
+    await setTransactionIgnored(db, item.id, !item.ignored);
+    load();
+  }
+
   return (
     <Screen>
       <View style={styles.container}>
@@ -45,12 +50,13 @@ export default function ReviewScreen() {
           renderItem={({ item }) => {
             const open = openId === item.id;
             return (
-              <Card style={styles.card}>
+              <Card style={item.ignored ? { ...styles.card, ...styles.ignoredCard } : styles.card}>
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.merchant}>{item.merchant}</Text>
                     <Text style={styles.meta}>
                       {item.date} · {item.accountName}
+                      {item.ignored ? " · ignored" : ""}
                     </Text>
                   </View>
                   <AmountText amount={item.amount} size="sm" />
@@ -76,6 +82,11 @@ export default function ReviewScreen() {
                     ))}
                   </View>
                 )}
+                <Pressable onPress={() => toggleIgnored(item)}>
+                  <Text style={styles.ignoreLinkText}>
+                    {item.ignored ? "Include in totals" : "Ignore (don't count toward totals)"}
+                  </Text>
+                </Pressable>
               </Card>
             );
           }}
@@ -90,6 +101,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.md },
   list: { gap: spacing.sm, paddingBottom: spacing.lg },
   card: { gap: spacing.sm },
+  ignoredCard: { opacity: 0.55 },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   merchant: { fontSize: 15, fontWeight: "600", color: colors.textPrimary, marginBottom: 2 },
   meta: { fontSize: 12, color: colors.textSecondary },
@@ -110,5 +122,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   categoryChipText: { color: colors.textPrimary, fontWeight: "600", fontSize: 13 },
+  ignoreLinkText: { fontSize: 12, color: colors.accent, fontWeight: "600" },
   empty: { textAlign: "center", color: colors.textSecondary, marginTop: spacing.lg },
 });

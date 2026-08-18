@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import { Screen } from "../../components/Screen";
 import { TransactionRow } from "../../components/TransactionRow";
-import { getTransactions } from "../../lib/db";
+import { getTransactions, setTransactionIgnored } from "../../lib/db";
 import { monthRange } from "../../lib/period";
 import { colors, spacing } from "../../lib/theme";
 import type { Transaction } from "../../lib/types";
@@ -14,12 +14,17 @@ export default function CategoryDrillDownScreen() {
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
 
-  useFocusEffect(
-    useCallback(() => {
-      const { start, end } = monthRange(month);
-      getTransactions(db, { categoryName: name, start, end }).then(setTransactions);
-    }, [db, name, month])
-  );
+  const load = useCallback(() => {
+    const { start, end } = monthRange(month);
+    getTransactions(db, { categoryName: name, start, end }).then(setTransactions);
+  }, [db, name, month]);
+
+  useFocusEffect(load);
+
+  async function handleToggleIgnored(transaction: Transaction) {
+    await setTransactionIgnored(db, transaction.id, !transaction.ignored);
+    load();
+  }
 
   return (
     <Screen>
@@ -30,7 +35,9 @@ export default function CategoryDrillDownScreen() {
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.list}
           ListEmptyComponent={<Text style={styles.empty}>No transactions in this category.</Text>}
-          renderItem={({ item }) => <TransactionRow transaction={item} />}
+          renderItem={({ item }) => (
+            <TransactionRow transaction={item} onToggleIgnored={handleToggleIgnored} />
+          )}
         />
       </View>
     </Screen>
