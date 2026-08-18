@@ -26,8 +26,7 @@
     "plugins": [
       "expo-router",
       "expo-status-bar",
-      "expo-sqlite",
-      "expo-web-browser"
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

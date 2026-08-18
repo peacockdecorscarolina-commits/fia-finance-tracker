@@ -1,6 +1,3 @@
-import * as AuthSession from "expo-auth-session";
-import type { SQLiteDatabase } from "expo-sqlite";
-
 // Public identifier -- safe to embed client-side. The matching Client
 // Secret lives only in the Vercel serverless function (api/google-token.js),
 // never in this bundle.
@@ -9,15 +6,9 @@ export const GOOGLE_CLIENT_ID =
 
 // Drive's "app data" scope: a hidden folder only this app can see or write
 // to, invisible in the user's regular Drive.
-const SCOPES = ["https://www.googleapis.com/auth/drive.appdata"];
-
-const discovery = {
-  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
-  tokenEndpoint: "https://oauth2.googleapis.com/token",
-};
+const SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 
 const TOKENS_KEY = "fia_google_tokens";
-const PKCE_VERIFIER_KEY = "fia_google_pkce_verifier";
 
 type StoredTokens = {
   accessToken: string;
@@ -47,13 +38,6 @@ export function signOut() {
   localStorage.removeItem(TOKENS_KEY);
 }
 
-// Sending users back to the Sync screen specifically (rather than the bare
-// origin) means the redirect lands them back where they started, instead
-// of on whatever the app's default tab happens to be.
-function redirectUri(): string {
-  return `${window.location.origin}/sync`;
-}
-
 async function exchangeToken(body: Record<string, string>): Promise<StoredTokens> {
   const res = await fetch("/api/google-token", {
     method: "POST",
@@ -71,53 +55,57 @@ async function exchangeToken(body: Record<string, string>): Promise<StoredTokens
   };
 }
 
-// Navigates the whole page to Google's consent screen. Deliberately not a
-// popup: a popup needs `window.opener` to hand control back to the tab that
-// opened it, and this site's Cross-Origin-Opener-Policy: same-origin header
-// (required for SQLite's SharedArrayBuffer usage) severs that reference,
-// which left the popup with no way to signal completion.
-// `db` is closed before navigating away because expo-sqlite's web backend
-// holds an exclusive OPFS access handle on the database file. Without
-// closing it first, the fresh page load after Google's redirect races the
-// still-open handle from the page being left behind and fails with
-// "Access Handles cannot be created if there is another open Access Handle".
-export async function signIn(db: SQLiteDatabase): Promise<void> {
-  const request = new AuthSession.AuthRequest({
-    clientId: GOOGLE_CLIENT_ID,
-    scopes: SCOPES,
-    redirectUri: redirectUri(),
-    responseType: AuthSession.ResponseType.Code,
-    usePKCE: true,
+// Google Identity Services (GIS): loaded once and reused. Its popup only
+// ever shows Google's own consent UI and hands the result back via this JS
+// callback in the current tab -- it never loads our app a second time, so
+// there's no second SQLite connection racing the first one for the same
+// OPFS-backed database file (which is what broke both the popup-via-our-app
+// and full-page-redirect approaches tried before this).
+let gisScriptPromise: Promise<void> | null = null;
+
+function loadGisScript(): Promise<void> {
+  if (gisScriptPromise) return gisScriptPromise;
+  gisScriptPromise = new Promise((resolve, reject) => {
+    if ((window as any).google?.accounts?.oauth2) {
+      resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Google Identity Services"));
+    document.head.appendChild(script);
   });
-  const url = await request.makeAuthUrlAsync(discovery);
-  if (request.codeVerifier) {
-    localStorage.setItem(PKCE_VERIFIER_KEY, request.codeVerifier);
-  }
-  await db.closeAsync();
-  window.location.href = url;
+  return gisScriptPromise;
 }
 
-// Call once at app startup (root layout). If the page just loaded from
-// Google's redirect (a `code` query param is present), completes the token
-// exchange and cleans the code out of the visible URL either way.
-export async function completePendingSignIn(): Promise<void> {
-  if (typeof window === "undefined") return;
+export async function signIn(): Promise<void> {
+  await loadGisScript();
 
-  const url = new URL(window.location.href);
-  const code = url.searchParams.get("code");
-  if (!code) return;
+  const code = await new Promise<string>((resolve, reject) => {
+    const client = (window as any).google.accounts.oauth2.initCodeClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: SCOPE,
+      ux_mode: "popup",
+      callback: (response: { code?: string; error?: string }) => {
+        if (response.error || !response.code) {
+          reject(new Error(response.error ?? "Google sign-in was cancelled"));
+          return;
+        }
+        resolve(response.code);
+      },
+    });
+    client.requestCode();
+  });
 
-  window.history.replaceState({}, "", url.origin + url.pathname);
-
-  const codeVerifier = localStorage.getItem(PKCE_VERIFIER_KEY);
-  localStorage.removeItem(PKCE_VERIFIER_KEY);
-  if (!codeVerifier) return;
-
+  // "postmessage" is the literal redirect_uri Google expects for the
+  // JS-SDK popup code flow (not an actual URL) -- see Google's docs for
+  // google.accounts.oauth2.initCodeClient.
   const tokens = await exchangeToken({
     grant_type: "authorization_code",
     code,
-    code_verifier: codeVerifier,
-    redirect_uri: redirectUri(),
+    redirect_uri: "postmessage",
   });
   saveTokens(tokens);
 }

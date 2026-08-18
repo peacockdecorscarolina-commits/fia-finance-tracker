@@ -5,7 +5,7 @@ import { Card } from "../components/Card";
 import { PillButton } from "../components/PillButton";
 import { Screen } from "../components/Screen";
 import { backupToDrive, restoreFromDrive } from "../lib/googleDrive";
-import { completePendingSignIn, isSignedIn, signIn, signOut } from "../lib/googleAuth";
+import { isSignedIn, signIn, signOut } from "../lib/googleAuth";
 import { colors, spacing } from "../lib/theme";
 
 type Status = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "error"; message: string } | { kind: "done"; message: string };
@@ -16,18 +16,13 @@ export default function SyncScreen() {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   useEffect(() => {
-    // If we just landed here fresh from Google's redirect, this finishes
-    // the sign-in before checking status -- otherwise a leftover ?code=
-    // in the URL is just ignored and isSignedIn() would report false.
-    completePendingSignIn()
-      .catch((err) => setStatus({ kind: "error", message: err instanceof Error ? err.message : "Google sign-in failed." }))
-      .finally(() => setSignedIn(isSignedIn()));
+    setSignedIn(isSignedIn());
   }, []);
 
   async function handleSignIn() {
     setStatus({ kind: "busy", label: "Signing in..." });
     try {
-      await signIn(db);
+      await signIn();
       setSignedIn(isSignedIn());
       setStatus({ kind: "idle" });
     } catch (err) {

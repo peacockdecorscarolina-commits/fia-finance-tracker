@@ -22,13 +22,16 @@ module.exports = async function handler(req, res) {
 
   if (grantType === "authorization_code") {
     const { code, code_verifier: codeVerifier, redirect_uri: redirectUri } = req.body;
-    if (!code || !codeVerifier || !redirectUri) {
-      res.status(400).json({ error: "Missing code, code_verifier, or redirect_uri" });
+    if (!code || !redirectUri) {
+      res.status(400).json({ error: "Missing code or redirect_uri" });
       return;
     }
     params.set("grant_type", "authorization_code");
     params.set("code", code);
-    params.set("code_verifier", codeVerifier);
+    // Google Identity Services' popup-based code flow doesn't use PKCE --
+    // the auth code is already scoped to this confidential client via
+    // client_secret above, so code_verifier is only sent when present.
+    if (codeVerifier) params.set("code_verifier", codeVerifier);
     params.set("redirect_uri", redirectUri);
   } else if (grantType === "refresh_token") {
     const { refresh_token: refreshToken } = req.body;
