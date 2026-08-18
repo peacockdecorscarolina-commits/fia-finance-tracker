@@ -5,7 +5,7 @@ import { Card } from "../components/Card";
 import { PillButton } from "../components/PillButton";
 import { Screen } from "../components/Screen";
 import { backupToDrive, restoreFromDrive } from "../lib/googleDrive";
-import { completePendingAuthSession, isSignedIn, signIn, signOut } from "../lib/googleAuth";
+import { isSignedIn, signIn, signOut } from "../lib/googleAuth";
 import { colors, spacing } from "../lib/theme";
 
 type Status = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "error"; message: string } | { kind: "done"; message: string };
@@ -16,7 +16,6 @@ export default function SyncScreen() {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   useEffect(() => {
-    completePendingAuthSession();
     setSignedIn(isSignedIn());
   }, []);
 
