@@ -149,6 +149,11 @@ export default function SummaryScreen() {
             label="Accounts"
             onPress={() => router.push("/accounts")}
           />
+          <QuickAction
+            icon="swap-horizontal-outline"
+            label="Move"
+            onPress={() => router.push("/move-transactions")}
+          />
           {Platform.OS === "web" && (
             <QuickAction
               icon="cloud-outline"

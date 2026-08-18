@@ -181,6 +181,22 @@ export async function getTransactions(
   return rows.map(toTransaction);
 }
 
+// Reassigns transactions from one account to another within a date range --
+// for fixing a statement that got uploaded/saved under the wrong account.
+export async function moveTransactions(
+  db: SQLiteDatabase,
+  params: { fromAccountId: number; toAccountId: number; start: string; end: string }
+): Promise<number> {
+  const result = await db.runAsync(
+    "UPDATE transactions SET account_id = ? WHERE account_id = ? AND date >= ? AND date <= ?",
+    params.toAccountId,
+    params.fromAccountId,
+    params.start,
+    params.end
+  );
+  return result.changes;
+}
+
 export async function getNeedsReview(db: SQLiteDatabase): Promise<Transaction[]> {
   const rows = await db.getAllAsync<TransactionRow>(
     `${TRANSACTION_SELECT} WHERE transactions.needs_review = 1 ORDER BY transactions.date DESC`

@@ -24,6 +24,9 @@ export default function UploadScreen() {
   const [status, setStatus] = useState<"idle" | "processing" | "preview" | "saved">("idle");
   const [extracted, setExtracted] = useState<ExtractedTransaction[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingSave, setConfirmingSave] = useState(false);
+
+  const selectedAccount = accounts.find((a) => a.id === accountId) ?? null;
 
   useFocusEffect(
     useCallback(() => {
@@ -64,6 +67,7 @@ export default function UploadScreen() {
     setFileName(null);
     setFileUri(null);
     setExtracted([]);
+    setConfirmingSave(false);
   }
 
   function reset() {
@@ -71,6 +75,7 @@ export default function UploadScreen() {
     setFileName(null);
     setFileUri(null);
     setExtracted([]);
+    setConfirmingSave(false);
   }
 
   if (accounts.length === 0) {
@@ -142,7 +147,8 @@ export default function UploadScreen() {
         {status === "preview" && (
           <Card style={styles.card}>
             <Text style={styles.previewTitle}>
-              Found {extracted.length} transactions — review, then save
+              Found {extracted.length} transactions for {selectedAccount?.name ?? "this account"} —
+              review, then save
             </Text>
             {extracted.map((t, i) => (
               <View key={i} style={styles.previewRow}>
@@ -157,10 +163,27 @@ export default function UploadScreen() {
                 <AmountText amount={t.amount} size="sm" />
               </View>
             ))}
-            <View style={styles.previewActions}>
-              <PillButton title="Save to account" onPress={save} />
-              <PillButton title="Cancel" onPress={reset} variant="secondary" />
-            </View>
+            {!confirmingSave ? (
+              <View style={styles.previewActions}>
+                <PillButton title="Save to account" onPress={() => setConfirmingSave(true)} />
+                <PillButton title="Cancel" onPress={reset} variant="secondary" />
+              </View>
+            ) : (
+              <View style={styles.confirmBox}>
+                <Text style={styles.confirmText}>
+                  Save {extracted.length} transaction{extracted.length === 1 ? "" : "s"} to{" "}
+                  <Text style={styles.confirmAccountName}>{selectedAccount?.name ?? "this account"}</Text>?
+                </Text>
+                <View style={styles.previewActions}>
+                  <PillButton title="Yes, save" onPress={save} />
+                  <PillButton
+                    title="No, go back"
+                    onPress={() => setConfirmingSave(false)}
+                    variant="secondary"
+                  />
+                </View>
+              </View>
+            )}
           </Card>
         )}
       </ScrollView>
@@ -212,4 +235,12 @@ const styles = StyleSheet.create({
   previewMeta: { flexDirection: "row", gap: 6, alignItems: "center" },
   previewDate: { fontSize: 12, color: colors.textSecondary, marginRight: 4 },
   previewActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+  confirmBox: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.chip,
+    backgroundColor: colors.accentBg,
+  },
+  confirmText: { fontSize: 14, color: colors.textPrimary, marginBottom: spacing.sm },
+  confirmAccountName: { fontWeight: "700" },
 });
