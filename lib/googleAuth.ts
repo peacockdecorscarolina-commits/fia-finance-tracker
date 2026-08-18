@@ -1,5 +1,4 @@
 import * as AuthSession from "expo-auth-session";
-import * as WebBrowser from "expo-web-browser";
 
 // Public identifier -- safe to embed client-side. The matching Client
 // Secret lives only in the Vercel serverless function (api/google-token.js),
@@ -17,6 +16,7 @@ const discovery = {
 };
 
 const TOKENS_KEY = "fia_google_tokens";
+const PKCE_VERIFIER_KEY = "fia_google_pkce_verifier";
 
 type StoredTokens = {
   accessToken: string;
@@ -46,14 +46,11 @@ export function signOut() {
   localStorage.removeItem(TOKENS_KEY);
 }
 
+// Sending users back to the Sync screen specifically (rather than the bare
+// origin) means the redirect lands them back where they started, instead
+// of on whatever the app's default tab happens to be.
 function redirectUri(): string {
-  return window.location.origin;
-}
-
-// Must be called once, early, so that when this page reloads inside the
-// OAuth popup it can hand results back to the opener window and close.
-export function completePendingAuthSession() {
-  WebBrowser.maybeCompleteAuthSession();
+  return `${window.location.origin}/sync`;
 }
 
 async function exchangeToken(body: Record<string, string>): Promise<StoredTokens> {
@@ -73,8 +70,11 @@ async function exchangeToken(body: Record<string, string>): Promise<StoredTokens
   };
 }
 
-// Opens the Google sign-in popup and completes the token exchange. Call
-// from a button press (needs a user gesture to open the popup reliably).
+// Navigates the whole page to Google's consent screen. Deliberately not a
+// popup: a popup needs `window.opener` to hand control back to the tab that
+// opened it, and this site's Cross-Origin-Opener-Policy: same-origin header
+// (required for SQLite's SharedArrayBuffer usage) severs that reference,
+// which left the popup with no way to signal completion.
 export async function signIn(): Promise<void> {
   const request = new AuthSession.AuthRequest({
     clientId: GOOGLE_CLIENT_ID,
@@ -83,18 +83,33 @@ export async function signIn(): Promise<void> {
     responseType: AuthSession.ResponseType.Code,
     usePKCE: true,
   });
-  await request.makeAuthUrlAsync(discovery);
-  const result = await request.promptAsync(discovery);
-
-  if (result.type !== "success") {
-    if (result.type === "error") throw new Error(result.error?.message ?? "Google sign-in failed");
-    return; // user cancelled
+  const url = await request.makeAuthUrlAsync(discovery);
+  if (request.codeVerifier) {
+    localStorage.setItem(PKCE_VERIFIER_KEY, request.codeVerifier);
   }
+  window.location.href = url;
+}
+
+// Call once at app startup (root layout). If the page just loaded from
+// Google's redirect (a `code` query param is present), completes the token
+// exchange and cleans the code out of the visible URL either way.
+export async function completePendingSignIn(): Promise<void> {
+  if (typeof window === "undefined") return;
+
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("code");
+  if (!code) return;
+
+  window.history.replaceState({}, "", url.origin + url.pathname);
+
+  const codeVerifier = localStorage.getItem(PKCE_VERIFIER_KEY);
+  localStorage.removeItem(PKCE_VERIFIER_KEY);
+  if (!codeVerifier) return;
 
   const tokens = await exchangeToken({
     grant_type: "authorization_code",
-    code: result.params.code,
-    code_verifier: request.codeVerifier ?? "",
+    code,
+    code_verifier: codeVerifier,
     redirect_uri: redirectUri(),
   });
   saveTokens(tokens);
