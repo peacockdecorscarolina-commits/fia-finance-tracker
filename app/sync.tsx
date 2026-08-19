@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -79,13 +80,19 @@ export default function SyncScreen() {
           {status.kind === "error" && <Text style={styles.errorText}>{status.message}</Text>}
           {status.kind === "done" && <Text style={styles.successText}>{status.message}</Text>}
         </Card>
+
+        <PillButton
+          title="Back to Home"
+          onPress={() => router.replace("/")}
+          variant="secondary"
+        />
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md },
+  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.md },
   card: { gap: spacing.sm },
   title: { fontSize: 20, fontWeight: "700", color: colors.textPrimary },
   description: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.sm },
