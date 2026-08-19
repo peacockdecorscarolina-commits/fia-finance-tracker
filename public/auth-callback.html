@@ -3,9 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <title>Signing in…</title>
+    <style>
+      body { font-family: -apple-system, sans-serif; padding: 24px; color: #0F172A; }
+      pre { white-space: pre-wrap; background: #FEE2E2; padding: 12px; border-radius: 8px; }
+      a { color: #3B82F6; }
+    </style>
   </head>
   <body>
-    <p>Signing in…</p>
+    <p id="status">Signing in…</p>
     <script>
       // Deliberately a plain static page, not part of the app -- it never
       // touches SQLite. Landing the OAuth redirect here first (instead of
@@ -14,34 +19,51 @@
       // app reopens the database on the next hop, avoiding a race with
       // expo-sqlite's OPFS access handle pool.
       (async function () {
+        var statusEl = document.getElementById("status");
         var params = new URLSearchParams(window.location.search);
         var code = params.get("code");
+        var oauthError = params.get("error");
 
-        if (code) {
-          try {
-            var res = await fetch("/api/google-token", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                grant_type: "authorization_code",
-                code: code,
-                redirect_uri: window.location.origin + "/auth-callback.html",
-              }),
-            });
-            var data = await res.json();
-            if (res.ok) {
-              localStorage.setItem(
-                "fia_google_tokens",
-                JSON.stringify({
-                  accessToken: data.access_token,
-                  refreshToken: data.refresh_token || "",
-                  expiresAt: Date.now() + data.expires_in * 1000,
-                })
-              );
-            }
-          } catch (e) {
-            // Ignore -- the app will just show "not signed in" if this failed.
+        if (oauthError) {
+          statusEl.textContent = "Google returned an error: " + oauthError;
+          return;
+        }
+        if (!code) {
+          statusEl.textContent = "No authorization code was returned by Google.";
+          return;
+        }
+
+        try {
+          var res = await fetch("/api/google-token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              grant_type: "authorization_code",
+              code: code,
+              redirect_uri: window.location.origin + "/auth-callback.html",
+            }),
+          });
+          var data = await res.json();
+          if (!res.ok) {
+            statusEl.innerHTML =
+              "Sign-in failed (HTTP " + res.status + "):<pre></pre>" +
+              '<p><a href="/sync">Back to Sync</a></p>';
+            document.querySelector("pre").textContent = JSON.stringify(data, null, 2);
+            return;
           }
+          localStorage.setItem(
+            "fia_google_tokens",
+            JSON.stringify({
+              accessToken: data.access_token,
+              refreshToken: data.refresh_token || "",
+              expiresAt: Date.now() + data.expires_in * 1000,
+            })
+          );
+        } catch (e) {
+          statusEl.innerHTML =
+            "Sign-in failed:<pre></pre>" + '<p><a href="/sync">Back to Sync</a></p>';
+          document.querySelector("pre").textContent = String(e);
+          return;
         }
 
         window.location.href = "/sync";
