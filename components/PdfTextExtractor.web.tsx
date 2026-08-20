@@ -65,7 +65,11 @@ export const PdfTextExtractor = forwardRef<PdfTextExtractorHandle, object>((_pro
 
       let doc: Awaited<ReturnType<typeof pdfjsLib.getDocument>["promise"]>;
       try {
-        doc = await pdfjsLib.getDocument({ data }).promise;
+        // We only ever read plain text, never render anything -- disabling
+        // font/glyph loading avoids a meaningful chunk of memory pdf.js would
+        // otherwise spend per page, which matters on a phone-sized tab
+        // running this alongside the app's own SQLite/WASM footprint.
+        doc = await pdfjsLib.getDocument({ data, disableFontFace: true }).promise;
       } catch (err) {
         throw new Error(`Failed to open the PDF: ${describeError(err)}`);
       }
@@ -73,8 +77,9 @@ export const PdfTextExtractor = forwardRef<PdfTextExtractorHandle, object>((_pro
       const pages: string[] = [];
       for (let i = 1; i <= doc.numPages; i++) {
         let items: { str: string; transform: number[] }[];
+        let page: Awaited<ReturnType<typeof doc.getPage>> | null = null;
         try {
-          const page = await doc.getPage(i);
+          page = await doc.getPage(i);
           const content = await page.getTextContent();
           items = content.items as { str: string; transform: number[] }[];
         } catch (err) {
@@ -84,6 +89,10 @@ export const PdfTextExtractor = forwardRef<PdfTextExtractorHandle, object>((_pro
           pages.push(pageItemsToText(items));
         } catch (err) {
           throw new Error(`Failed to process text on page ${i} of the PDF: ${describeError(err)}`);
+        } finally {
+          // Release this page's resources before moving to the next one,
+          // instead of letting them accumulate for the whole document.
+          page?.cleanup();
         }
       }
       return pages.join("\n");
