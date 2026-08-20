@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, spacing } from "../lib/theme";
 import type { MonthlyTotal } from "../lib/db";
 
@@ -27,7 +27,15 @@ function formatAxisLabel(value: number): string {
 
 const CHART_HEIGHT = 120;
 
-export function MonthlyBarChart({ data }: { data: MonthlyTotal[] }) {
+export function MonthlyBarChart({
+  data,
+  selectedMonth,
+  onSelectMonth,
+}: {
+  data: MonthlyTotal[];
+  selectedMonth?: string | null;
+  onSelectMonth?: (month: string) => void;
+}) {
   const rawMax = Math.max(...data.flatMap((d) => [d.income, d.expenses]), 1);
   const axisMax = niceMax(rawMax);
 
@@ -57,7 +65,11 @@ export function MonthlyBarChart({ data }: { data: MonthlyTotal[] }) {
           <View style={styles.plotArea}>
             <View style={styles.barsRow}>
               {data.map((item) => (
-                <View key={item.month} style={styles.monthCol}>
+                <Pressable
+                  key={item.month}
+                  style={[styles.monthCol, selectedMonth === item.month && styles.monthColSelected]}
+                  onPress={onSelectMonth ? () => onSelectMonth(item.month) : undefined}
+                >
                   <View
                     style={[
                       styles.bar,
@@ -76,12 +88,15 @@ export function MonthlyBarChart({ data }: { data: MonthlyTotal[] }) {
                       },
                     ]}
                   />
-                </View>
+                </Pressable>
               ))}
             </View>
             <View style={styles.monthLabelsRow}>
               {data.map((item) => (
-                <Text key={item.month} style={styles.monthLabel}>
+                <Text
+                  key={item.month}
+                  style={[styles.monthLabel, selectedMonth === item.month && styles.monthLabelSelected]}
+                >
                   {formatMonthShort(item.month)}
                 </Text>
               ))}
@@ -113,9 +128,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     height: CHART_HEIGHT,
   },
-  monthCol: { alignItems: "center", flexDirection: "row", gap: 3, flex: 1, justifyContent: "center" },
+  monthCol: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 3,
+    flex: 1,
+    justifyContent: "center",
+    height: CHART_HEIGHT,
+    borderRadius: 6,
+  },
+  monthColSelected: { backgroundColor: colors.statBg },
   bar: { width: 8, borderRadius: 4 },
   monthLabelsRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
   monthLabel: { fontSize: 11, color: colors.textSecondary, fontWeight: "600", flex: 1, textAlign: "center" },
+  monthLabelSelected: { color: colors.textPrimary, fontWeight: "700" },
   empty: { textAlign: "center", color: colors.textSecondary, paddingVertical: spacing.lg },
 });

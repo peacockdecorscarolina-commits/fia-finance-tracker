@@ -17,11 +17,16 @@ import {
   setTransactionIgnored,
   type MonthlyTotal,
 } from "../../lib/db";
-import { getPeriodRange, PERIODS, type Period } from "../../lib/period";
+import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/period";
 import { colors, radius, spacing, tabBarClearance } from "../../lib/theme";
 import type { Account, Category, Transaction } from "../../lib/types";
 
 const CHART_MONTHS = 6;
+
+function formatMonthLabel(month: string): string {
+  const [year, m] = month.split("-").map(Number);
+  return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
 
 export default function TransactionsScreen() {
   const db = useSQLiteContext();
@@ -32,17 +37,23 @@ export default function TransactionsScreen() {
   const [totals, setTotals] = useState({ income: 0, expenses: 0, payments: 0 });
   const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
   const load = useCallback(() => {
     const { start, end } = getPeriodRange(period);
     const accountFilter = selectedAccountId === "all" ? undefined : selectedAccountId;
+    const transactionRange = selectedMonth ? monthRange(selectedMonth) : undefined;
 
     getAccounts(db).then(setAccounts);
-    getTransactions(db, { accountId: accountFilter }).then(setTransactions);
+    getTransactions(db, {
+      accountId: accountFilter,
+      start: transactionRange?.start,
+      end: transactionRange?.end,
+    }).then(setTransactions);
     getIncomeExpenseTotals(db, { accountId: accountFilter, start, end }).then(setTotals);
     getMonthlyTotals(db, CHART_MONTHS).then(setMonthlyTotals);
     getCategories(db).then(setCategories);
-  }, [db, selectedAccountId, period]);
+  }, [db, selectedAccountId, period, selectedMonth]);
 
   useFocusEffect(load);
 
@@ -81,10 +92,23 @@ export default function TransactionsScreen() {
         </View>
 
         <Card style={styles.chartCard}>
-          <MonthlyBarChart data={monthlyTotals} />
+          <MonthlyBarChart
+            data={monthlyTotals}
+            selectedMonth={selectedMonth}
+            onSelectMonth={(month) => setSelectedMonth((current) => (current === month ? null : month))}
+          />
         </Card>
 
-        <Text style={styles.sectionTitle}>Transactions</Text>
+        <View style={styles.sectionTitleRow}>
+          <Text style={styles.sectionTitle}>
+            {selectedMonth ? `Spent in ${formatMonthLabel(selectedMonth)}` : "Transactions"}
+          </Text>
+          {selectedMonth && (
+            <Pressable onPress={() => setSelectedMonth(null)}>
+              <Text style={styles.clearLink}>Show all</Text>
+            </Pressable>
+          )}
+        </View>
 
         <ScrollView
           horizontal
@@ -143,12 +167,18 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: "600", marginBottom: 4 },
   statValue: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   chartCard: { marginBottom: spacing.md },
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: colors.textPrimary,
-    marginBottom: spacing.sm,
   },
+  clearLink: { fontSize: 13, color: colors.accent, fontWeight: "600" },
   filterScroll: { flexGrow: 0, marginBottom: spacing.md },
   filterRow: { gap: spacing.sm },
   filterChip: {
