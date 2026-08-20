@@ -261,8 +261,12 @@ export async function setMerchantCategory(
 // e.g. a $500 purchase with a later $13 return shows as $487 of expenses,
 // not $500 of expenses plus $13 of income.
 const INCOME_CATEGORY_NAME = "Income";
+// Category name treated as a card/debt payment -- fully separate from both
+// Income and Expenses (like a transfer, not spending or earning), with its
+// own visible monthly total instead.
+const PAYMENT_CATEGORY_NAME = "Payment";
 
-export type IncomeExpenseTotals = { income: number; expenses: number };
+export type IncomeExpenseTotals = { income: number; expenses: number; payments: number };
 
 export async function getIncomeExpenseTotals(
   db: SQLiteDatabase,
@@ -274,18 +278,25 @@ export async function getIncomeExpenseTotals(
     clauses.push("transactions.account_id = ?");
     params.push(filters.accountId);
   }
-  const row = await db.getFirstAsync<{ income: number | null; expenses: number | null }>(
+  const row = await db.getFirstAsync<{
+    income: number | null;
+    expenses: number | null;
+    payments: number | null;
+  }>(
     `SELECT
        SUM(CASE WHEN categories.name = ? THEN transactions.amount ELSE 0 END) as income,
-       SUM(CASE WHEN categories.name != ? THEN -transactions.amount ELSE 0 END) as expenses
+       SUM(CASE WHEN categories.name NOT IN (?, ?) THEN -transactions.amount ELSE 0 END) as expenses,
+       SUM(CASE WHEN categories.name = ? THEN transactions.amount ELSE 0 END) as payments
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE ${clauses.join(" AND ")}`,
     INCOME_CATEGORY_NAME,
     INCOME_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME,
     ...params
   );
-  return { income: row?.income ?? 0, expenses: row?.expenses ?? 0 };
+  return { income: row?.income ?? 0, expenses: row?.expenses ?? 0, payments: row?.payments ?? 0 };
 }
 
 export type MonthlyTotal = { month: string; income: number; expenses: number };
@@ -300,7 +311,7 @@ export async function getMonthlyTotals(
     `SELECT
        substr(transactions.date, 1, 7) as month,
        SUM(CASE WHEN categories.name = ? THEN transactions.amount ELSE 0 END) as income,
-       SUM(CASE WHEN categories.name != ? THEN -transactions.amount ELSE 0 END) as expenses
+       SUM(CASE WHEN categories.name NOT IN (?, ?) THEN -transactions.amount ELSE 0 END) as expenses
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0
@@ -309,6 +320,7 @@ export async function getMonthlyTotals(
      LIMIT ?`,
     INCOME_CATEGORY_NAME,
     INCOME_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME,
     months
   );
   return rows.reverse();
@@ -331,12 +343,28 @@ export async function getCategorySummary(
     `SELECT categories.name as categoryName, SUM(-transactions.amount) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name != ?
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name NOT IN (?, ?)
      GROUP BY categories.name
      ORDER BY total DESC`,
     `${month}%`,
-    INCOME_CATEGORY_NAME
+    INCOME_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME
   );
+}
+
+// Total paid toward cards/debt (the Payment category) for a given month --
+// shown as its own figure since Payment is excluded from both Income and
+// Expenses (see getIncomeExpenseTotals).
+export async function getPaymentTotal(db: SQLiteDatabase, month: string): Promise<number> {
+  const row = await db.getFirstAsync<{ total: number | null }>(
+    `SELECT SUM(transactions.amount) as total
+     FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name = ?`,
+    `${month}%`,
+    PAYMENT_CATEGORY_NAME
+  );
+  return row?.total ?? 0;
 }
 
 // Full snapshot of user data for backup/restore (e.g. syncing to Google
@@ -470,10 +498,11 @@ export async function getAccountSummary(
      FROM transactions
      JOIN accounts ON accounts.id = transactions.account_id
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name != ?
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name NOT IN (?, ?)
      GROUP BY accounts.name
      ORDER BY total DESC`,
     `${month}%`,
-    INCOME_CATEGORY_NAME
+    INCOME_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME
   );
 }

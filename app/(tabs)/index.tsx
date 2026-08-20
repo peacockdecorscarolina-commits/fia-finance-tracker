@@ -29,7 +29,7 @@ export default function TransactionsScreen() {
   const [selectedAccountId, setSelectedAccountId] = useState<number | "all">("all");
   const [period, setPeriod] = useState<Period>("Month");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [totals, setTotals] = useState({ income: 0, expenses: 0 });
+  const [totals, setTotals] = useState({ income: 0, expenses: 0, payments: 0 });
   const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
 
@@ -72,6 +72,12 @@ export default function TransactionsScreen() {
             <Text style={styles.statLabel}>Income</Text>
             <Text style={styles.statValue}>${totals.income.toFixed(2)}</Text>
           </View>
+          {totals.payments !== 0 && (
+            <View style={styles.statBox}>
+              <Text style={styles.statLabel}>Payments</Text>
+              <Text style={styles.statValue}>${totals.payments.toFixed(2)}</Text>
+            </View>
+          )}
         </View>
 
         <Card style={styles.chartCard}>
