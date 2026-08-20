@@ -194,7 +194,7 @@ export async function getTransactions(
     params.push(filters.end);
   }
   if (filters?.categoryName) {
-    clauses.push("categories.name = ?");
+    clauses.push("LOWER(categories.name) = LOWER(?)");
     params.push(filters.categoryName);
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";

@@ -177,10 +177,14 @@ export default function SummaryScreen() {
         </Card>
 
         {paymentTotal !== 0 && (
-          <Card style={styles.totalCard}>
-            <Text style={styles.totalLabel}>Total paid</Text>
-            <Text style={styles.totalValue}>${paymentTotal.toFixed(2)}</Text>
-          </Card>
+          <Pressable
+            onPress={() => router.push({ pathname: "/category/[name]", params: { name: "Payment", month } })}
+          >
+            <Card style={styles.totalCard}>
+              <Text style={styles.totalLabel}>Total paid</Text>
+              <Text style={styles.totalValue}>${paymentTotal.toFixed(2)}</Text>
+            </Card>
+          </Pressable>
         )}
 
         <Breakdown
