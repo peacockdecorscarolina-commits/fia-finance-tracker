@@ -1,3 +1,4 @@
+import "../lib/polyfillIterator.web";
 import * as pdfjsLib from "pdfjs-dist";
 import { forwardRef, useImperativeHandle } from "react";
 
