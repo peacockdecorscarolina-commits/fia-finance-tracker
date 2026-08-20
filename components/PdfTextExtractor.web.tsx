@@ -1,9 +1,12 @@
 import * as pdfjsLib from "pdfjs-dist";
 import { forwardRef, useImperativeHandle } from "react";
 
-// Pinned to match the version installed in package.json.
-const PDFJS_VERSION = "6.2.108";
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+// Served from our own origin (public/pdf.worker.min.mjs, copied from
+// node_modules/pdfjs-dist/build) rather than a CDN. Safari is stricter than
+// Chrome about loading Worker scripts cross-origin and can fail silently or
+// throw deep inside pdf.js's fallback path when it can't -- same-origin
+// avoids the whole problem, on every browser.
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
 export type PdfTextExtractorHandle = {
   extractText: (uri: string) => Promise<string>;
