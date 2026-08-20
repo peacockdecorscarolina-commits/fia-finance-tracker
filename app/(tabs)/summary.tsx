@@ -10,6 +10,7 @@ import {
   getCategorySummary,
   getLatestTransactionMonth,
   getNeedsReviewCount,
+  getPaymentTotal,
 } from "../../lib/db";
 import { colors, radius, spacing, tabBarClearance } from "../../lib/theme";
 
@@ -101,6 +102,7 @@ export default function SummaryScreen() {
   const [categoryTotals, setCategoryTotals] = useState<BreakdownItem[]>([]);
   const [accountTotals, setAccountTotals] = useState<BreakdownItem[]>([]);
   const [reviewCount, setReviewCount] = useState(0);
+  const [paymentTotal, setPaymentTotal] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -115,6 +117,7 @@ export default function SummaryScreen() {
       getAccountSummary(db, month).then((rows) =>
         setAccountTotals(rows.map((r) => ({ name: r.accountName, total: r.total })))
       );
+      getPaymentTotal(db, month).then(setPaymentTotal);
     }, [db, month])
   );
 
@@ -172,6 +175,13 @@ export default function SummaryScreen() {
           <Text style={styles.totalLabel}>Total spent</Text>
           <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
         </Card>
+
+        {paymentTotal !== 0 && (
+          <Card style={styles.totalCard}>
+            <Text style={styles.totalLabel}>Total paid</Text>
+            <Text style={styles.totalValue}>${paymentTotal.toFixed(2)}</Text>
+          </Card>
+        )}
 
         <Breakdown
           title="By card"
