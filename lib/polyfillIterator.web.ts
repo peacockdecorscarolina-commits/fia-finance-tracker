@@ -7,9 +7,20 @@
 // before any of our own code even runs. A bare-minimum stub here -- imported
 // before pdfjs-dist -- lets those guarded checks resolve safely instead;
 // core-js's own polyfill logic fills in the actual methods from there.
+//
+// Critically, the stub's prototype needs a working `[Symbol.iterator]`
+// method (returning `this`, the standard pattern) -- pdf.js has classes
+// that `extends Iterator` specifically to inherit iterability from it, and
+// without this, `for...of` over an instance of one of those classes fails
+// with "undefined is not a function" instead (a first version of this
+// polyfill missed this and produced exactly that new failure).
 if (typeof (globalThis as any).Iterator === "undefined") {
   (globalThis as any).Iterator = function Iterator() {};
-  (globalThis as any).Iterator.prototype = {};
+  (globalThis as any).Iterator.prototype = {
+    [Symbol.iterator]() {
+      return this;
+    },
+  };
 }
 
 export {};

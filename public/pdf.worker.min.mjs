@@ -1,4 +1,4 @@
-if(typeof globalThis.Iterator==="undefined"){globalThis.Iterator=function Iterator(){};globalThis.Iterator.prototype={};}
+if(typeof globalThis.Iterator==="undefined"){globalThis.Iterator=function Iterator(){};globalThis.Iterator.prototype={};globalThis.Iterator.prototype[Symbol.iterator]=function(){return this;};}
 
 /**
  * @licstart The following is the entire license notice for the
