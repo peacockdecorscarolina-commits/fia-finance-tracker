@@ -127,6 +127,8 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "space-between",
     height: CHART_HEIGHT,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   monthCol: {
     alignItems: "center",
