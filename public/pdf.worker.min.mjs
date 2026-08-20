@@ -1,3 +1,5 @@
+if(typeof globalThis.Iterator==="undefined"){globalThis.Iterator=function Iterator(){};globalThis.Iterator.prototype={};}
+
 /**
  * @licstart The following is the entire license notice for the
  * JavaScript code in this page
