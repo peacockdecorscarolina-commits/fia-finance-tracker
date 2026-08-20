@@ -21,7 +21,7 @@ import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/peri
 import { colors, radius, spacing, tabBarClearance } from "../../lib/theme";
 import type { Account, Category, Transaction } from "../../lib/types";
 
-const CHART_MONTHS = 6;
+const CHART_MONTHS = 12;
 
 function formatMonthLabel(month: string): string {
   const [year, m] = month.split("-").map(Number);
