@@ -5,17 +5,17 @@ const MONTHS: Record<string, number> = {
   jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
 };
 
-// Matches lines like: "07/02/2026    TRADER JOES #421    -$54.32 CR"
-const SLASH_LINE_PATTERN =
-  /^(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(.+?)\s+([+-]?)\s*\$([\d,]+\.\d{2})\s*(CR)?\s*$/i;
+// A line starting with either a slash date ("07/24/26", optionally followed
+// by "*" marking a posting date) or a named-month date ("Jun 13, 2026" or
+// "Nov 19", year optional). Captures whichever alternative matched plus the
+// rest of the line after the date.
+const DATE_START =
+  /^(?:(\d{1,2}\/\d{1,2}\/\d{2,4})\*?|([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?)[\s,]*(.*)$/;
 
-// A line starting with a named date, e.g. "Jun 13, 2026" or "Nov 19"
-// (year optional -- some issuers omit it and rely on the statement's
-// billing-cycle line instead). Captures the rest of the line after the date.
-const NAMED_DATE_START = /^([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?\b[\s,]*(.*)$/;
-
-// A trailing "± $amount [CR]" anywhere at the end of a line.
-const TRAILING_AMOUNT = /([+-]?)\s*\$([\d,]+\.\d{2})\s*(CR)?\s*$/i;
+// A trailing "± $amount [CR]" at the end of a line, optionally followed by a
+// marker symbol some issuers print after Pay-Over-Time-eligible amounts
+// (e.g. "$89.80   ⧫").
+const TRAILING_AMOUNT = /([+-]?)\s*\$([\d,]+\.\d{2})\s*(CR)?\s*[⧫*]*\s*$/i;
 
 // Named-date statements sometimes print "Mon D" with no year, so infer one
 // from a "Mon D, YYYY" date printed elsewhere on the statement (e.g. the
@@ -31,20 +31,14 @@ function normalizeSlashDate(raw: string): string {
   return `${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-function parseAmount(
-  sign: string,
-  digits: string,
-  hasCreditMarker: boolean,
-  merchant: string,
-  minusMeansCredit: boolean
-): number {
+// Real statement issuers (Capital One, Bilt, Amex, seen so far) all print
+// credits/payments/refunds with a bare "-" sign, opposite of what you might
+// assume -- so a bare "-" means credit here, not charge.
+function parseAmount(sign: string, digits: string, hasCreditMarker: boolean, merchant: string): number {
   const isExplicitCredit =
-    hasCreditMarker ||
-    sign === "+" ||
-    (sign === "-" && minusMeansCredit) ||
-    /refund|credit|payment|pymt|return/i.test(merchant);
+    hasCreditMarker || sign === "+" || sign === "-" || /refund|credit|payment|pymt|return/i.test(merchant);
   const value = Number(digits.replace(/,/g, ""));
-  // No explicit sign, and not recognized as a credit/payment/refund: most
+  // No sign at all, and not recognized as a credit/payment/refund: most
   // statement line items are charges.
   return isExplicitCredit ? value : -value;
 }
@@ -62,24 +56,53 @@ function matchTrailingAmount(
   };
 }
 
-// Marks a transaction table's header row, e.g. "Date   Description   Amount"
-// or "Trans Date   Post Date   Description   Amount".
-const TABLE_HEADER = /\bDate\b.*\bDescription\b.*\bAmount\b/i;
+function extractDate(
+  match: RegExpMatchArray,
+  fallbackYear: number
+): { date: string; rest: string } | null {
+  const [, slashDate, month, day, year, rest] = match;
+  if (slashDate) {
+    return { date: normalizeSlashDate(slashDate), rest: rest.trim() };
+  }
+  if (month) {
+    const monthNum = MONTHS[month.toLowerCase()];
+    if (!monthNum) return null;
+    const y = year ? Number(year) : fallbackYear;
+    return {
+      date: `${y}-${String(monthNum).padStart(2, "0")}-${String(Number(day)).padStart(2, "0")}`,
+      rest: rest.trim(),
+    };
+  }
+  return null;
+}
+
+// Marks a transaction table's header row -- either the usual
+// "Date   Description   Amount" (or "Trans Date   Post Date   Description
+// Amount"), or a bare "Amount" / "<TableWord> Amount" line some issuers use
+// instead (e.g. "Payments   Amount"). Deliberately narrow on the second
+// form: a generic "ends with Amount" match also fires on value labels like
+// "AutoPay Amount" (a dollar figure's label, not a table header) elsewhere
+// on the statement, opening a false scope over unrelated boilerplate text.
+const TABLE_HEADER =
+  /\bDate\b.*\bDescription\b.*\bAmount\b|^Amount$|^(?:Payments?|Charges?|Fees?|Interest|Credits?)\s+Amount$/i;
 // Marks the end of a table, e.g. "Total payments and credits in this period".
 const TABLE_TOTAL = /^Total\b/i;
 // Safety valve: a real transaction's description never spans this many
 // lines. Without this, one misread date elsewhere in the statement could
-// swallow everything up to the next dollar amount, however far away.
-const MAX_PENDING_LINES = 4;
+// swallow everything up to the next dollar amount, however far away. Some
+// issuers (Amex) wrap a single transaction across 7+ lines (flight
+// itinerary details, ticket numbers, passenger names), so this needs
+// meaningful headroom above a typical 1-2 line address block.
+const MAX_PENDING_LINES = 10;
 
-// Named-date statements aren't reliably one transaction per line: some
-// issuers (e.g. Bilt) wrap a merchant's address across several lines, with
-// the dollar amount landing on its own line afterward. So instead of a
+// Statements aren't reliably one transaction per line: some issuers (Bilt,
+// Amex) wrap a merchant's address/details across several lines, with the
+// dollar amount landing on its own line afterward. So instead of a
 // single-line regex, this walks lines as a small state machine, but only
 // between a table header and its closing "Total..." line -- otherwise
 // incidental dates elsewhere on the statement (a due date, a footer's
 // billing-cycle range) get misread as transactions.
-function parseNamedDateTransactions(text: string, fallbackYear: number): ExtractedTransaction[] {
+function parseTransactions(text: string, fallbackYear: number): ExtractedTransaction[] {
   const transactions: ExtractedTransaction[] = [];
   let pending: { date: string; parts: string[] } | null = null;
   let inTable = false;
@@ -92,10 +115,7 @@ function parseNamedDateTransactions(text: string, fallbackYear: number): Extract
     transactions.push({
       date,
       merchant,
-      // Named-date statements (Capital One, Bilt) print every credit/payment
-      // in their tables with a leading "-", opposite of the slash-date
-      // convention below -- so here a bare "-" means credit, not charge.
-      amount: parseAmount(amount.sign, amount.digits, amount.hasCreditMarker, merchant, true),
+      amount: parseAmount(amount.sign, amount.digits, amount.hasCreditMarker, merchant),
       // No AI guess available in the free/on-device path — everything new
       // starts as "Other" + needsReview, resolved once via the Review
       // screen's merchant memory, then automatic for that merchant forever.
@@ -124,21 +144,20 @@ function parseNamedDateTransactions(text: string, fallbackYear: number): Extract
       pending = null;
     }
 
-    const dateMatch = line.match(NAMED_DATE_START);
-    const month = dateMatch ? MONTHS[dateMatch[1].toLowerCase()] : undefined;
+    const dateMatch = line.match(DATE_START);
+    const dateInfo = dateMatch ? extractDate(dateMatch, fallbackYear) : null;
 
-    if (dateMatch && month) {
+    if (dateInfo) {
       pending = null; // an unfinished prior transaction never found its amount; drop it
-      const day = Number(dateMatch[2]);
-      const year = dateMatch[3] ? Number(dateMatch[3]) : fallbackYear;
-      const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const { date } = dateInfo;
+      let rest = dateInfo.rest;
 
-      let rest = dateMatch[4].trim();
       // Drop an optional second "post date" column some issuers add, e.g.
       // "Nov 19   Nov 19   CAPITAL ONE MOBILE PYMT   - $450.00".
-      const postDateMatch = rest.match(NAMED_DATE_START);
-      if (postDateMatch && MONTHS[postDateMatch[1].toLowerCase()]) {
-        rest = postDateMatch[4].trim();
+      const postDateMatch = rest.match(DATE_START);
+      const postDateInfo = postDateMatch ? extractDate(postDateMatch, fallbackYear) : null;
+      if (postDateInfo) {
+        rest = postDateInfo.rest;
       }
 
       const amount = rest ? matchTrailingAmount(rest) : null;
@@ -165,34 +184,5 @@ function parseNamedDateTransactions(text: string, fallbackYear: number): Extract
 }
 
 export function parseStatement(text: string): ExtractedTransaction[] {
-  const transactions: ExtractedTransaction[] = [];
-  const matchedLines = new Set<string>();
-
-  for (const rawLine of text.split("\n")) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const slashMatch = line.match(SLASH_LINE_PATTERN);
-    if (!slashMatch) continue;
-
-    const [, dateRaw, merchantRaw, sign, digits, creditMarker] = slashMatch;
-    const merchant = merchantRaw.replace(/\s+/g, " ").trim();
-    transactions.push({
-      date: normalizeSlashDate(dateRaw),
-      merchant,
-      amount: parseAmount(sign, digits, !!creditMarker, merchant, false),
-      category: "Other",
-      needsReview: true,
-    });
-    matchedLines.add(rawLine);
-  }
-
-  // Run the named-date parser over whatever the slash-date pass didn't
-  // already claim, so the two formats can coexist in one document.
-  const remainingText = text
-    .split("\n")
-    .map((line) => (matchedLines.has(line) ? "" : line))
-    .join("\n");
-  transactions.push(...parseNamedDateTransactions(remainingText, findStatementYear(text)));
-
-  return transactions;
+  return parseTransactions(text, findStatementYear(text));
 }
