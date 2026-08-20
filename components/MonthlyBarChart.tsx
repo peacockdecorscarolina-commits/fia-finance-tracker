@@ -7,18 +7,31 @@ function formatMonthShort(month: string): string {
   return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
 }
 
-// Rounds up to a "clean" axis ceiling (1, 2, or 5 times a power of ten) so
-// the axis reads e.g. "0k / 1k / 2k" instead of an arbitrary raw max.
-function niceMax(value: number): number {
-  if (value <= 0) return 1;
-  const magnitude = 10 ** Math.floor(Math.log10(value));
+// Picks a "clean" tick spacing (1, 2, or 5 times a power of ten) so the
+// axis reads e.g. "0k / 1k / 2k / 3k" with round numbers, aiming for
+// roughly 4-5 gridlines.
+function niceStep(rawMax: number): number {
+  if (rawMax <= 0) return 1;
+  const roughStep = rawMax / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep));
   const steps = [1, 2, 5, 10];
-  const step = steps.find((s) => value <= s * magnitude) ?? 10;
+  const step = steps.find((s) => roughStep <= s * magnitude) ?? 10;
   return step * magnitude;
 }
 
-function formatAxisLabel(value: number): string {
-  if (value >= 1000) {
+// Builds the tick values from 0 up to (and including) a ceiling that's a
+// whole number of steps above the raw max, so the top gridline is never
+// below the tallest bar.
+function buildTicks(rawMax: number): number[] {
+  const step = niceStep(rawMax);
+  const topTick = Math.ceil(rawMax / step) * step;
+  const ticks: number[] = [];
+  for (let v = 0; v <= topTick; v += step) ticks.push(v);
+  return ticks;
+}
+
+function formatAxisLabel(value: number, useK: boolean): string {
+  if (useK) {
     const thousands = value / 1000;
     return `${thousands % 1 === 0 ? thousands : thousands.toFixed(1)}k`;
   }
@@ -37,7 +50,8 @@ export function MonthlyBarChart({
   onSelectMonth?: (month: string) => void;
 }) {
   const rawMax = Math.max(...data.flatMap((d) => [d.income, d.expenses]), 1);
-  const axisMax = niceMax(rawMax);
+  const ticks = buildTicks(rawMax);
+  const axisMax = ticks[ticks.length - 1];
 
   return (
     <View>
@@ -57,9 +71,11 @@ export function MonthlyBarChart({
       ) : (
         <View style={styles.chartWithAxis}>
           <View style={styles.axisColumn}>
-            <Text style={styles.axisLabel}>{formatAxisLabel(axisMax)}</Text>
-            <Text style={styles.axisLabel}>{formatAxisLabel(axisMax / 2)}</Text>
-            <Text style={styles.axisLabel}>{formatAxisLabel(0)}</Text>
+            {[...ticks].reverse().map((tick) => (
+              <Text key={tick} style={styles.axisLabel}>
+                {formatAxisLabel(tick, axisMax >= 1000)}
+              </Text>
+            ))}
           </View>
 
           <View style={styles.plotArea}>
@@ -131,7 +147,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   monthCol: {
-    alignItems: "center",
+    alignItems: "flex-end",
     flexDirection: "row",
     gap: 3,
     flex: 1,
