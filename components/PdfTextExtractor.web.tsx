@@ -12,17 +12,30 @@ export type PdfTextExtractorHandle = {
   extractText: (uri: string) => Promise<string>;
 };
 
+function describeError(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  return String(err);
+}
+
 // pdf.js returns a flat list of text fragments positioned by x/y, not
 // grouped into lines. Group fragments into lines by y-coordinate so that
 // each visual line of the statement becomes one line of text — parseStatement
 // matches one transaction per line, so without this every page collapses
 // into a single unparseable line.
 function pageItemsToText(items: { str: string; transform: number[] }[]): string {
+  if (!Array.isArray(items)) {
+    throw new Error(`Expected an array of text items, got ${Object.prototype.toString.call(items)}`);
+  }
+
   const lines: string[] = [];
   let currentLine = "";
   let lastY: number | null = null;
 
   for (const item of items) {
+    // getTextContent() can mix in TextMarkedContent entries (tagging
+    // boundaries with no str/transform) alongside real TextItems; skip
+    // anything that isn't a real text fragment rather than crashing on it.
+    if (!item || typeof item.str !== "string" || !Array.isArray(item.transform)) continue;
     const y = item.transform[5];
     if (lastY !== null && Math.abs(y - lastY) > 2) {
       lines.push(currentLine);
@@ -42,14 +55,36 @@ function pageItemsToText(items: { str: string; transform: number[] }[]): string 
 export const PdfTextExtractor = forwardRef<PdfTextExtractorHandle, object>((_props, ref) => {
   useImperativeHandle(ref, () => ({
     extractText: async (uri: string) => {
-      const response = await fetch(uri);
-      const data = new Uint8Array(await response.arrayBuffer());
-      const doc = await pdfjsLib.getDocument({ data }).promise;
+      let data: Uint8Array;
+      try {
+        const response = await fetch(uri);
+        data = new Uint8Array(await response.arrayBuffer());
+      } catch (err) {
+        throw new Error(`Failed to read the selected file: ${describeError(err)}`);
+      }
+
+      let doc: Awaited<ReturnType<typeof pdfjsLib.getDocument>["promise"]>;
+      try {
+        doc = await pdfjsLib.getDocument({ data }).promise;
+      } catch (err) {
+        throw new Error(`Failed to open the PDF: ${describeError(err)}`);
+      }
+
       const pages: string[] = [];
       for (let i = 1; i <= doc.numPages; i++) {
-        const page = await doc.getPage(i);
-        const content = await page.getTextContent();
-        pages.push(pageItemsToText(content.items as { str: string; transform: number[] }[]));
+        let items: { str: string; transform: number[] }[];
+        try {
+          const page = await doc.getPage(i);
+          const content = await page.getTextContent();
+          items = content.items as { str: string; transform: number[] }[];
+        } catch (err) {
+          throw new Error(`Failed to read page ${i} of the PDF: ${describeError(err)}`);
+        }
+        try {
+          pages.push(pageItemsToText(items));
+        } catch (err) {
+          throw new Error(`Failed to process text on page ${i} of the PDF: ${describeError(err)}`);
+        }
       }
       return pages.join("\n");
     },
