@@ -108,6 +108,20 @@ module.exports = async function handler(req, res) {
 
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+
+    // pdf.js's own Node.js "fake worker" setup dynamically imports its
+    // worker script via a runtime string path (GlobalWorkerOptions.workerSrc),
+    // which Vercel's serverless bundler can't statically trace -- so that
+    // file doesn't get included in the deployed function, and setup fails
+    // with "Cannot find module .../pdf.worker.mjs". Importing it here
+    // instead, as a literal (traceable) dynamic import, and handing it to
+    // pdf.js directly via the same global it already checks first sidesteps
+    // that lookup entirely.
+    if (!globalThis.pdfjsWorker) {
+      const pdfjsWorkerModule = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+      globalThis.pdfjsWorker = { WorkerMessageHandler: pdfjsWorkerModule.WorkerMessageHandler };
+    }
+
     const data = new Uint8Array(Buffer.from(pdfBase64, "base64"));
     const doc = await pdfjsLib.getDocument({
       data,
