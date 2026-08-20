@@ -284,9 +284,9 @@ export async function getIncomeExpenseTotals(
     payments: number | null;
   }>(
     `SELECT
-       SUM(CASE WHEN categories.name = ? THEN transactions.amount ELSE 0 END) as income,
-       SUM(CASE WHEN categories.name NOT IN (?, ?) THEN -transactions.amount ELSE 0 END) as expenses,
-       SUM(CASE WHEN categories.name = ? THEN transactions.amount ELSE 0 END) as payments
+       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as income,
+       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as expenses,
+       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as payments
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE ${clauses.join(" AND ")}`,
@@ -310,8 +310,8 @@ export async function getMonthlyTotals(
   const rows = await db.getAllAsync<MonthlyTotal>(
     `SELECT
        substr(transactions.date, 1, 7) as month,
-       SUM(CASE WHEN categories.name = ? THEN transactions.amount ELSE 0 END) as income,
-       SUM(CASE WHEN categories.name NOT IN (?, ?) THEN -transactions.amount ELSE 0 END) as expenses
+       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as income,
+       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as expenses
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0
@@ -343,7 +343,7 @@ export async function getCategorySummary(
     `SELECT categories.name as categoryName, SUM(-transactions.amount) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name NOT IN (?, ?)
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND LOWER(categories.name) NOT IN (LOWER(?), LOWER(?))
      GROUP BY categories.name
      ORDER BY total DESC`,
     `${month}%`,
@@ -360,7 +360,7 @@ export async function getPaymentTotal(db: SQLiteDatabase, month: string): Promis
     `SELECT SUM(transactions.amount) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name = ?`,
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND LOWER(categories.name) = LOWER(?)`,
     `${month}%`,
     PAYMENT_CATEGORY_NAME
   );
@@ -498,7 +498,7 @@ export async function getAccountSummary(
      FROM transactions
      JOIN accounts ON accounts.id = transactions.account_id
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND categories.name NOT IN (?, ?)
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND LOWER(categories.name) NOT IN (LOWER(?), LOWER(?))
      GROUP BY accounts.name
      ORDER BY total DESC`,
     `${month}%`,
