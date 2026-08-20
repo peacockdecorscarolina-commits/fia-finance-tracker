@@ -4,25 +4,32 @@ import { useCallback, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import { Screen } from "../../components/Screen";
 import { TransactionRow } from "../../components/TransactionRow";
-import { getTransactions, setTransactionIgnored } from "../../lib/db";
+import { getCategories, getTransactions, setMerchantCategory, setTransactionIgnored } from "../../lib/db";
 import { monthRange } from "../../lib/period";
 import { colors, spacing } from "../../lib/theme";
-import type { Transaction } from "../../lib/types";
+import type { Category, Transaction } from "../../lib/types";
 
 export default function CategoryDrillDownScreen() {
   const { name, month } = useLocalSearchParams<{ name: string; month: string }>();
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
 
   const load = useCallback(() => {
     const { start, end } = monthRange(month);
     getTransactions(db, { categoryName: name, start, end }).then(setTransactions);
+    getCategories(db).then(setCategories);
   }, [db, name, month]);
 
   useFocusEffect(load);
 
   async function handleToggleIgnored(transaction: Transaction) {
     await setTransactionIgnored(db, transaction.id, !transaction.ignored);
+    load();
+  }
+
+  async function handleChangeCategory(transaction: Transaction, categoryId: number) {
+    await setMerchantCategory(db, transaction.merchant, categoryId);
     load();
   }
 
@@ -36,7 +43,12 @@ export default function CategoryDrillDownScreen() {
           contentContainerStyle={styles.list}
           ListEmptyComponent={<Text style={styles.empty}>No transactions in this category.</Text>}
           renderItem={({ item }) => (
-            <TransactionRow transaction={item} onToggleIgnored={handleToggleIgnored} />
+            <TransactionRow
+              transaction={item}
+              onToggleIgnored={handleToggleIgnored}
+              categories={categories}
+              onChangeCategory={handleChangeCategory}
+            />
           )}
         />
       </View>

@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, spacing } from "../lib/theme";
-import type { Transaction } from "../lib/types";
+import { colors, radius, spacing } from "../lib/theme";
+import type { Category, Transaction } from "../lib/types";
 import { AmountText } from "./AmountText";
 import { Card } from "./Card";
 import { Chip } from "./Chip";
@@ -8,10 +9,16 @@ import { Chip } from "./Chip";
 export function TransactionRow({
   transaction,
   onToggleIgnored,
+  categories,
+  onChangeCategory,
 }: {
   transaction: Transaction;
   onToggleIgnored?: (transaction: Transaction) => void;
+  categories?: Category[];
+  onChangeCategory?: (transaction: Transaction, categoryId: number) => void;
 }) {
+  const [pickingCategory, setPickingCategory] = useState(false);
+
   return (
     <Card style={transaction.ignored ? { ...styles.card, ...styles.ignoredCard } : styles.card}>
       <View style={styles.row}>
@@ -28,12 +35,39 @@ export function TransactionRow({
         </View>
         <AmountText amount={transaction.amount} />
       </View>
-      {onToggleIgnored && (
-        <Pressable style={styles.ignoreLink} onPress={() => onToggleIgnored(transaction)}>
-          <Text style={styles.ignoreLinkText}>
-            {transaction.ignored ? "Include in totals" : "Ignore (don't count toward totals)"}
-          </Text>
-        </Pressable>
+
+      <View style={styles.actionsRow}>
+        {categories && onChangeCategory && (
+          <Pressable onPress={() => setPickingCategory((v) => !v)}>
+            <Text style={styles.actionLinkText}>
+              {pickingCategory ? "Cancel" : "Change category"}
+            </Text>
+          </Pressable>
+        )}
+        {onToggleIgnored && (
+          <Pressable onPress={() => onToggleIgnored(transaction)}>
+            <Text style={styles.actionLinkText}>
+              {transaction.ignored ? "Include in totals" : "Ignore (don't count toward totals)"}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+
+      {pickingCategory && categories && onChangeCategory && (
+        <View style={styles.categoryRow}>
+          {categories.map((c) => (
+            <Pressable
+              key={c.id}
+              style={styles.categoryChip}
+              onPress={() => {
+                onChangeCategory(transaction, c.id);
+                setPickingCategory(false);
+              }}
+            >
+              <Text style={styles.categoryChipText}>{c.name}</Text>
+            </Pressable>
+          ))}
+        </View>
       )}
     </Card>
   );
@@ -46,6 +80,16 @@ const styles = StyleSheet.create({
   merchant: { fontSize: 15, fontWeight: "600", color: colors.textPrimary, marginBottom: 4 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   meta: { fontSize: 12, color: colors.textSecondary, marginRight: 4 },
-  ignoreLink: { alignSelf: "flex-start" },
-  ignoreLinkText: { fontSize: 12, color: colors.accent, fontWeight: "600" },
+  actionsRow: { flexDirection: "row", gap: spacing.md },
+  actionLinkText: { fontSize: 12, color: colors.accent, fontWeight: "600" },
+  categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
+  categoryChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.cardSolid,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  categoryChipText: { color: colors.textPrimary, fontWeight: "600", fontSize: 13 },
 });

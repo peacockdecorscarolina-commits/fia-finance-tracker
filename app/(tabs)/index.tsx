@@ -9,15 +9,17 @@ import { SegmentedControl } from "../../components/SegmentedControl";
 import { TransactionRow } from "../../components/TransactionRow";
 import {
   getAccounts,
+  getCategories,
   getIncomeExpenseTotals,
   getMonthlyTotals,
   getTransactions,
+  setMerchantCategory,
   setTransactionIgnored,
   type MonthlyTotal,
 } from "../../lib/db";
 import { getPeriodRange, PERIODS, type Period } from "../../lib/period";
 import { colors, radius, spacing, tabBarClearance } from "../../lib/theme";
-import type { Account, Transaction } from "../../lib/types";
+import type { Account, Category, Transaction } from "../../lib/types";
 
 const CHART_MONTHS = 6;
 
@@ -29,6 +31,7 @@ export default function TransactionsScreen() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [totals, setTotals] = useState({ income: 0, expenses: 0 });
   const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotal[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
 
   const load = useCallback(() => {
     const { start, end } = getPeriodRange(period);
@@ -38,12 +41,18 @@ export default function TransactionsScreen() {
     getTransactions(db, { accountId: accountFilter }).then(setTransactions);
     getIncomeExpenseTotals(db, { accountId: accountFilter, start, end }).then(setTotals);
     getMonthlyTotals(db, CHART_MONTHS).then(setMonthlyTotals);
+    getCategories(db).then(setCategories);
   }, [db, selectedAccountId, period]);
 
   useFocusEffect(load);
 
   async function handleToggleIgnored(transaction: Transaction) {
     await setTransactionIgnored(db, transaction.id, !transaction.ignored);
+    load();
+  }
+
+  async function handleChangeCategory(transaction: Transaction, categoryId: number) {
+    await setMerchantCategory(db, transaction.merchant, categoryId);
     load();
   }
 
@@ -102,7 +111,12 @@ export default function TransactionsScreen() {
             <Text style={styles.empty}>No transactions in this period.</Text>
           }
           renderItem={({ item }) => (
-            <TransactionRow transaction={item} onToggleIgnored={handleToggleIgnored} />
+            <TransactionRow
+              transaction={item}
+              onToggleIgnored={handleToggleIgnored}
+              categories={categories}
+              onChangeCategory={handleChangeCategory}
+            />
           )}
         />
       </View>
