@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import { Screen } from "../../components/Screen";
 import { TransactionRow } from "../../components/TransactionRow";
+import { getCategoryStyle } from "../../lib/categoryStyle";
 import { getCategories, getTransactions, setMerchantCategory, setTransactionIgnored } from "../../lib/db";
 import { monthRange } from "../../lib/period";
 import { colors, spacing } from "../../lib/theme";
@@ -35,7 +36,7 @@ export default function CategoryDrillDownScreen() {
 
   return (
     <Screen>
-      <Stack.Screen options={{ title: name }} />
+      <Stack.Screen options={{ title: name ? `${getCategoryStyle(name).emoji} ${name}` : name }} />
       <View style={styles.container}>
         <FlatList
           data={transactions}

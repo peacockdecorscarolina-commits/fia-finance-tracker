@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { getCategoryStyle } from "../lib/categoryStyle";
 import { colors, radius, spacing } from "../lib/theme";
 import type { Category, Transaction } from "../lib/types";
 import { AmountText } from "./AmountText";
 import { Card } from "./Card";
+import { CategoryChip } from "./CategoryChip";
 import { Chip } from "./Chip";
 
 export function TransactionRow({
@@ -28,7 +30,7 @@ export function TransactionRow({
             <Text style={styles.meta}>
               {transaction.date} · {transaction.accountName}
             </Text>
-            <Chip label={transaction.categoryName} />
+            <CategoryChip name={transaction.categoryName} />
             {transaction.needsReview && <Chip label="review" tone="warning" />}
             {transaction.ignored && <Chip label="ignored" />}
           </View>
@@ -64,7 +66,9 @@ export function TransactionRow({
                 setPickingCategory(false);
               }}
             >
-              <Text style={styles.categoryChipText}>{c.name}</Text>
+              <Text style={styles.categoryChipText}>
+                {getCategoryStyle(c.name).emoji} {c.name}
+              </Text>
             </Pressable>
           ))}
         </View>

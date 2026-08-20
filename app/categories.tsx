@@ -5,6 +5,7 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-na
 import { Card } from "../components/Card";
 import { PillButton } from "../components/PillButton";
 import { Screen } from "../components/Screen";
+import { getCategoryStyle } from "../lib/categoryStyle";
 import { getCategories, insertCategory, renameCategory } from "../lib/db";
 import { colors, radius, spacing } from "../lib/theme";
 import type { Category } from "../lib/types";
@@ -91,7 +92,9 @@ export default function CategoriesScreen() {
                 </View>
               ) : (
                 <Pressable style={styles.rowContent} onPress={() => startEditing(item)}>
-                  <Text style={styles.categoryName}>{item.name}</Text>
+                  <Text style={styles.categoryName}>
+                    {getCategoryStyle(item.name).emoji} {item.name}
+                  </Text>
                   <Text style={styles.editHint}>Tap to rename</Text>
                 </Pressable>
               )}

@@ -12,6 +12,7 @@ import {
   getNeedsReviewCount,
   getPaymentTotal,
 } from "../../lib/db";
+import { getCategoryStyle } from "../../lib/categoryStyle";
 import { colors, radius, spacing, tabBarClearance } from "../../lib/theme";
 
 type BreakdownItem = { name: string; total: number };
@@ -37,11 +38,13 @@ function Breakdown({
   items,
   emptyLabel,
   onItemPress,
+  useCategoryStyle,
 }: {
   title: string;
   items: BreakdownItem[];
   emptyLabel: string;
   onItemPress?: (name: string) => void;
+  useCategoryStyle?: boolean;
 }) {
   const max = Math.max(...items.map((i) => i.total), 1);
   return (
@@ -50,21 +53,31 @@ function Breakdown({
       {items.length === 0 ? (
         <Text style={styles.empty}>{emptyLabel}</Text>
       ) : (
-        items.map((item) => (
-          <Pressable
-            key={item.name}
-            style={styles.itemRow}
-            onPress={onItemPress ? () => onItemPress(item.name) : undefined}
-          >
-            <View style={styles.itemHeader}>
-              <Text style={styles.itemName}>{item.name}</Text>
-              <Text style={styles.itemValue}>${item.total.toFixed(2)}</Text>
-            </View>
-            <View style={styles.barTrack}>
-              <View style={[styles.barFill, { width: `${(item.total / max) * 100}%` }]} />
-            </View>
-          </Pressable>
-        ))
+        items.map((item) => {
+          const { emoji, color } = useCategoryStyle
+            ? getCategoryStyle(item.name)
+            : { emoji: null, color: colors.pillActive };
+          return (
+            <Pressable
+              key={item.name}
+              style={styles.itemRow}
+              onPress={onItemPress ? () => onItemPress(item.name) : undefined}
+            >
+              <View style={styles.itemHeader}>
+                <Text style={styles.itemName}>
+                  {emoji ? `${emoji} ` : ""}
+                  {item.name}
+                </Text>
+                <Text style={styles.itemValue}>${item.total.toFixed(2)}</Text>
+              </View>
+              <View style={styles.barTrack}>
+                <View
+                  style={[styles.barFill, { width: `${(item.total / max) * 100}%`, backgroundColor: color }]}
+                />
+              </View>
+            </Pressable>
+          );
+        })
       )}
     </Card>
   );
@@ -198,6 +211,7 @@ export default function SummaryScreen() {
           items={categoryTotals}
           emptyLabel="No spending recorded for this month."
           onItemPress={(name) => router.push({ pathname: "/category/[name]", params: { name, month } })}
+          useCategoryStyle
         />
       </ScrollView>
     </Screen>
