@@ -3,8 +3,30 @@ import { DEFAULT_CATEGORIES } from "./categories";
 import { DEFAULT_ACCOUNTS } from "./defaultAccounts";
 import type { Account, Category, ExtractedTransaction, Transaction } from "./types";
 
+// Merchant memory (merchant_category_map) only helps if the same merchant
+// produces the same key across different statements -- but several issuers'
+// multi-line entries (see parseStatement.ts) end up with per-transaction
+// noise baked into the extracted merchant text: Wells Fargo prefixes a
+// unique reference number before the real name, and Bilt/Amex append an
+// address or a flight's ticket number after it. Left as plain trim+
+// uppercase, every occurrence of what's really the same merchant would get
+// a different key, and memory would never match twice.
 export function normalizeMerchantKey(merchant: string): string {
-  return merchant.trim().toUpperCase();
+  const words = merchant.trim().split(/\s+/);
+  // Drop a leading reference/transaction-number-like token some issuers
+  // print before the actual merchant name (e.g. Wells Fargo's
+  // "7446539AS0XSLH5J3"): long, and dense with digits. The digit-count
+  // threshold (not just "starts with a digit") is what keeps this from
+  // misfiring on a real merchant name that happens to start with a number,
+  // like "7-Eleven".
+  const digitCount = (words[0].match(/\d/g) ?? []).length;
+  if (words.length > 1 && words[0].length >= 10 && digitCount >= 3 && /^\d/.test(words[0]) && /[A-Za-z]/.test(words[0])) {
+    words.shift();
+  }
+  // Keep matching stable even when trailing noise (an address, a ticket
+  // number) couldn't be cleanly separated from the actual merchant name --
+  // the first few words are consistently the real one.
+  return words.slice(0, 5).join(" ").toUpperCase();
 }
 
 export async function initDatabase(db: SQLiteDatabase) {

@@ -71,7 +71,7 @@ export default function SyncScreen() {
           ) : (
             <>
               <PillButton title="Back up now" onPress={handleBackup} disabled={busy} />
-              <PillButton title="Restore from Drive" onPress={handleRestore} disabled={busy} variant="secondary" />
+              <PillButton title="Restore from Drive" onPress={handleRestore} disabled={busy} variant="danger" />
               <PillButton title="Sign out" onPress={handleSignOut} disabled={busy} variant="secondary" />
             </>
           )}

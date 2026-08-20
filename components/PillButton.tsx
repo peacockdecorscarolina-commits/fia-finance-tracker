@@ -9,22 +9,16 @@ export function PillButton({
 }: {
   title: string;
   onPress: () => void;
-  variant?: "primary" | "secondary";
+  variant?: "primary" | "secondary" | "danger";
   disabled?: boolean;
 }) {
+  const style = variant === "primary" ? styles.primary : variant === "danger" ? styles.danger : styles.secondary;
+  const textStyle =
+    variant === "primary" ? styles.primaryText : variant === "danger" ? styles.dangerText : styles.secondaryText;
+
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={[
-        styles.base,
-        variant === "primary" ? styles.primary : styles.secondary,
-        disabled && styles.disabled,
-      ]}
-    >
-      <Text style={variant === "primary" ? styles.primaryText : styles.secondaryText}>
-        {title}
-      </Text>
+    <Pressable onPress={onPress} disabled={disabled} style={[styles.base, style, disabled && styles.disabled]}>
+      <Text style={textStyle}>{title}</Text>
     </Pressable>
   );
 }
@@ -43,6 +37,9 @@ const styles = StyleSheet.create({
   secondary: {
     backgroundColor: colors.card,
   },
+  danger: {
+    backgroundColor: colors.negative,
+  },
   disabled: {
     opacity: 0.4,
   },
@@ -53,6 +50,11 @@ const styles = StyleSheet.create({
   },
   secondaryText: {
     color: colors.textPrimary,
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  dangerText: {
+    color: "#FFFFFF",
     fontWeight: "600",
     fontSize: 15,
   },

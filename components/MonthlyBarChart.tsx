@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     height: CHART_HEIGHT,
     justifyContent: "space-between",
     alignItems: "flex-end",
-    marginRight: spacing.sm,
+    marginRight: 4,
   },
   axisLabel: { fontSize: 10, color: colors.textSecondary, fontWeight: "600" },
   plotArea: { flex: 1 },
