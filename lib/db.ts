@@ -243,6 +243,22 @@ export async function moveTransactions(
   return result.changes;
 }
 
+// For fixing a bad upload (wrong dates from a parsing bug, duplicate
+// import, etc.): delete every transaction on one account within a date
+// range, so the statement can be re-uploaded cleanly afterward.
+export async function deleteTransactions(
+  db: SQLiteDatabase,
+  params: { accountId: number; start: string; end: string }
+): Promise<number> {
+  const result = await db.runAsync(
+    "DELETE FROM transactions WHERE account_id = ? AND date >= ? AND date <= ?",
+    params.accountId,
+    params.start,
+    params.end
+  );
+  return result.changes;
+}
+
 // Ignoring a transaction is how you tell the review queue "I've looked at
 // this, leave it alone" without picking a category -- it still needs to
 // stay visible everywhere else (transaction list, category drill-down),
