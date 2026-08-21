@@ -243,16 +243,20 @@ export async function moveTransactions(
   return result.changes;
 }
 
+// Ignoring a transaction is how you tell the review queue "I've looked at
+// this, leave it alone" without picking a category -- it still needs to
+// stay visible everywhere else (transaction list, category drill-down),
+// just not nag for review anymore.
 export async function getNeedsReview(db: SQLiteDatabase): Promise<Transaction[]> {
   const rows = await db.getAllAsync<TransactionRow>(
-    `${TRANSACTION_SELECT} WHERE transactions.needs_review = 1 ORDER BY transactions.date DESC`
+    `${TRANSACTION_SELECT} WHERE transactions.needs_review = 1 AND transactions.ignored = 0 ORDER BY transactions.date DESC`
   );
   return rows.map(toTransaction);
 }
 
 export async function getNeedsReviewCount(db: SQLiteDatabase): Promise<number> {
   const row = await db.getFirstAsync<{ count: number }>(
-    "SELECT COUNT(*) as count FROM transactions WHERE needs_review = 1"
+    "SELECT COUNT(*) as count FROM transactions WHERE needs_review = 1 AND ignored = 0"
   );
   return row?.count ?? 0;
 }
@@ -270,11 +274,17 @@ export async function setMerchantCategory(
     key,
     categoryId
   );
-  await db.runAsync(
-    "UPDATE transactions SET category_id = ?, needs_review = 0 WHERE UPPER(TRIM(merchant)) = ?",
-    categoryId,
-    key
+  // Match on the same normalized key used above (reference-code/trailing-noise
+  // stripped), not a raw UPPER(TRIM(merchant)) comparison -- otherwise this
+  // silently misses every transaction normalizeMerchantKey was written to
+  // still match (e.g. Wells Fargo's per-transaction reference-code prefix).
+  const rows = await db.getAllAsync<{ id: number; merchant: string }>(
+    "SELECT id, merchant FROM transactions"
   );
+  const matchingIds = rows.filter((r) => normalizeMerchantKey(r.merchant) === key).map((r) => r.id);
+  for (const id of matchingIds) {
+    await db.runAsync("UPDATE transactions SET category_id = ?, needs_review = 0 WHERE id = ?", categoryId, id);
+  }
 }
 
 // Category name treated as "real" income (paychecks, deposits). Any other

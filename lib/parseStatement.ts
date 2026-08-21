@@ -48,14 +48,33 @@ type StatementPeriod = { startMonth: number; startYear: number; endMonth: number
 // spanning a year boundary (e.g. Dec 2025 to Jan 2026) means a single
 // fallback year would be wrong for half the transactions.
 function findStatementPeriod(text: string): StatementPeriod | null {
-  const match = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+to\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
-  if (!match) return null;
-  return {
-    startMonth: Number(match[1]),
-    startYear: Number(match[3]),
-    endMonth: Number(match[4]),
-    endYear: Number(match[6]),
-  };
+  const slashMatch = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+to\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  if (slashMatch) {
+    return {
+      startMonth: Number(slashMatch[1]),
+      startYear: Number(slashMatch[3]),
+      endMonth: Number(slashMatch[4]),
+      endYear: Number(slashMatch[6]),
+    };
+  }
+  // Named-month period, e.g. Capital One's "Dec 10, 2025 - Jan 09, 2026"
+  // (separator is a hyphen, not "to").
+  const namedMatch = text.match(
+    /([A-Za-z]{3,9})\s+\d{1,2},\s*(\d{4})\s*(?:-|–|—|to)\s*([A-Za-z]{3,9})\s+\d{1,2},\s*(\d{4})/i
+  );
+  if (namedMatch) {
+    const startMonth = MONTHS[namedMatch[1].toLowerCase()];
+    const endMonth = MONTHS[namedMatch[3].toLowerCase()];
+    if (startMonth && endMonth) {
+      return {
+        startMonth,
+        startYear: Number(namedMatch[2]),
+        endMonth,
+        endYear: Number(namedMatch[4]),
+      };
+    }
+  }
+  return null;
 }
 
 function inferYearForMonth(month: number, period: StatementPeriod | null, fallbackYear: number): number {
@@ -130,7 +149,7 @@ function extractDate(
   if (month) {
     const monthNum = MONTHS[month.toLowerCase()];
     if (!monthNum) return null;
-    const y = year ? Number(year) : fallbackYear;
+    const y = year ? Number(year) : inferYearForMonth(monthNum, period, fallbackYear);
     return {
       date: `${y}-${String(monthNum).padStart(2, "0")}-${String(Number(day)).padStart(2, "0")}`,
       rest: rest.trim(),
