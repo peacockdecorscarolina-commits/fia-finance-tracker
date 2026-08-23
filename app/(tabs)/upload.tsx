@@ -97,7 +97,7 @@ export default function UploadScreen() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Upload Statement</Text>
+        <Text style={styles.title}>Upload</Text>
 
         <Card style={styles.card}>
           <Text style={styles.label}>Account</Text>

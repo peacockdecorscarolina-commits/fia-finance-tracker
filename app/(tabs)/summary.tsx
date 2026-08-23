@@ -197,7 +197,21 @@ export default function SummaryScreen() {
     { icon: "swap-horizontal-outline", label: "Move", onPress: () => router.push("/move-transactions") },
     { icon: "trash-outline", label: "Delete", onPress: () => router.push("/delete-transactions") },
     ...(Platform.OS === "web"
-      ? [{ icon: "cloud-outline" as const, label: "Sync", onPress: () => router.push("/sync") }]
+      ? [
+          { icon: "cloud-outline" as const, label: "Sync", onPress: () => router.push("/sync") },
+          {
+            icon: "refresh-outline" as const,
+            label: "Refresh App",
+            // A plain reload can still serve a stale cached copy on some
+            // mobile browsers (notably iOS home-screen bookmarks) -- a
+            // changing query string forces the browser to treat this as a
+            // new URL, guaranteeing a real network fetch of the latest
+            // deployed version instead of whatever's cached.
+            onPress: () => {
+              window.location.href = `${window.location.pathname}?refreshed=${Date.now()}`;
+            },
+          },
+        ]
       : []),
   ];
 
