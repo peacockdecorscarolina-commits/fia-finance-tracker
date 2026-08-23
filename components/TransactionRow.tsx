@@ -14,13 +14,16 @@ export function TransactionRow({
   onToggleIgnored,
   categories,
   onChangeCategory,
+  onDelete,
 }: {
   transaction: Transaction;
   onToggleIgnored?: (transaction: Transaction) => void;
   categories?: Category[];
   onChangeCategory?: (transaction: Transaction, categoryId: number) => void;
+  onDelete?: (transaction: Transaction) => void;
 }) {
   const [pickingCategory, setPickingCategory] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
     <Card style={transaction.ignored ? { ...styles.card, ...styles.ignoredCard } : styles.card}>
@@ -54,7 +57,26 @@ export function TransactionRow({
             </Text>
           </Pressable>
         )}
+        {onDelete && (
+          <Pressable onPress={() => setConfirmingDelete((v) => !v)}>
+            <Text style={styles.deleteLinkText}>{confirmingDelete ? "Cancel" : "Delete"}</Text>
+          </Pressable>
+        )}
       </View>
+
+      {confirmingDelete && onDelete && (
+        <View style={styles.confirmRow}>
+          <Text style={styles.confirmText}>Delete this transaction? This can't be undone.</Text>
+          <Pressable
+            onPress={() => {
+              onDelete(transaction);
+              setConfirmingDelete(false);
+            }}
+          >
+            <Text style={styles.confirmDeleteText}>Yes, delete</Text>
+          </Pressable>
+        </View>
+      )}
 
       {pickingCategory && categories && onChangeCategory && (
         <View style={styles.categoryRow}>
@@ -85,8 +107,21 @@ const styles = StyleSheet.create({
   merchant: { fontSize: 15, fontWeight: "600", color: colors.textPrimary, marginBottom: 4 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   meta: { fontSize: 12, color: colors.textSecondary, marginRight: 4 },
-  actionsRow: { flexDirection: "row", gap: spacing.md },
+  actionsRow: { flexDirection: "row", gap: spacing.md, flexWrap: "wrap" },
   actionLinkText: { fontSize: 12, color: colors.accent, fontWeight: "600" },
+  deleteLinkText: { fontSize: 12, color: colors.negative, fontWeight: "600" },
+  confirmRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    backgroundColor: colors.negativeBg,
+    borderRadius: radius.chip,
+    padding: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  confirmText: { fontSize: 12, color: colors.negative, fontWeight: "600", flex: 1 },
+  confirmDeleteText: { fontSize: 12, color: colors.negative, fontWeight: "700", textDecorationLine: "underline" },
   categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
   categoryChip: {
     paddingHorizontal: spacing.md,

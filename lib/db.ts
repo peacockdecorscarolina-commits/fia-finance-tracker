@@ -277,6 +277,12 @@ export async function deleteTransactions(
   return result.changes;
 }
 
+// For fixing a single accidental entry (typo'd manual add, wrong upload
+// row) without having to go through the bulk account/date-range tool.
+export async function deleteTransaction(db: SQLiteDatabase, id: number) {
+  await db.runAsync("DELETE FROM transactions WHERE id = ?", id);
+}
+
 // Ignoring a transaction is how you tell the review queue "I've looked at
 // this, leave it alone" without picking a category -- it still needs to
 // stay visible everywhere else (transaction list, category drill-down),

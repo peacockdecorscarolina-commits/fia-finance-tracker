@@ -13,6 +13,7 @@ import { SegmentedControl } from "../../components/SegmentedControl";
 import { Shimmer } from "../../components/Shimmer";
 import { TransactionRow } from "../../components/TransactionRow";
 import {
+  deleteTransaction,
   getAccounts,
   getCategories,
   getIncomeExpenseTotals,
@@ -72,6 +73,11 @@ export default function TransactionsScreen() {
 
   async function handleChangeCategory(transaction: Transaction, categoryId: number) {
     await setMerchantCategory(db, transaction.merchant, categoryId);
+    load();
+  }
+
+  async function handleDelete(transaction: Transaction) {
+    await deleteTransaction(db, transaction.id);
     load();
   }
 
@@ -176,6 +182,7 @@ export default function TransactionsScreen() {
               onToggleIgnored={handleToggleIgnored}
               categories={categories}
               onChangeCategory={handleChangeCategory}
+              onDelete={handleDelete}
             />
           )}
         />
