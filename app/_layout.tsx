@@ -20,6 +20,7 @@ export default function RootLayout() {
         <Stack.Screen name="accounts" options={{ title: "Accounts", ...pushedScreenOptions }} />
         <Stack.Screen name="categories" options={{ title: "Categories", ...pushedScreenOptions }} />
         <Stack.Screen name="category/[name]" options={{ title: "Category", ...pushedScreenOptions }} />
+        <Stack.Screen name="account/[name]" options={{ title: "Account", ...pushedScreenOptions }} />
         <Stack.Screen name="sync" options={{ title: "Sync", ...pushedScreenOptions }} />
         <Stack.Screen
           name="move-transactions"

@@ -260,6 +260,7 @@ export default function SummaryScreen() {
           title="By card"
           items={accountTotals}
           emptyLabel="No spending recorded on any card this month."
+          onItemPress={(name) => router.push({ pathname: "/account/[name]", params: { name, month } })}
           getItemStyle={getAccountStyle}
           loading={loading}
         />
