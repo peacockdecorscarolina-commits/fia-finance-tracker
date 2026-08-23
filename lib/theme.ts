@@ -20,6 +20,11 @@ export const colors = {
   statBg: "#D9ECFB",
 };
 
+// The blue-to-mint gradient used for "active"/primary accents (segmented
+// control selection, primary buttons) instead of a flat near-black fill --
+// ties the accent color back into the app's actual blue/mint palette.
+export const gradientAccent = ["#3B82F6", "#22C1C3"] as const;
+
 export const radius = {
   card: 22,
   pill: 999,

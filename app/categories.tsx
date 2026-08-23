@@ -3,6 +3,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Card } from "../components/Card";
+import { EmptyState } from "../components/EmptyState";
 import { PillButton } from "../components/PillButton";
 import { Screen } from "../components/Screen";
 import { getCategoryStyle } from "../lib/categoryStyle";
@@ -76,7 +77,7 @@ export default function CategoriesScreen() {
           data={categories}
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.empty}>No categories yet.</Text>}
+          ListEmptyComponent={<EmptyState icon="🏷️" title="No categories yet" subtitle="Add your first one above." />}
           renderItem={({ item }) => (
             <Card style={styles.row}>
               {editingId === item.id ? (

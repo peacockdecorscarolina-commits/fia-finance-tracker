@@ -1,11 +1,16 @@
 import { useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
+import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useState } from "react";
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { Card } from "../../components/Card";
+import { EmptyState } from "../../components/EmptyState";
 import { MonthlyBarChart } from "../../components/MonthlyBarChart";
+import { PressScale } from "../../components/PressScale";
 import { Screen } from "../../components/Screen";
 import { SegmentedControl } from "../../components/SegmentedControl";
+import { Shimmer } from "../../components/Shimmer";
 import { TransactionRow } from "../../components/TransactionRow";
 import {
   getAccounts,
@@ -18,7 +23,7 @@ import {
   type MonthlyTotal,
 } from "../../lib/db";
 import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/period";
-import { colors, radius, spacing, tabBarClearance } from "../../lib/theme";
+import { colors, gradientAccent, radius, spacing, tabBarClearance } from "../../lib/theme";
 import type { Account, Category, Transaction } from "../../lib/types";
 
 const CHART_MONTHS = 12;
@@ -38,6 +43,7 @@ export default function TransactionsScreen() {
   const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
     const { start, end } = getPeriodRange(period);
@@ -45,14 +51,16 @@ export default function TransactionsScreen() {
     const transactionRange = selectedMonth ? monthRange(selectedMonth) : undefined;
 
     getAccounts(db).then(setAccounts);
-    getTransactions(db, {
-      accountId: accountFilter,
-      start: transactionRange?.start,
-      end: transactionRange?.end,
-    }).then(setTransactions);
-    getIncomeExpenseTotals(db, { accountId: accountFilter, start, end }).then(setTotals);
-    getMonthlyTotals(db, CHART_MONTHS).then(setMonthlyTotals);
     getCategories(db).then(setCategories);
+    Promise.all([
+      getTransactions(db, {
+        accountId: accountFilter,
+        start: transactionRange?.start,
+        end: transactionRange?.end,
+      }).then(setTransactions),
+      getIncomeExpenseTotals(db, { accountId: accountFilter, start, end }).then(setTotals),
+      getMonthlyTotals(db, CHART_MONTHS).then(setMonthlyTotals),
+    ]).then(() => setLoading(false));
   }, [db, selectedAccountId, period, selectedMonth]);
 
   useFocusEffect(load);
@@ -77,16 +85,24 @@ export default function TransactionsScreen() {
         <View style={styles.statRow}>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Expenses</Text>
-            <Text style={styles.statValue}>${totals.expenses.toFixed(2)}</Text>
+            {loading ? (
+              <Shimmer width={90} height={20} />
+            ) : (
+              <AnimatedAmount value={totals.expenses} style={styles.statValue} />
+            )}
           </View>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Income</Text>
-            <Text style={styles.statValue}>${totals.income.toFixed(2)}</Text>
+            {loading ? (
+              <Shimmer width={90} height={20} />
+            ) : (
+              <AnimatedAmount value={totals.income} style={styles.statValue} />
+            )}
           </View>
-          {totals.payments !== 0 && (
+          {!loading && totals.payments !== 0 && (
             <View style={styles.statBox}>
               <Text style={styles.statLabel}>Payments</Text>
-              <Text style={styles.statValue}>${totals.payments.toFixed(2)}</Text>
+              <AnimatedAmount value={totals.payments} style={styles.statValue} />
             </View>
           )}
         </View>
@@ -118,16 +134,26 @@ export default function TransactionsScreen() {
         >
           {[{ id: "all" as const, name: "All" }, ...accounts].map((item) => {
             const active = item.id === selectedAccountId;
+            if (active) {
+              return (
+                <PressScale key={String(item.id)} onPress={() => setSelectedAccountId(item.id as number | "all")}>
+                  <LinearGradient
+                    colors={gradientAccent}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.filterChip}
+                  >
+                    <Text style={styles.filterChipTextActive}>{item.name}</Text>
+                  </LinearGradient>
+                </PressScale>
+              );
+            }
             return (
-              <Pressable
-                key={String(item.id)}
-                onPress={() => setSelectedAccountId(item.id as number | "all")}
-                style={[styles.filterChip, active && styles.filterChipActive]}
-              >
-                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
-                  {item.name}
-                </Text>
-              </Pressable>
+              <PressScale key={String(item.id)} onPress={() => setSelectedAccountId(item.id as number | "all")}>
+                <View style={styles.filterChip}>
+                  <Text style={styles.filterChipText}>{item.name}</Text>
+                </View>
+              </PressScale>
             );
           })}
         </ScrollView>
@@ -138,7 +164,13 @@ export default function TransactionsScreen() {
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.empty}>No transactions in this period.</Text>
+            loading ? null : (
+              <EmptyState
+                icon="🧾"
+                title="No transactions here"
+                subtitle="Upload a statement or add one manually to get started."
+              />
+            )
           }
           renderItem={({ item }) => (
             <TransactionRow
@@ -187,9 +219,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.card,
   },
-  filterChipActive: { backgroundColor: colors.pillActive },
   filterChipText: { color: colors.pillInactiveText, fontWeight: "600", fontSize: 13 },
-  filterChipTextActive: { color: colors.pillActiveText },
+  filterChipTextActive: { color: colors.pillActiveText, fontWeight: "600", fontSize: 13 },
   mainList: { flex: 1 },
   list: { gap: spacing.sm, paddingBottom: tabBarClearance },
   empty: { textAlign: "center", color: colors.textSecondary, marginTop: spacing.lg },

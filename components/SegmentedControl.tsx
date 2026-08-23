@@ -1,5 +1,6 @@
+import { LinearGradient } from "expo-linear-gradient";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, radius, spacing } from "../lib/theme";
+import { colors, gradientAccent, radius, spacing } from "../lib/theme";
 
 export function SegmentedControl<T extends string>({
   options,
@@ -14,13 +15,23 @@ export function SegmentedControl<T extends string>({
     <View style={styles.container}>
       {options.map((option) => {
         const active = option === value;
+        if (active) {
+          return (
+            <Pressable key={option} onPress={() => onChange(option)} style={styles.segmentWrap}>
+              <LinearGradient
+                colors={gradientAccent}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.segment}
+              >
+                <Text style={[styles.label, styles.labelActive]}>{option}</Text>
+              </LinearGradient>
+            </Pressable>
+          );
+        }
         return (
-          <Pressable
-            key={option}
-            onPress={() => onChange(option)}
-            style={[styles.segment, active && styles.segmentActive]}
-          >
-            <Text style={[styles.label, active && styles.labelActive]}>{option}</Text>
+          <Pressable key={option} onPress={() => onChange(option)} style={[styles.segmentWrap, styles.segment]}>
+            <Text style={styles.label}>{option}</Text>
           </Pressable>
         );
       })}
@@ -35,14 +46,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     padding: 4,
   },
-  segment: {
+  segmentWrap: {
     flex: 1,
+  },
+  segment: {
     paddingVertical: spacing.sm,
     borderRadius: radius.pill,
     alignItems: "center",
-  },
-  segmentActive: {
-    backgroundColor: colors.pillActive,
   },
   label: {
     fontSize: 14,

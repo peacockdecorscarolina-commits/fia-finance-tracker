@@ -1,5 +1,7 @@
-import { Pressable, StyleSheet, Text } from "react-native";
-import { colors, radius, spacing } from "../lib/theme";
+import { LinearGradient } from "expo-linear-gradient";
+import { StyleSheet, Text } from "react-native";
+import { colors, gradientAccent, radius, spacing } from "../lib/theme";
+import { PressScale } from "./PressScale";
 
 export function PillButton({
   title,
@@ -12,14 +14,31 @@ export function PillButton({
   variant?: "primary" | "secondary" | "danger";
   disabled?: boolean;
 }) {
-  const style = variant === "primary" ? styles.primary : variant === "danger" ? styles.danger : styles.secondary;
-  const textStyle =
-    variant === "primary" ? styles.primaryText : variant === "danger" ? styles.dangerText : styles.secondaryText;
+  if (variant === "primary") {
+    return (
+      <PressScale
+        onPress={onPress}
+        disabled={disabled}
+        style={[styles.base, styles.clip, disabled && styles.disabled]}
+      >
+        <LinearGradient
+          colors={gradientAccent}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <Text style={styles.primaryText}>{title}</Text>
+      </PressScale>
+    );
+  }
+
+  const style = variant === "danger" ? styles.danger : styles.secondary;
+  const textStyle = variant === "danger" ? styles.dangerText : styles.secondaryText;
 
   return (
-    <Pressable onPress={onPress} disabled={disabled} style={[styles.base, style, disabled && styles.disabled]}>
+    <PressScale onPress={onPress} disabled={disabled} style={[styles.base, style, disabled && styles.disabled]}>
       <Text style={textStyle}>{title}</Text>
-    </Pressable>
+    </PressScale>
   );
 }
 
@@ -31,8 +50,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  primary: {
-    backgroundColor: colors.pillActive,
+  clip: {
+    overflow: "hidden",
   },
   secondary: {
     backgroundColor: colors.card,

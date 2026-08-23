@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { AmountText } from "../components/AmountText";
 import { Card } from "../components/Card";
+import { EmptyState } from "../components/EmptyState";
 import { Screen } from "../components/Screen";
 import { getCategories, getNeedsReview, setMerchantCategory, setTransactionIgnored } from "../lib/db";
 import { colors, radius, spacing } from "../lib/theme";
@@ -45,7 +46,7 @@ export default function ReviewScreen() {
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.empty}>Nothing needs review right now.</Text>
+            <EmptyState icon="✅" title="All caught up" subtitle="Nothing needs review right now." />
           }
           renderItem={({ item }) => {
             const open = openId === item.id;

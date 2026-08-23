@@ -1,7 +1,7 @@
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Card } from "../components/Card";
 import { PillButton } from "../components/PillButton";
 import { Screen } from "../components/Screen";
@@ -35,12 +35,15 @@ export default function AddTransactionScreen() {
       });
       getCategories(db).then(async (list) => {
         let categoryList = list;
-        // "Car Payment" is the main reason for this screen -- make sure it
-        // exists so a first-time user isn't stuck picking "Other" instead.
-        if (!categoryList.some((c) => c.name === "Car Payment")) {
-          await insertCategory(db, "Car Payment").catch(() => {});
-          categoryList = await getCategories(db);
+        // "Car Payment" and "Cash" are the main reasons for this screen --
+        // make sure they exist so a first-time user isn't stuck picking
+        // "Other" instead.
+        for (const name of ["Car Payment", "Cash"]) {
+          if (!categoryList.some((c) => c.name === name)) {
+            await insertCategory(db, name).catch(() => {});
+          }
         }
+        categoryList = await getCategories(db);
         setCategories(categoryList);
         setCategoryId((current) => current ?? categoryList.find((c) => c.name === "Car Payment")?.id ?? categoryList[0]?.id ?? null);
       });
@@ -81,7 +84,7 @@ export default function AddTransactionScreen() {
 
   return (
     <Screen>
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Card style={styles.card}>
           <Text style={styles.title}>Add Transaction</Text>
           <Text style={styles.description}>
@@ -162,7 +165,14 @@ export default function AddTransactionScreen() {
             keyboardType="decimal-pad"
           />
 
-          <PillButton title="Save" onPress={handleSave} disabled={!canSave} />
+          <View style={styles.actionsRow}>
+            <View style={{ flex: 1 }}>
+              <PillButton title="Cancel" onPress={() => router.back()} variant="secondary" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <PillButton title="Save" onPress={handleSave} disabled={!canSave} />
+            </View>
+          </View>
 
           {saved && (
             <View style={styles.savedRow}>
@@ -173,13 +183,13 @@ export default function AddTransactionScreen() {
             </View>
           )}
         </Card>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md },
+  container: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xl },
   card: { gap: spacing.sm },
   title: { fontSize: 20, fontWeight: "700", color: colors.textPrimary },
   description: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.xs },
@@ -206,6 +216,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textPrimary,
   },
+  actionsRow: { flexDirection: "row", gap: spacing.sm },
   savedRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.xs },
   successText: { fontSize: 13, color: colors.positive, fontWeight: "600" },
   doneLinkText: { fontSize: 13, color: colors.accent, fontWeight: "600" },
