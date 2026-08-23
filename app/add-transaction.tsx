@@ -47,6 +47,20 @@ export default function AddTransactionScreen() {
     }, [db])
   );
 
+  // Switching type swaps in a sensible category + description -- but only
+  // when the field still holds the *other* type's default, so it doesn't
+  // clobber something you already typed.
+  const AUTO_DEFAULTS = ["Car Payment", "Paycheck", ""];
+  function selectType(expense: boolean) {
+    setIsExpense(expense);
+    if (AUTO_DEFAULTS.includes(merchant)) {
+      setMerchant(expense ? "Car Payment" : "Paycheck");
+    }
+    const targetCategoryName = expense ? "Car Payment" : "Income";
+    const target = categories.find((c) => c.name === targetCategoryName);
+    if (target) setCategoryId(target.id);
+  }
+
   const amount = Number(amountText);
   const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
   const isValidAmount = amountText.trim() !== "" && !Number.isNaN(amount) && amount > 0;
@@ -71,8 +85,8 @@ export default function AddTransactionScreen() {
         <Card style={styles.card}>
           <Text style={styles.title}>Add Transaction</Text>
           <Text style={styles.description}>
-            For anything that doesn't come from a statement upload -- like a car payment you make
-            each month.
+            For anything that doesn't come from a statement upload -- a car payment you make each
+            month, or a paycheck that isn't part of any card statement.
           </Text>
 
           <Text style={styles.label}>Account</Text>
@@ -112,10 +126,10 @@ export default function AddTransactionScreen() {
 
           <Text style={styles.label}>Type</Text>
           <View style={styles.chipRow}>
-            <Pressable onPress={() => setIsExpense(true)} style={[styles.chip, isExpense && styles.chipActive]}>
+            <Pressable onPress={() => selectType(true)} style={[styles.chip, isExpense && styles.chipActive]}>
               <Text style={[styles.chipText, isExpense && styles.chipTextActive]}>Expense</Text>
             </Pressable>
-            <Pressable onPress={() => setIsExpense(false)} style={[styles.chip, !isExpense && styles.chipActive]}>
+            <Pressable onPress={() => selectType(false)} style={[styles.chip, !isExpense && styles.chipActive]}>
               <Text style={[styles.chipText, !isExpense && styles.chipTextActive]}>Income / credit</Text>
             </Pressable>
           </View>
