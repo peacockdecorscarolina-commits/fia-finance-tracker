@@ -155,6 +155,11 @@ export default function SummaryScreen() {
 
         <View style={styles.quickActionRow}>
           <QuickAction
+            icon="add-circle-outline"
+            label="Add"
+            onPress={() => router.push("/add-transaction")}
+          />
+          <QuickAction
             icon="checkmark-done-outline"
             label="Review"
             badge={reviewCount}

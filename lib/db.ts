@@ -167,6 +167,24 @@ export async function insertExtractedTransactions(
   }
 }
 
+// For entries that don't come from a statement upload (a recurring car
+// payment, cash spending, anything you just want to log yourself). Amount
+// follows the same sign convention as extracted transactions: negative for
+// an expense, positive for income/a credit.
+export async function insertManualTransaction(
+  db: SQLiteDatabase,
+  transaction: { accountId: number; date: string; merchant: string; amount: number; categoryId: number }
+) {
+  await db.runAsync(
+    "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, 0, 0)",
+    transaction.accountId,
+    transaction.date,
+    transaction.merchant,
+    transaction.amount,
+    transaction.categoryId
+  );
+}
+
 const TRANSACTION_SELECT = `
   SELECT
     transactions.id as id,

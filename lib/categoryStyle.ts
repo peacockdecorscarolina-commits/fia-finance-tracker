@@ -30,7 +30,11 @@ const KNOWN: Record<string, { emoji: string; color: string }> = {
   education: { emoji: "🎓", color: "#2563EB" },
   pets: { emoji: "🐾", color: "#B45309" },
   gifts: { emoji: "🎁", color: "#DB2777" },
-  other: { emoji: "🏷️", color: "#64748B" },
+  lodging: { emoji: "🏨", color: "#0891B2" },
+  hotel: { emoji: "🏨", color: "#0891B2" },
+  hotels: { emoji: "🏨", color: "#0891B2" },
+  "car payment": { emoji: "🏎️", color: "#B45309" },
+  other: { emoji: "❗", color: "#64748B" },
 };
 
 // Fallback palette for categories not in the table above, picked
