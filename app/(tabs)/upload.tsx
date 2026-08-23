@@ -10,6 +10,7 @@ import { PdfTextExtractor, type PdfTextExtractorHandle } from "../../components/
 import { PillButton } from "../../components/PillButton";
 import { Screen } from "../../components/Screen";
 import { getAccounts, insertExtractedTransactions } from "../../lib/db";
+import { formatMerchantName } from "../../lib/formatMerchant";
 import { parseStatement } from "../../lib/parseStatement";
 import { colors, radius, spacing, tabBarClearance } from "../../lib/theme";
 import type { Account, ExtractedTransaction } from "../../lib/types";
@@ -150,7 +151,7 @@ export default function UploadScreen() {
             {extracted.map((t, i) => (
               <View key={i} style={styles.previewRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.previewMerchant}>{t.merchant}</Text>
+                  <Text style={styles.previewMerchant}>{formatMerchantName(t.merchant)}</Text>
                   <View style={styles.previewMeta}>
                     <Text style={styles.previewDate}>{t.date}</Text>
                     <Chip label={t.category} />

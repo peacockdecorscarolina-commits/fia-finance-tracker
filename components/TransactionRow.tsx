@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
+import { formatMerchantName } from "../lib/formatMerchant";
 import { colors, radius, spacing } from "../lib/theme";
 import type { Category, Transaction } from "../lib/types";
 import { AmountText } from "./AmountText";
@@ -25,7 +26,7 @@ export function TransactionRow({
     <Card style={transaction.ignored ? { ...styles.card, ...styles.ignoredCard } : styles.card}>
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.merchant}>{transaction.merchant}</Text>
+          <Text style={styles.merchant}>{formatMerchantName(transaction.merchant)}</Text>
           <View style={styles.metaRow}>
             <Text style={styles.meta}>
               {transaction.date} · {transaction.accountName}

@@ -7,6 +7,7 @@ import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { Screen } from "../components/Screen";
 import { getCategories, getNeedsReview, setMerchantCategory, setTransactionIgnored } from "../lib/db";
+import { formatMerchantName } from "../lib/formatMerchant";
 import { colors, radius, spacing } from "../lib/theme";
 import type { Category, Transaction } from "../lib/types";
 
@@ -54,7 +55,7 @@ export default function ReviewScreen() {
               <Card style={item.ignored ? { ...styles.card, ...styles.ignoredCard } : styles.card}>
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.merchant}>{item.merchant}</Text>
+                    <Text style={styles.merchant}>{formatMerchantName(item.merchant)}</Text>
                     <Text style={styles.meta}>
                       {item.date} · {item.accountName}
                       {item.ignored ? " · ignored" : ""}
