@@ -7,6 +7,7 @@ export type Account = {
 export type Category = {
   id: number;
   name: string;
+  loanAmount: number | null;
 };
 
 export type Transaction = {

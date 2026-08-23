@@ -63,6 +63,12 @@ export async function initDatabase(db: SQLiteDatabase) {
     await db.execAsync("ALTER TABLE transactions ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0");
   }
 
+  // Migration for databases created before the `loan_amount` column existed.
+  const categoryColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(categories)");
+  if (!categoryColumns.some((c) => c.name === "loan_amount")) {
+    await db.execAsync("ALTER TABLE categories ADD COLUMN loan_amount REAL");
+  }
+
   const existing = await db.getFirstAsync<{ count: number }>(
     "SELECT COUNT(*) as count FROM categories"
   );
@@ -88,7 +94,14 @@ export async function initDatabase(db: SQLiteDatabase) {
 }
 
 export async function getCategories(db: SQLiteDatabase): Promise<Category[]> {
-  return db.getAllAsync<Category>("SELECT id, name FROM categories ORDER BY name");
+  const rows = await db.getAllAsync<{ id: number; name: string; loan_amount: number | null }>(
+    "SELECT id, name, loan_amount FROM categories ORDER BY name"
+  );
+  return rows.map((r) => ({ id: r.id, name: r.name, loanAmount: r.loan_amount }));
+}
+
+export async function setCategoryLoanAmount(db: SQLiteDatabase, id: number, loanAmount: number | null) {
+  await db.runAsync("UPDATE categories SET loan_amount = ? WHERE id = ?", loanAmount, id);
 }
 
 async function getCategoryIdByName(db: SQLiteDatabase, name: string): Promise<number> {
