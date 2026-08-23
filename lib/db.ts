@@ -68,6 +68,9 @@ export async function initDatabase(db: SQLiteDatabase) {
   if (!categoryColumns.some((c) => c.name === "loan_amount")) {
     await db.execAsync("ALTER TABLE categories ADD COLUMN loan_amount REAL");
   }
+  if (!categoryColumns.some((c) => c.name === "loan_as_of_date")) {
+    await db.execAsync("ALTER TABLE categories ADD COLUMN loan_as_of_date TEXT");
+  }
 
   const existing = await db.getFirstAsync<{ count: number }>(
     "SELECT COUNT(*) as count FROM categories"
@@ -94,14 +97,32 @@ export async function initDatabase(db: SQLiteDatabase) {
 }
 
 export async function getCategories(db: SQLiteDatabase): Promise<Category[]> {
-  const rows = await db.getAllAsync<{ id: number; name: string; loan_amount: number | null }>(
-    "SELECT id, name, loan_amount FROM categories ORDER BY name"
-  );
-  return rows.map((r) => ({ id: r.id, name: r.name, loanAmount: r.loan_amount }));
+  const rows = await db.getAllAsync<{
+    id: number;
+    name: string;
+    loan_amount: number | null;
+    loan_as_of_date: string | null;
+  }>("SELECT id, name, loan_amount, loan_as_of_date FROM categories ORDER BY name");
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    loanAmount: r.loan_amount,
+    loanAsOfDate: r.loan_as_of_date,
+  }));
 }
 
-export async function setCategoryLoanAmount(db: SQLiteDatabase, id: number, loanAmount: number | null) {
-  await db.runAsync("UPDATE categories SET loan_amount = ? WHERE id = ?", loanAmount, id);
+export async function setCategoryLoanAmount(
+  db: SQLiteDatabase,
+  id: number,
+  loanAmount: number | null,
+  loanAsOfDate: string | null
+) {
+  await db.runAsync(
+    "UPDATE categories SET loan_amount = ?, loan_as_of_date = ? WHERE id = ?",
+    loanAmount,
+    loanAsOfDate,
+    id
+  );
 }
 
 async function getCategoryIdByName(db: SQLiteDatabase, name: string): Promise<number> {

@@ -8,6 +8,7 @@ export type Category = {
   id: number;
   name: string;
   loanAmount: number | null;
+  loanAsOfDate: string | null;
 };
 
 export type Transaction = {

@@ -24,27 +24,33 @@ function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function CategoryDrillDownScreen() {
   const { name, month } = useLocalSearchParams<{ name: string; month: string }>();
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [allTimeTotal, setAllTimeTotal] = useState(0);
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [editingLoan, setEditingLoan] = useState(false);
   const [loanInput, setLoanInput] = useState("");
+  const [loanDateInput, setLoanDateInput] = useState("");
 
   const category = categories.find((c) => c.name === name) ?? null;
-  const paidSoFar = Math.abs(allTimeTotal);
+  const paidSoFar = category?.loanAsOfDate
+    ? Math.abs(
+        allTransactions
+          .filter((t) => !t.ignored && t.date > category.loanAsOfDate!)
+          .reduce((sum, t) => sum + t.amount, 0)
+      )
+    : 0;
 
   const load = useCallback(() => {
     const { start, end } = monthRange(month);
     getTransactions(db, { categoryName: name, start, end }).then(setTransactions);
-    getTransactions(db, { categoryName: name }).then((all) => {
-      const total = all
-        .filter((t) => !t.ignored)
-        .reduce((sum, t) => sum + t.amount, 0);
-      setAllTimeTotal(total);
-    });
+    getTransactions(db, { categoryName: name }).then(setAllTransactions);
     getCategories(db).then(setCategories);
   }, [db, name, month]);
 
@@ -53,7 +59,9 @@ export default function CategoryDrillDownScreen() {
   async function saveLoanAmount() {
     if (!category) return;
     const value = Number(loanInput);
-    await setCategoryLoanAmount(db, category.id, Number.isFinite(value) && value > 0 ? value : null);
+    const validAmount = Number.isFinite(value) && value > 0 ? value : null;
+    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(loanDateInput) ? loanDateInput : null;
+    await setCategoryLoanAmount(db, category.id, validAmount, validAmount ? validDate : null);
     setEditingLoan(false);
     load();
   }
@@ -84,74 +92,72 @@ export default function CategoryDrillDownScreen() {
           ListHeaderComponent={
             category ? (
               <Card style={styles.loanCard}>
-                {category.loanAmount ? (
-                  editingLoan ? (
-                    <View style={styles.loanEditRow}>
-                      <TextInput
-                        style={styles.loanInput}
-                        value={loanInput}
-                        onChangeText={setLoanInput}
-                        keyboardType="decimal-pad"
-                        placeholder="Loan amount"
-                        placeholderTextColor={colors.textSecondary}
-                      />
-                      <PillButton title="Save" onPress={saveLoanAmount} />
-                    </View>
-                  ) : (
-                    <>
-                      <View style={styles.loanHeaderRow}>
-                        <Text style={styles.loanLabel}>Remaining balance</Text>
-                        <Pressable
-                          onPress={() => {
-                            setLoanInput(String(category.loanAmount));
-                            setEditingLoan(true);
-                          }}
-                        >
-                          <Text style={styles.loanEditLink}>Edit</Text>
-                        </Pressable>
-                      </View>
-                      <Text style={styles.loanRemaining}>
-                        {formatMoney(Math.max(category.loanAmount - paidSoFar, 0))}{" "}
-                        <Text style={styles.loanOfTotal}>of {formatMoney(category.loanAmount)}</Text>
-                      </Text>
-                      <View style={styles.progressTrack}>
-                        <LinearGradient
-                          colors={gradientAccent}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
-                          style={[
-                            styles.progressFillAbs,
-                            {
-                              width: `${Math.min(
-                                100,
-                                Math.max(0, (paidSoFar / category.loanAmount) * 100)
-                              )}%`,
-                            },
-                          ]}
-                        />
-                      </View>
-                      <Text style={styles.pctLabel}>
-                        {Math.round(Math.min(100, Math.max(0, (paidSoFar / category.loanAmount) * 100)))}% paid off
-                      </Text>
-                    </>
-                  )
-                ) : editingLoan ? (
-                  <View style={styles.loanEditRow}>
+                {editingLoan ? (
+                  <View style={styles.loanEditForm}>
+                    <Text style={styles.loanLabel}>Current balance</Text>
                     <TextInput
                       style={styles.loanInput}
                       value={loanInput}
                       onChangeText={setLoanInput}
                       keyboardType="decimal-pad"
-                      placeholder="Loan amount"
+                      placeholder="e.g. 20659.12"
                       placeholderTextColor={colors.textSecondary}
                       autoFocus
                     />
+                    <Text style={styles.loanLabel}>As of date</Text>
+                    <TextInput
+                      style={styles.loanInput}
+                      value={loanDateInput}
+                      onChangeText={setLoanDateInput}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={colors.textSecondary}
+                    />
                     <PillButton title="Save" onPress={saveLoanAmount} />
                   </View>
+                ) : category.loanAmount ? (
+                  <>
+                    <View style={styles.loanHeaderRow}>
+                      <Text style={styles.loanLabel}>Remaining balance</Text>
+                      <Pressable
+                        onPress={() => {
+                          setLoanInput(String(category.loanAmount));
+                          setLoanDateInput(category.loanAsOfDate ?? todayISO());
+                          setEditingLoan(true);
+                        }}
+                      >
+                        <Text style={styles.loanEditLink}>Edit</Text>
+                      </Pressable>
+                    </View>
+                    <Text style={styles.loanRemaining}>
+                      {formatMoney(Math.max(category.loanAmount - paidSoFar, 0))}{" "}
+                      <Text style={styles.loanOfTotal}>of {formatMoney(category.loanAmount)}</Text>
+                    </Text>
+                    <View style={styles.progressTrack}>
+                      <LinearGradient
+                        colors={gradientAccent}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={[
+                          styles.progressFillAbs,
+                          {
+                            width: `${Math.min(
+                              100,
+                              Math.max(0, (paidSoFar / category.loanAmount) * 100)
+                            )}%`,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.pctLabel}>
+                      {Math.round(Math.min(100, Math.max(0, (paidSoFar / category.loanAmount) * 100)))}% paid off
+                      {category.loanAsOfDate ? ` · as of ${category.loanAsOfDate}` : ""}
+                    </Text>
+                  </>
                 ) : (
                   <Pressable
                     onPress={() => {
                       setLoanInput("");
+                      setLoanDateInput(todayISO());
                       setEditingLoan(true);
                     }}
                   >
@@ -198,6 +204,7 @@ const styles = StyleSheet.create({
   progressFillAbs: { height: "100%", borderRadius: radius.pill },
   pctLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   loanEditRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
+  loanEditForm: { gap: spacing.xs },
   loanInput: {
     flex: 1,
     borderWidth: 1,
