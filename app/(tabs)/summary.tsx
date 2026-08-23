@@ -218,8 +218,6 @@ export default function SummaryScreen() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Summary</Text>
-
         <View style={styles.monthRow}>
           <PressScale onPress={() => setMonth(shiftMonth(month, -1))} style={styles.monthButton}>
             <Ionicons name="chevron-back" size={18} color={colors.textPrimary} />
@@ -281,7 +279,6 @@ export default function SummaryScreen() {
 
 const styles = StyleSheet.create({
   container: { padding: spacing.md, gap: spacing.md, paddingBottom: tabBarClearance },
-  title: { fontSize: 28, fontWeight: "700", color: colors.textPrimary },
   monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.md },
   monthButton: {
     width: 36,

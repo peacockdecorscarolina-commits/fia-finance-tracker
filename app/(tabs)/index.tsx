@@ -78,8 +78,6 @@ export default function TransactionsScreen() {
   return (
     <Screen>
       <View style={styles.container}>
-        <Text style={styles.title}>Overview</Text>
-
         <SegmentedControl options={PERIODS} value={period} onChange={setPeriod} />
 
         <View style={styles.statRow}>
@@ -187,8 +185,7 @@ export default function TransactionsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
-  title: { fontSize: 28, fontWeight: "700", color: colors.textPrimary, marginBottom: spacing.md },
+  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md },
   statRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md, marginBottom: spacing.md },
   statBox: {
     flex: 1,

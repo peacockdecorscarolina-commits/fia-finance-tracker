@@ -82,7 +82,6 @@ export default function UploadScreen() {
     return (
       <Screen>
         <View style={styles.centered}>
-          <Text style={styles.title}>Upload</Text>
           <Text style={styles.empty}>
             You need an account before uploading a statement.
           </Text>
@@ -97,8 +96,6 @@ export default function UploadScreen() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Upload</Text>
-
         <Card style={styles.card}>
           <Text style={styles.label}>Account</Text>
           <View style={styles.chipRow}>
@@ -194,7 +191,6 @@ export default function UploadScreen() {
 const styles = StyleSheet.create({
   container: { padding: spacing.md, gap: spacing.md, paddingBottom: tabBarClearance },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md, padding: spacing.lg },
-  title: { fontSize: 28, fontWeight: "700", color: colors.textPrimary },
   card: { gap: spacing.sm },
   label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginTop: spacing.xs },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
