@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Card } from "../../components/Card";
+import { LineChart } from "../../components/LineChart";
 import { PillButton } from "../../components/PillButton";
 import { Screen } from "../../components/Screen";
 import { TransactionRow } from "../../components/TransactionRow";
@@ -11,6 +12,7 @@ import { getCategoryStyle } from "../../lib/categoryStyle";
 import {
   deleteTransaction,
   getCategories,
+  getCategoryMonthlyTotals,
   getTransactions,
   setCategoryLoanAmount,
   setMerchantCategory,
@@ -28,6 +30,13 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function formatMonthShort(month: string): string {
+  const [year, m] = month.split("-").map(Number);
+  return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
+}
+
+const TREND_MONTHS = 6;
+
 export default function CategoryDrillDownScreen() {
   const { name, month } = useLocalSearchParams<{ name: string; month: string }>();
   const db = useSQLiteContext();
@@ -37,6 +46,7 @@ export default function CategoryDrillDownScreen() {
   const [editingLoan, setEditingLoan] = useState(false);
   const [loanInput, setLoanInput] = useState("");
   const [loanDateInput, setLoanDateInput] = useState("");
+  const [monthlyTrend, setMonthlyTrend] = useState<{ month: string; total: number }[]>([]);
 
   const category = categories.find((c) => c.name === name) ?? null;
   const paidSoFar = category?.loanAsOfDate
@@ -52,6 +62,7 @@ export default function CategoryDrillDownScreen() {
     getTransactions(db, { categoryName: name, start, end }).then(setTransactions);
     getTransactions(db, { categoryName: name }).then(setAllTransactions);
     getCategories(db).then(setCategories);
+    if (name) getCategoryMonthlyTotals(db, name, TREND_MONTHS).then(setMonthlyTrend);
   }, [db, name, month]);
 
   useFocusEffect(load);
@@ -90,7 +101,19 @@ export default function CategoryDrillDownScreen() {
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.list}
           ListHeaderComponent={
-            category ? (
+            <>
+              {monthlyTrend.filter((m) => m.total > 0).length >= 2 && (
+                <Card style={styles.trendCard}>
+                  <Text style={styles.trendTitle}>Monthly spend</Text>
+                  <LineChart
+                    points={monthlyTrend.map((m) => m.total)}
+                    labels={monthlyTrend.map((m) => formatMonthShort(m.month))}
+                    color={colors.accent}
+                    width={320}
+                  />
+                </Card>
+              )}
+              {category && (
               <Card style={styles.loanCard}>
                 {editingLoan ? (
                   <View style={styles.loanEditForm}>
@@ -165,7 +188,8 @@ export default function CategoryDrillDownScreen() {
                   </Pressable>
                 )}
               </Card>
-            ) : null
+              )}
+            </>
           }
           ListEmptyComponent={<Text style={styles.empty}>No transactions in this category.</Text>}
           renderItem={({ item }) => (
@@ -187,6 +211,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md },
   list: { gap: spacing.sm, paddingBottom: spacing.lg },
   empty: { textAlign: "center", color: colors.textSecondary, marginTop: spacing.lg },
+  trendCard: { marginBottom: spacing.sm, gap: spacing.sm },
+  trendTitle: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
   loanCard: { marginBottom: spacing.sm, gap: spacing.xs },
   loanHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   loanLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },

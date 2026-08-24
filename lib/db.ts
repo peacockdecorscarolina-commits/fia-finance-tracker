@@ -222,6 +222,35 @@ export async function getAssetSummaries(
   return results;
 }
 
+// Combined balance-over-time for every asset of a given type -- e.g. if you
+// have two Investment accounts, this sums their balances on each date one
+// of them was updated, so the Investing panel can show one trend line
+// instead of per-account ones.
+export async function getAssetTypeHistory(
+  db: SQLiteDatabase,
+  type: AssetType
+): Promise<{ date: string; total: number }[]> {
+  const assets = await getAssets(db);
+  const matching = assets.filter((a) => a.type === type);
+  if (matching.length === 0) return [];
+
+  const latestPerAsset = new Map<number, number>();
+  const byDate = new Map<string, number>();
+  const allEntries: { assetId: number; date: string; balance: number }[] = [];
+  for (const a of matching) {
+    const entries = await getAssetBalances(db, a.id);
+    allEntries.push(...entries.map((e) => ({ assetId: a.id, date: e.date, balance: e.balance })));
+  }
+  allEntries.sort((a, b) => a.date.localeCompare(b.date));
+  for (const entry of allEntries) {
+    latestPerAsset.set(entry.assetId, entry.balance);
+    let total = 0;
+    for (const bal of latestPerAsset.values()) total += bal;
+    byDate.set(entry.date, total);
+  }
+  return [...byDate.entries()].map(([date, total]) => ({ date, total }));
+}
+
 // Remaining balance for every category tracked as a loan -- mirrors the
 // per-category math on the category detail page (only payments dated after
 // loan_as_of_date count against the loan amount).
@@ -508,6 +537,29 @@ export async function getMonthlyTotals(
     INCOME_CATEGORY_NAME,
     INCOME_CATEGORY_NAME,
     PAYMENT_CATEGORY_NAME,
+    months
+  );
+  return rows.reverse();
+}
+
+// Monthly spend for a single category, for the trend chart on the category
+// detail page -- expressed as a positive amount (spend magnitude) per month.
+export async function getCategoryMonthlyTotals(
+  db: SQLiteDatabase,
+  categoryName: string,
+  months: number
+): Promise<{ month: string; total: number }[]> {
+  const rows = await db.getAllAsync<{ month: string; total: number }>(
+    `SELECT
+       substr(transactions.date, 1, 7) as month,
+       SUM(-transactions.amount) as total
+     FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE transactions.ignored = 0 AND LOWER(categories.name) = LOWER(?)
+     GROUP BY month
+     ORDER BY month DESC
+     LIMIT ?`,
+    categoryName,
     months
   );
   return rows.reverse();

@@ -1,7 +1,13 @@
-import { StyleSheet, Text, View } from "react-native";
-import { colors } from "../lib/theme";
+import { useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { buildTicks, formatAxisLabel } from "../lib/chartAxis";
+import { colors, radius } from "../lib/theme";
 
 type Point = { x: number; y: number };
+
+function formatMoney(value: number): string {
+  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 function segmentStyle(from: Point, to: Point, color: string, strokeWidth: number) {
   const dx = to.x - from.x;
@@ -21,61 +27,127 @@ function segmentStyle(from: Point, to: Point, color: string, strokeWidth: number
   };
 }
 
+const CHART_HEIGHT = 90;
+const TOOLTIP_WIDTH = 90;
+
 export function LineChart({
   points,
   labels,
   color = colors.accent,
   width = 320,
-  height = 100,
 }: {
   points: number[];
   labels?: string[];
   color?: string;
   width?: number;
-  height?: number;
 }) {
+  const [selected, setSelected] = useState<number | null>(null);
+
   if (points.length < 2) {
-    return <View style={{ width, height }} />;
+    return <View style={{ width, height: CHART_HEIGHT }} />;
   }
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const range = max - min || 1;
-  const padding = 6;
-  const usableHeight = height - padding * 2;
+
+  const rawMax = Math.max(...points);
+  const rawMin = Math.min(0, Math.min(...points));
+  const ticks = buildTicks(rawMax, rawMin);
+  const axisMax = ticks[ticks.length - 1];
+  const axisMin = ticks[0];
+  const axisRange = axisMax - axisMin || 1;
+
   const stepX = width / (points.length - 1);
   const coords: Point[] = points.map((p, i) => ({
     x: i * stepX,
-    y: padding + usableHeight - ((p - min) / range) * usableHeight,
+    y: CHART_HEIGHT - ((p - axisMin) / axisRange) * CHART_HEIGHT,
   }));
 
+  const tooltipLeft =
+    selected !== null ? Math.min(Math.max(coords[selected].x - TOOLTIP_WIDTH / 2, 0), width - TOOLTIP_WIDTH) : 0;
+
   return (
-    <View>
-      <View style={{ width, height }}>
-        {coords.slice(1).map((c, i) => (
-          <View key={i} style={segmentStyle(coords[i], c, color, 2.5)} />
-        ))}
-        {coords.map((c, i) => (
-          <View
-            key={`dot-${i}`}
-            style={[styles.dot, { left: c.x - 3, top: c.y - 3, backgroundColor: color }]}
-          />
+    <View style={styles.chartWithAxis}>
+      <View style={styles.axisColumn}>
+        {[...ticks].reverse().map((tick) => (
+          <Text key={tick} style={styles.axisLabel}>
+            {formatAxisLabel(tick, axisMax >= 1000)}
+          </Text>
         ))}
       </View>
-      {labels && (
-        <View style={styles.labelRow}>
-          {labels.map((l, i) => (
-            <Text key={i} style={styles.label}>
-              {l}
-            </Text>
+
+      <View style={styles.plotArea}>
+        <View style={[styles.plot, { width, height: CHART_HEIGHT }]}>
+          {selected !== null && (
+            <View style={[styles.tooltip, { left: tooltipLeft, top: Math.max(coords[selected].y - 40, 0) }]}>
+              <Text style={styles.tooltipValue}>{formatMoney(points[selected])}</Text>
+              {labels && <Text style={styles.tooltipLabel}>{labels[selected]}</Text>}
+            </View>
+          )}
+          {coords.slice(1).map((c, i) => (
+            <View key={i} style={segmentStyle(coords[i], c, color, 2.5)} />
+          ))}
+          {coords.map((c, i) => (
+            <Pressable
+              key={`dot-${i}`}
+              hitSlop={10}
+              onPress={() => setSelected((current) => (current === i ? null : i))}
+              style={[styles.dotHit, { left: c.x - 10, top: c.y - 10 }]}
+            >
+              <View
+                style={[
+                  styles.dot,
+                  selected === i && styles.dotSelected,
+                  { backgroundColor: color },
+                ]}
+              />
+            </Pressable>
           ))}
         </View>
-      )}
+        {labels && (
+          <View style={styles.labelRow}>
+            {labels.map((l, i) => (
+              <Text key={i} style={[styles.label, selected === i && styles.labelSelected]}>
+                {l}
+              </Text>
+            ))}
+          </View>
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  dot: { position: "absolute", width: 6, height: 6, borderRadius: 3 },
-  labelRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
-  label: { fontSize: 10, color: colors.textSecondary },
+  chartWithAxis: { flexDirection: "row" },
+  axisColumn: {
+    height: CHART_HEIGHT,
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginRight: 6,
+  },
+  axisLabel: { fontSize: 10, color: colors.textSecondary, fontWeight: "600" },
+  plotArea: { flex: 1 },
+  plot: {
+    borderLeftWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+  },
+  dotHit: { position: "absolute", width: 20, height: 20, alignItems: "center", justifyContent: "center" },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+  dotSelected: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: "#FFFFFF" },
+  tooltip: {
+    position: "absolute",
+    width: TOOLTIP_WIDTH,
+    backgroundColor: colors.cardSolid,
+    borderRadius: radius.chip,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    zIndex: 10,
+  },
+  tooltipValue: { fontSize: 12, fontWeight: "700", color: colors.textPrimary },
+  tooltipLabel: { fontSize: 10, color: colors.textSecondary },
+  labelRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
+  label: { fontSize: 11, color: colors.textSecondary, fontWeight: "600" },
+  labelSelected: { color: colors.textPrimary, fontWeight: "700" },
 });
