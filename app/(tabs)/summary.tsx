@@ -6,6 +6,7 @@ import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "
 import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
+import { PieChart } from "../../components/PieChart";
 import { PressScale } from "../../components/PressScale";
 import { Screen } from "../../components/Screen";
 import { Shimmer } from "../../components/Shimmer";
@@ -266,6 +267,20 @@ export default function SummaryScreen() {
           loading={loading}
         />
 
+        {!loading && categoryTotals.length > 0 && (
+          <Card style={styles.pieCard}>
+            <Text style={styles.pieTitle}>By category</Text>
+            <PieChart
+              slices={categoryTotals.map((c) => ({
+                name: c.name,
+                value: c.total,
+                color: getCategoryStyle(c.name).color,
+                emoji: getCategoryStyle(c.name).emoji,
+              }))}
+            />
+          </Card>
+        )}
+
         <Breakdown
           title="By category"
           items={categoryTotals}
@@ -320,6 +335,8 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 32, fontWeight: "700", color: colors.textPrimary },
   breakdownCard: { gap: spacing.md },
   breakdownTitle: { fontSize: 16, fontWeight: "700", color: colors.textPrimary },
+  pieCard: { gap: spacing.md },
+  pieTitle: { fontSize: 16, fontWeight: "700", color: colors.textPrimary },
   itemRow: { flexDirection: "row", gap: spacing.sm },
   itemLeftBar: { width: 4, borderRadius: 2, alignSelf: "stretch" },
   itemHeader: { flexDirection: "row", justifyContent: "space-between" },
