@@ -2,7 +2,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { AnimatedAmount } from "../components/AnimatedAmount";
 import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
@@ -111,7 +111,7 @@ export default function AssetsScreen() {
 
   return (
     <Screen>
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         {!loading && assets.length > 0 && (
           <LinearGradient
             colors={gradientAccent}
@@ -191,13 +191,13 @@ export default function AssetsScreen() {
             ))}
           </View>
         ))}
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
+  container: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
   netWorthCard: { borderRadius: radius.card, padding: spacing.md },
   netWorthLabel: { fontSize: 13, color: "#FFFFFFCC", fontWeight: "600" },
   netWorthValue: { fontSize: 26, fontWeight: "700", color: "#FFFFFF", marginTop: 4 },

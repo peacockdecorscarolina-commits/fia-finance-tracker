@@ -1,7 +1,7 @@
 import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { LineChart } from "../../components/LineChart";
@@ -62,7 +62,7 @@ export default function AssetDetailScreen() {
   return (
     <Screen>
       <Stack.Screen options={{ title: asset ? `${TYPE_ICON[asset.type]} ${asset.name}` : "Account" }} />
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Card style={styles.balanceCard}>
           <Text style={styles.label}>Current balance</Text>
           <Text style={styles.balance}>{formatMoney(currentBalance)}</Text>
@@ -138,13 +138,13 @@ export default function AssetDetailScreen() {
             </Card>
           ))
         )}
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
+  container: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
   balanceCard: { gap: spacing.sm },
   chartCard: { gap: spacing.sm },
   chartHintCard: {},
