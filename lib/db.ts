@@ -613,7 +613,7 @@ export type DataSnapshot = {
   version: 1;
   exportedAt: string;
   accounts: { name: string; type: string }[];
-  categories: { name: string }[];
+  categories: { name: string; loanAmount: number | null; loanAsOfDate: string | null }[];
   merchantCategoryMap: { merchantKey: string; categoryName: string }[];
   transactions: {
     accountName: string;
@@ -624,14 +624,25 @@ export type DataSnapshot = {
     needsReview: boolean;
     ignored: boolean;
   }[];
+  assets: { name: string; type: AssetType }[];
+  assetBalances: { assetName: string; date: string; balance: number }[];
 };
 
 export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
   const accounts = await db.getAllAsync<{ name: string; type: string }>(
     "SELECT name, type FROM accounts ORDER BY id"
   );
-  const categories = await db.getAllAsync<{ name: string }>(
-    "SELECT name FROM categories ORDER BY id"
+  const categories = await db.getAllAsync<{ name: string; loanAmount: number | null; loanAsOfDate: string | null }>(
+    "SELECT name, loan_amount as loanAmount, loan_as_of_date as loanAsOfDate FROM categories ORDER BY id"
+  );
+  const assets = await db.getAllAsync<{ name: string; type: AssetType }>(
+    "SELECT name, type FROM assets ORDER BY id"
+  );
+  const assetBalances = await db.getAllAsync<{ assetName: string; date: string; balance: number }>(
+    `SELECT assets.name as assetName, asset_balances.date as date, asset_balances.balance as balance
+     FROM asset_balances
+     JOIN assets ON assets.id = asset_balances.asset_id
+     ORDER BY asset_balances.id`
   );
   const merchantCategoryMap = await db.getAllAsync<{ merchantKey: string; categoryName: string }>(
     `SELECT merchant_category_map.merchant_key as merchantKey, categories.name as categoryName
@@ -672,6 +683,8 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
       needsReview: t.needsReview === 1,
       ignored: t.ignored === 1,
     })),
+    assets,
+    assetBalances,
   };
 }
 
@@ -680,12 +693,17 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
 // for restoring onto a fresh/empty database, not merging.
 export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
   await db.execAsync(
-    "DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts;"
+    "DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
   );
 
   const categoryIds = new Map<string, number>();
   for (const category of snapshot.categories) {
-    const result = await db.runAsync("INSERT INTO categories (name) VALUES (?)", category.name);
+    const result = await db.runAsync(
+      "INSERT INTO categories (name, loan_amount, loan_as_of_date) VALUES (?, ?, ?)",
+      category.name,
+      category.loanAmount ?? null,
+      category.loanAsOfDate ?? null
+    );
     categoryIds.set(category.name, result.lastInsertRowId);
   }
 
@@ -722,6 +740,23 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
       categoryId,
       t.needsReview ? 1 : 0,
       t.ignored ? 1 : 0
+    );
+  }
+
+  const assetIds = new Map<string, number>();
+  for (const asset of snapshot.assets ?? []) {
+    const result = await db.runAsync("INSERT INTO assets (name, type) VALUES (?, ?)", asset.name, asset.type);
+    assetIds.set(asset.name, result.lastInsertRowId);
+  }
+
+  for (const entry of snapshot.assetBalances ?? []) {
+    const assetId = assetIds.get(entry.assetName);
+    if (assetId === undefined) continue;
+    await db.runAsync(
+      "INSERT INTO asset_balances (asset_id, date, balance) VALUES (?, ?, ?)",
+      assetId,
+      entry.date,
+      entry.balance
     );
   }
 }
