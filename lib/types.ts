@@ -34,3 +34,19 @@ export type ExtractedTransaction = {
   category: string;
   needsReview: boolean;
 };
+
+export const ASSET_TYPES = ["Savings", "Investment", "401k", "Cash"] as const;
+export type AssetType = (typeof ASSET_TYPES)[number];
+
+export type Asset = {
+  id: number;
+  name: string;
+  type: AssetType;
+};
+
+export type AssetBalanceEntry = {
+  id: number;
+  assetId: number;
+  date: string;
+  balance: number;
+};

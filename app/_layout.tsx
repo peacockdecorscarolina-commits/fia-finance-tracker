@@ -21,6 +21,8 @@ export default function RootLayout() {
         <Stack.Screen name="categories" options={{ title: "Categories", ...pushedScreenOptions }} />
         <Stack.Screen name="category/[name]" options={{ title: "Category", ...pushedScreenOptions }} />
         <Stack.Screen name="account/[name]" options={{ title: "Account", ...pushedScreenOptions }} />
+        <Stack.Screen name="net-worth" options={{ title: "Savings & Investments", ...pushedScreenOptions }} />
+        <Stack.Screen name="asset/[id]" options={{ title: "Account", ...pushedScreenOptions }} />
         <Stack.Screen name="sync" options={{ title: "Sync", ...pushedScreenOptions }} />
         <Stack.Screen
           name="move-transactions"

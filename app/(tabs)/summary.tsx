@@ -194,6 +194,7 @@ export default function SummaryScreen() {
   const moreItems: MoreItem[] = [
     { icon: "card-outline", label: "Accounts", onPress: () => router.push("/accounts") },
     { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
+    { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },
     { icon: "swap-horizontal-outline", label: "Move", onPress: () => router.push("/move-transactions") },
     { icon: "trash-outline", label: "Delete", onPress: () => router.push("/delete-transactions") },
     ...(Platform.OS === "web"

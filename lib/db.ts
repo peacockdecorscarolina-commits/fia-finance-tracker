@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { DEFAULT_ACCOUNTS } from "./defaultAccounts";
-import type { Account, Category, ExtractedTransaction, Transaction } from "./types";
+import type { Account, Asset, AssetBalanceEntry, AssetType, Category, ExtractedTransaction, Transaction } from "./types";
 
 // Merchant memory (merchant_category_map) only helps if the same merchant
 // produces the same key across different statements -- but several issuers'
@@ -54,6 +54,17 @@ export async function initDatabase(db: SQLiteDatabase) {
       category_id INTEGER NOT NULL REFERENCES categories(id),
       needs_review INTEGER NOT NULL DEFAULT 0,
       ignored INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS assets (
+      id INTEGER PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS asset_balances (
+      id INTEGER PRIMARY KEY NOT NULL,
+      asset_id INTEGER NOT NULL REFERENCES assets(id),
+      date TEXT NOT NULL,
+      balance REAL NOT NULL
     );
   `);
 
@@ -162,6 +173,76 @@ export async function insertAccount(
 
 export async function getAccounts(db: SQLiteDatabase): Promise<Account[]> {
   return db.getAllAsync<Account>("SELECT id, name, type FROM accounts ORDER BY name");
+}
+
+export async function insertAsset(db: SQLiteDatabase, name: string, type: AssetType): Promise<number> {
+  const result = await db.runAsync("INSERT INTO assets (name, type) VALUES (?, ?)", name, type);
+  return result.lastInsertRowId;
+}
+
+export async function getAssets(db: SQLiteDatabase): Promise<Asset[]> {
+  return db.getAllAsync<Asset>("SELECT id, name, type FROM assets ORDER BY name");
+}
+
+export async function deleteAsset(db: SQLiteDatabase, id: number) {
+  await db.runAsync("DELETE FROM asset_balances WHERE asset_id = ?", id);
+  await db.runAsync("DELETE FROM assets WHERE id = ?", id);
+}
+
+export async function addAssetBalance(db: SQLiteDatabase, assetId: number, date: string, balance: number) {
+  await db.runAsync(
+    "INSERT INTO asset_balances (asset_id, date, balance) VALUES (?, ?, ?)",
+    assetId,
+    date,
+    balance
+  );
+}
+
+export async function getAssetBalances(db: SQLiteDatabase, assetId: number): Promise<AssetBalanceEntry[]> {
+  return db.getAllAsync<AssetBalanceEntry>(
+    "SELECT id, asset_id as assetId, date, balance FROM asset_balances WHERE asset_id = ? ORDER BY date ASC, id ASC",
+    assetId
+  );
+}
+
+// Lightweight summary for the Overview screen -- just each asset's latest
+// logged balance, not its full history.
+export async function getAssetSummaries(
+  db: SQLiteDatabase
+): Promise<{ id: number; name: string; type: AssetType; balance: number }[]> {
+  const assets = await getAssets(db);
+  const results = [];
+  for (const a of assets) {
+    const latest = await db.getFirstAsync<{ balance: number }>(
+      "SELECT balance FROM asset_balances WHERE asset_id = ? ORDER BY date DESC, id DESC LIMIT 1",
+      a.id
+    );
+    results.push({ id: a.id, name: a.name, type: a.type, balance: latest?.balance ?? 0 });
+  }
+  return results;
+}
+
+// Remaining balance for every category tracked as a loan -- mirrors the
+// per-category math on the category detail page (only payments dated after
+// loan_as_of_date count against the loan amount).
+export async function getLoanSummaries(
+  db: SQLiteDatabase
+): Promise<{ id: number; name: string; loanAmount: number; remaining: number }[]> {
+  const categories = await getCategories(db);
+  const results = [];
+  for (const c of categories) {
+    if (!c.loanAmount || !c.loanAsOfDate) continue;
+    const txs = await getTransactions(db, { categoryName: c.name });
+    const paid = Math.abs(
+      txs.filter((t) => !t.ignored && t.date > c.loanAsOfDate!).reduce((sum, t) => sum + t.amount, 0)
+    );
+    results.push({ id: c.id, name: c.name, loanAmount: c.loanAmount, remaining: Math.max(c.loanAmount - paid, 0) });
+  }
+  return results;
+}
+
+export async function deleteAssetBalance(db: SQLiteDatabase, id: number) {
+  await db.runAsync("DELETE FROM asset_balances WHERE id = ?", id);
 }
 
 // Inserts extracted transactions, checking local merchant memory first: a

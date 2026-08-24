@@ -1,4 +1,4 @@
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useState } from "react";
@@ -15,8 +15,10 @@ import { TransactionRow } from "../../components/TransactionRow";
 import {
   deleteTransaction,
   getAccounts,
+  getAssetSummaries,
   getCategories,
   getIncomeExpenseTotals,
+  getLoanSummaries,
   getMonthlyTotals,
   getTransactions,
   setMerchantCategory,
@@ -25,7 +27,20 @@ import {
 } from "../../lib/db";
 import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/period";
 import { colors, gradientAccent, radius, spacing, tabBarClearance } from "../../lib/theme";
-import type { Account, Category, Transaction } from "../../lib/types";
+import type { Account, AssetType, Category, Transaction } from "../../lib/types";
+
+const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
+const NET_WORTH_TINT: Record<AssetType | "loan", string> = {
+  loan: "#FEE2E2",
+  Savings: "#DCFCE7",
+  Investment: "#DBEAFE",
+  "401k": "#EDE9FE",
+  Cash: "#FEF3C7",
+};
+
+function formatMoney(value: number): string {
+  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 const CHART_MONTHS = 12;
 
@@ -45,6 +60,8 @@ export default function TransactionsScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loans, setLoans] = useState<{ id: number; name: string; loanAmount: number; remaining: number }[]>([]);
+  const [assets, setAssets] = useState<{ id: number; name: string; type: AssetType; balance: number }[]>([]);
 
   const load = useCallback(() => {
     const { start, end } = getPeriodRange(period);
@@ -53,6 +70,8 @@ export default function TransactionsScreen() {
 
     getAccounts(db).then(setAccounts);
     getCategories(db).then(setCategories);
+    getLoanSummaries(db).then(setLoans);
+    getAssetSummaries(db).then(setAssets);
     Promise.all([
       getTransactions(db, {
         accountId: accountFilter,
@@ -118,6 +137,53 @@ export default function TransactionsScreen() {
             onSelectMonth={(month) => setSelectedMonth((current) => (current === month ? null : month))}
           />
         </Card>
+
+        {!loading && (loans.length > 0 || assets.length > 0) && (
+          <View style={styles.netWorthSection}>
+            <View style={styles.netWorthTitleRow}>
+              <Text style={styles.netWorthTitle}>Net Worth</Text>
+              <Pressable onPress={() => router.push("/net-worth")}>
+                <Text style={styles.netWorthAddLink}>+ Add</Text>
+              </Pressable>
+            </View>
+            {loans.map((loan) => (
+              <PressScale
+                key={`loan-${loan.id}`}
+                onPress={() =>
+                  router.push({ pathname: "/category/[name]", params: { name: loan.name, month: selectedMonth ?? period } })
+                }
+              >
+                <View style={[styles.netWorthTile, { backgroundColor: NET_WORTH_TINT.loan }]}>
+                  <Text style={styles.netWorthTileIcon}>🚗</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.netWorthTileName}>{loan.name}</Text>
+                    <Text style={styles.netWorthTileSub}>owed</Text>
+                  </View>
+                  <Text style={[styles.netWorthTileValue, { color: colors.negative }]}>
+                    {formatMoney(loan.remaining)}
+                  </Text>
+                </View>
+              </PressScale>
+            ))}
+            {assets.map((asset) => (
+              <PressScale
+                key={`asset-${asset.id}`}
+                onPress={() => router.push({ pathname: "/asset/[id]", params: { id: String(asset.id) } })}
+              >
+                <View style={[styles.netWorthTile, { backgroundColor: NET_WORTH_TINT[asset.type] }]}>
+                  <Text style={styles.netWorthTileIcon}>{NET_WORTH_ICON[asset.type]}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.netWorthTileName}>{asset.name}</Text>
+                    <Text style={styles.netWorthTileSub}>{asset.type}</Text>
+                  </View>
+                  <Text style={[styles.netWorthTileValue, { color: colors.positive }]}>
+                    {formatMoney(asset.balance)}
+                  </Text>
+                </View>
+              </PressScale>
+            ))}
+          </View>
+        )}
 
         <View style={styles.sectionTitleRow}>
           <Text style={styles.sectionTitle}>
@@ -203,6 +269,21 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: "600", marginBottom: 4 },
   statValue: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   chartCard: { marginBottom: spacing.md },
+  netWorthSection: { gap: spacing.sm, marginBottom: spacing.md },
+  netWorthTitleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  netWorthTitle: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  netWorthAddLink: { fontSize: 13, color: colors.accent, fontWeight: "600" },
+  netWorthTile: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: radius.card,
+    padding: spacing.md,
+  },
+  netWorthTileIcon: { fontSize: 22 },
+  netWorthTileName: { fontSize: 14, fontWeight: "700", color: "#1F2937" },
+  netWorthTileSub: { fontSize: 11, color: "#374151", marginTop: 2 },
+  netWorthTileValue: { fontSize: 15, fontWeight: "700" },
   sectionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
