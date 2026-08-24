@@ -29,6 +29,7 @@ function segmentStyle(from: Point, to: Point, color: string, strokeWidth: number
 
 const CHART_HEIGHT = 90;
 const TOOLTIP_WIDTH = 90;
+const LABEL_WIDTH = 36;
 
 export function LineChart({
   points,
@@ -102,9 +103,20 @@ export function LineChart({
           ))}
         </View>
         {labels && (
-          <View style={styles.labelRow}>
+          <View style={[styles.labelRow, { width }]}>
             {labels.map((l, i) => (
-              <Text key={i} style={[styles.label, selected === i && styles.labelSelected]}>
+              <Text
+                key={i}
+                style={[
+                  styles.label,
+                  {
+                    position: "absolute",
+                    left: Math.min(Math.max(coords[i].x - LABEL_WIDTH / 2, 0), width - LABEL_WIDTH),
+                    width: LABEL_WIDTH,
+                  },
+                  selected === i && styles.labelSelected,
+                ]}
+              >
                 {l}
               </Text>
             ))}
@@ -147,7 +159,7 @@ const styles = StyleSheet.create({
   },
   tooltipValue: { fontSize: 12, fontWeight: "700", color: colors.textPrimary },
   tooltipLabel: { fontSize: 10, color: colors.textSecondary },
-  labelRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
-  label: { fontSize: 11, color: colors.textSecondary, fontWeight: "600" },
+  labelRow: { height: 14, marginTop: 6 },
+  label: { fontSize: 11, color: colors.textSecondary, fontWeight: "600", textAlign: "center" },
   labelSelected: { color: colors.textPrimary, fontWeight: "700" },
 });

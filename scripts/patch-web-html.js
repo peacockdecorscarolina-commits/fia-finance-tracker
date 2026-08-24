@@ -21,9 +21,14 @@ if (!html.includes("apple-mobile-web-app-capable")) {
   html = html.replace("</head>", `  ${tags}\n</head>`);
 }
 
+// NOTE: deliberately NOT setting maximum-scale/user-scalable=no here.
+// Disabling pinch-zoom is a known source of iOS Safari getting stuck in a
+// shifted/zoomed viewport state after a text input's keyboard dismisses --
+// elements stay visually in place but stop being tappable there. That's
+// worse than losing the "no accidental zoom" nicety.
 html = html.replace(
   '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />',
-  '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover, maximum-scale=1, user-scalable=no" />'
+  '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />'
 );
 
 fs.writeFileSync(indexPath, html);
