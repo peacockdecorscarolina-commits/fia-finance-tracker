@@ -31,5 +31,18 @@ html = html.replace(
   '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />'
 );
 
+// The root `html,body,#root { height: 100% }` rules from Expo's own reset
+// can resolve shorter than the true screen in iOS Safari standalone mode
+// with viewport-fit=cover -- percentages don't reliably reflect the full
+// safe-area-inclusive viewport there. 100dvh (dynamic viewport height) is
+// the unit made for this; browsers that don't support it just ignore the
+// line and keep the 100% fallback above it.
+if (!html.includes("100dvh")) {
+  html = html.replace(
+    "</style>",
+    `  html, body, #root { height: 100dvh; }\n    </style>`
+  );
+}
+
 fs.writeFileSync(indexPath, html);
 console.log("Patched dist/index.html with iOS PWA meta tags.");

@@ -5,7 +5,7 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-na
 import { Card } from "../components/Card";
 import { PillButton } from "../components/PillButton";
 import { Screen } from "../components/Screen";
-import { getAccounts, insertAccount } from "../lib/db";
+import { getAccounts, insertAccount, renameAccount } from "../lib/db";
 import { colors, radius, spacing } from "../lib/theme";
 import type { Account } from "../lib/types";
 
@@ -16,6 +16,8 @@ export default function AccountsScreen() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [name, setName] = useState("");
   const [type, setType] = useState<(typeof ACCOUNT_TYPES)[number]>("Checking");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState("");
 
   const load = useCallback(() => {
     getAccounts(db).then(setAccounts);
@@ -27,6 +29,18 @@ export default function AccountsScreen() {
     if (!name.trim()) return;
     await insertAccount(db, name.trim(), type);
     setName("");
+    load();
+  }
+
+  function startEditing(account: Account) {
+    setEditingId(account.id);
+    setEditingName(account.name);
+  }
+
+  async function saveEdit() {
+    if (editingId === null || !editingName.trim()) return;
+    await renameAccount(db, editingId, editingName.trim());
+    setEditingId(null);
     load();
   }
 
@@ -69,12 +83,29 @@ export default function AccountsScreen() {
           ListEmptyComponent={
             <Text style={styles.empty}>No accounts yet — add one above to get started.</Text>
           }
-          renderItem={({ item }) => (
-            <Card style={styles.accountRow}>
-              <Text style={styles.accountName}>{item.name}</Text>
-              <Text style={styles.accountType}>{item.type}</Text>
-            </Card>
-          )}
+          renderItem={({ item }) =>
+            editingId === item.id ? (
+              <Card style={styles.editCard}>
+                <TextInput
+                  value={editingName}
+                  onChangeText={setEditingName}
+                  style={styles.input}
+                  autoFocus
+                />
+                <View style={styles.editActions}>
+                  <PillButton title="Cancel" onPress={() => setEditingId(null)} variant="secondary" />
+                  <PillButton title="Save" onPress={saveEdit} disabled={!editingName.trim()} />
+                </View>
+              </Card>
+            ) : (
+              <Pressable onPress={() => startEditing(item)}>
+                <Card style={styles.accountRow}>
+                  <Text style={styles.accountName}>{item.name}</Text>
+                  <Text style={styles.accountType}>{item.type}</Text>
+                </Card>
+              </Pressable>
+            )
+          }
         />
       </View>
     </Screen>
@@ -109,6 +140,8 @@ const styles = StyleSheet.create({
   typeChipTextActive: { color: colors.pillActiveText },
   list: { gap: spacing.sm, paddingBottom: spacing.lg },
   accountRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  editCard: { gap: spacing.sm },
+  editActions: { flexDirection: "row", gap: spacing.sm },
   accountName: { fontSize: 16, fontWeight: "600", color: colors.textPrimary },
   accountType: { fontSize: 13, color: colors.textSecondary },
   empty: { textAlign: "center", color: colors.textSecondary, marginTop: spacing.lg },

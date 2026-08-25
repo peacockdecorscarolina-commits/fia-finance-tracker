@@ -175,6 +175,10 @@ export async function getAccounts(db: SQLiteDatabase): Promise<Account[]> {
   return db.getAllAsync<Account>("SELECT id, name, type FROM accounts ORDER BY name");
 }
 
+export async function renameAccount(db: SQLiteDatabase, id: number, name: string) {
+  await db.runAsync("UPDATE accounts SET name = ? WHERE id = ?", name, id);
+}
+
 export async function insertAsset(db: SQLiteDatabase, name: string, type: AssetType): Promise<number> {
   const result = await db.runAsync("INSERT INTO assets (name, type) VALUES (?, ?)", name, type);
   return result.lastInsertRowId;
