@@ -11,7 +11,6 @@ import { getCategoryStyle } from "../../lib/categoryStyle";
 import {
   getAccountSummary,
   getCategorySummary,
-  getLatestTransactionMonth,
   getNeedsReviewCount,
   getPaymentTotal,
   getTransactions,
@@ -140,7 +139,7 @@ export default function SummaryScreen() {
     useCallback(() => {
       getNeedsReviewCount(db).then(setReviewCount);
       if (month === null) {
-        getLatestTransactionMonth(db).then((latest) => setMonth(latest ?? currentMonth()));
+        setMonth(currentMonth());
         return;
       }
       setLoading(true);
