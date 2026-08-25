@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import { buildTicks, formatAxisLabel } from "../lib/chartAxis";
 import { colors, radius } from "../lib/theme";
 
@@ -35,7 +35,7 @@ export function LineChart({
   points,
   labels,
   color = colors.accent,
-  width = 320,
+  width: fallbackWidth = 320,
 }: {
   points: number[];
   labels?: string[];
@@ -43,9 +43,19 @@ export function LineChart({
   width?: number;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
+  // The axis column's width isn't known until it's measured, so a caller-
+  // supplied "total chart width" would either overflow (if it didn't
+  // account for the axis) or under-use the space. Measuring the plot
+  // area's own actual rendered width sidesteps that entirely.
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const width = measuredWidth ?? fallbackWidth;
+
+  function onPlotLayout(e: LayoutChangeEvent) {
+    setMeasuredWidth(e.nativeEvent.layout.width);
+  }
 
   if (points.length < 2) {
-    return <View style={{ width, height: CHART_HEIGHT }} />;
+    return <View style={{ height: CHART_HEIGHT }} />;
   }
 
   const rawMax = Math.max(...points);
@@ -74,7 +84,7 @@ export function LineChart({
         ))}
       </View>
 
-      <View style={styles.plotArea}>
+      <View style={styles.plotArea} onLayout={onPlotLayout}>
         <View style={[styles.plot, { width, height: CHART_HEIGHT }]}>
           {selected !== null && (
             <View style={[styles.tooltip, { left: tooltipLeft, top: Math.max(coords[selected].y - 40, 0) }]}>
