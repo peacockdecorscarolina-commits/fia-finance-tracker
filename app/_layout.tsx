@@ -18,7 +18,6 @@ export default function RootLayout() {
       <SQLiteProvider databaseName="fia.db" onInit={initDatabase}>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="review" options={{ title: "Review", ...pushedScreenOptions }} />
           <Stack.Screen name="category/[name]" options={{ title: "Category", ...pushedScreenOptions }} />
         </Stack>
       </SQLiteProvider>

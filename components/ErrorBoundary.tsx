@@ -1,7 +1,18 @@
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { Component, type ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { PillButton } from "./PillButton";
-import { colors, spacing } from "./../lib/theme";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { spacing } from "../lib/theme";
+
+// Matches the rest of the app's redesigned screens.
+const GRADIENT = ["#4C1D95", "#312E81"] as const;
+
+const neutral = {
+  background: "#F2F2F7",
+  card: "#FFFFFF",
+  textPrimary: "#0F172A",
+  textSecondary: "#64748B",
+};
 
 type Props = { children: ReactNode };
 type State = { error: Error | null };
@@ -22,12 +33,19 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         <View style={styles.container}>
+          <View style={styles.iconWrap}>
+            <Ionicons name="cloud-offline-outline" size={28} color="#4C1D95" />
+          </View>
           <Text style={styles.title}>Couldn't load your data</Text>
           <Text style={styles.message}>
             This usually clears up with a reload. If it keeps happening, try opening this from
             your home-screen bookmark instead of a browser tab.
           </Text>
-          <PillButton title="Reload" onPress={() => window.location.reload()} />
+          <Pressable onPress={() => window.location.reload()} style={styles.reloadBtnWrap}>
+            <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.reloadBtn}>
+              <Text style={styles.reloadBtnText}>Reload</Text>
+            </LinearGradient>
+          </Pressable>
         </View>
       );
     }
@@ -41,9 +59,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: spacing.lg,
-    gap: spacing.md,
-    backgroundColor: colors.gradientStart,
+    gap: spacing.sm,
+    backgroundColor: neutral.background,
   },
-  title: { fontSize: 18, fontWeight: "700", color: colors.textPrimary, textAlign: "center" },
-  message: { fontSize: 14, color: colors.textSecondary, textAlign: "center" },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#EDE9FE",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+  },
+  title: { fontSize: 18, fontWeight: "700", color: neutral.textPrimary, textAlign: "center" },
+  message: { fontSize: 14, color: neutral.textSecondary, textAlign: "center", lineHeight: 20 },
+  reloadBtnWrap: { borderRadius: 999, overflow: "hidden", marginTop: spacing.sm, alignSelf: "stretch" },
+  reloadBtn: { paddingVertical: 14, alignItems: "center" },
+  reloadBtnText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
 });
