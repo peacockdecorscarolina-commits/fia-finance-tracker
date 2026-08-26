@@ -1,13 +1,26 @@
-import { useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { Card } from "../components/Card";
-import { PillButton } from "../components/PillButton";
-import { Screen } from "../components/Screen";
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { getAccountStyle } from "../lib/accountStyle";
 import { getAccounts, getTransactions, moveTransactions } from "../lib/db";
-import { colors, radius, spacing } from "../lib/theme";
+import { radius, spacing } from "../lib/theme";
 import type { Account } from "../lib/types";
+
+// Matches the Summary / Add Transaction / Accounts screens' design system.
+const ACCENT = "#4C1D95";
+const ACCENT_LIGHT = "#EDE9FE";
+const GRADIENT = ["#4C1D95", "#312E81"] as const;
+
+const neutral = {
+  background: "#F2F2F7",
+  card: "#FFFFFF",
+  textPrimary: "#0F172A",
+  textSecondary: "#64748B",
+  border: "#E5E5EA",
+};
 
 type Status = { kind: "idle" } | { kind: "error"; message: string } | { kind: "done"; count: number };
 
@@ -57,116 +70,197 @@ export default function MoveTransactionsScreen() {
     onChange: (id: number) => void;
   }) {
     return (
-      <>
-        <Text style={styles.label}>{label}</Text>
-        <View style={styles.chipRow}>
+      <View style={{ gap: spacing.sm }}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        <View style={styles.grid}>
           {accounts.map((a) => {
             const active = a.id === value;
+            const style = getAccountStyle(a.name);
             return (
               <Pressable
                 key={a.id}
                 onPress={() => onChange(a.id)}
-                style={[styles.chip, active && styles.chipActive]}
+                style={[styles.tile, active && styles.tileActive]}
               >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{a.name}</Text>
+                <View style={[styles.tileIcon, { backgroundColor: style.color }]}>
+                  <Text style={styles.tileIconText}>{a.name.slice(0, 2).toUpperCase()}</Text>
+                </View>
+                <Text style={styles.tileLabel} numberOfLines={1}>
+                  {a.name}
+                </Text>
+                {active && (
+                  <View style={styles.checkBadge}>
+                    <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                  </View>
+                )}
               </Pressable>
             );
           })}
         </View>
-      </>
+      </View>
     );
   }
 
+  const canMove = previewCount !== null && previewCount > 0 && toId !== null && toId !== fromId;
+
   return (
-    <Screen>
-      <View style={styles.container}>
-        <Card style={styles.card}>
-          <Text style={styles.title}>Move Transactions</Text>
-          <Text style={styles.description}>
-            Fix a statement saved to the wrong account: pick the account it's currently on, the
-            account it should be on, and the date range to move.
-          </Text>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
+            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Move Transactions</Text>
+          <View style={styles.headerBtn} />
+        </View>
+        <Text style={styles.description}>
+          Fix a statement saved to the wrong account: pick the account it's currently on, the account
+          it should be on, and the date range to move.
+        </Text>
 
+        <View style={styles.sectionCard}>
           <AccountPicker label="From account" value={fromId} onChange={setFromId} />
-          <AccountPicker label="To account" value={toId} onChange={setToId} />
+        </View>
 
-          <Text style={styles.label}>Date range</Text>
+        <View style={styles.sectionCard}>
+          <AccountPicker label="To account" value={toId} onChange={setToId} />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Date range</Text>
           <View style={styles.dateRow}>
-            <TextInput
-              value={start}
-              onChangeText={setStart}
-              placeholder="2026-06-13"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.dateInput}
-            />
+            <View style={[styles.inputRow, { flex: 1 }]}>
+              <Ionicons name="calendar-outline" size={16} color={neutral.textSecondary} />
+              <TextInput
+                value={start}
+                onChangeText={setStart}
+                placeholder="2026-06-13"
+                placeholderTextColor={neutral.textSecondary}
+                style={[styles.inputText, { marginLeft: 6 }]}
+              />
+            </View>
             <Text style={styles.toText}>to</Text>
-            <TextInput
-              value={end}
-              onChangeText={setEnd}
-              placeholder="2026-07-09"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.dateInput}
-            />
+            <View style={[styles.inputRow, { flex: 1 }]}>
+              <Ionicons name="calendar-outline" size={16} color={neutral.textSecondary} />
+              <TextInput
+                value={end}
+                onChangeText={setEnd}
+                placeholder="2026-07-09"
+                placeholderTextColor={neutral.textSecondary}
+                style={[styles.inputText, { marginLeft: 6 }]}
+              />
+            </View>
           </View>
 
-          <PillButton
-            title="Preview"
+          <Pressable
             onPress={handlePreview}
             disabled={fromId === null || !isValidDateRange}
-            variant="secondary"
-          />
+            style={[styles.previewBtn, (fromId === null || !isValidDateRange) && { opacity: 0.5 }]}
+          >
+            <Text style={styles.previewBtnText}>Preview</Text>
+          </Pressable>
 
           {previewCount !== null && (
             <Text style={styles.previewText}>
-              {previewCount} transaction{previewCount === 1 ? "" : "s"} match this account and date
-              range.
+              {previewCount} transaction{previewCount === 1 ? "" : "s"} match this account and date range.
             </Text>
           )}
 
-          {previewCount !== null && previewCount > 0 && toId !== null && toId !== fromId && (
-            <PillButton title={`Move ${previewCount} to selected account`} onPress={handleMove} />
+          {canMove && (
+            <Pressable onPress={handleMove}>
+              <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.submitBtn}>
+                <Text style={styles.submitText}>Move {previewCount} to selected account</Text>
+              </LinearGradient>
+            </Pressable>
           )}
 
-          {status.kind === "done" && (
-            <Text style={styles.successText}>Moved {status.count} transactions.</Text>
-          )}
-        </Card>
-      </View>
-    </Screen>
+          {status.kind === "done" && <Text style={styles.successText}>Moved {status.count} transactions.</Text>}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md },
-  card: { gap: spacing.sm },
-  title: { fontSize: 20, fontWeight: "700", color: colors.textPrimary },
-  description: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.xs },
-  label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginTop: spacing.xs },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-    backgroundColor: colors.cardSolid,
-    borderWidth: 1,
-    borderColor: colors.border,
+  safeArea: { flex: 1, backgroundColor: neutral.background },
+  container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: neutral.card,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  chipActive: { backgroundColor: colors.pillActive, borderColor: colors.pillActive },
-  chipText: { color: colors.textSecondary, fontWeight: "600", fontSize: 13 },
-  chipTextActive: { color: colors.pillActiveText },
-  dateRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  dateInput: {
-    flex: 1,
-    backgroundColor: colors.cardSolid,
+  headerTitle: { fontSize: 18, fontWeight: "700", color: neutral.textPrimary },
+  description: { fontSize: 13, color: neutral.textSecondary },
+  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: neutral.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: neutral.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  tile: {
+    width: "31%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: neutral.card,
     borderRadius: radius.chip,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: 14,
-    color: colors.textPrimary,
+    borderWidth: 1.5,
+    borderColor: neutral.border,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
   },
-  toText: { color: colors.textSecondary, fontWeight: "600" },
-  previewText: { fontSize: 13, color: colors.textSecondary, marginTop: spacing.xs },
-  successText: { fontSize: 13, color: colors.positive, marginTop: spacing.xs },
+  tileActive: { borderColor: ACCENT, backgroundColor: ACCENT_LIGHT },
+  tileIcon: { width: 22, height: 22, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  tileIconText: { color: "#FFFFFF", fontSize: 8, fontWeight: "700" },
+  tileLabel: { flex: 1, fontSize: 12, fontWeight: "600", color: neutral.textPrimary },
+  checkBadge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: ACCENT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dateRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: neutral.card,
+    borderRadius: radius.chip,
+    borderWidth: 1.5,
+    borderColor: neutral.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+  },
+  inputText: { flex: 1, fontSize: 14, color: neutral.textPrimary },
+  toText: { color: neutral.textSecondary, fontWeight: "600" },
+  previewBtn: {
+    alignSelf: "flex-start",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    backgroundColor: ACCENT_LIGHT,
+  },
+  previewBtnText: { fontSize: 13, fontWeight: "700", color: ACCENT },
+  previewText: { fontSize: 13, color: neutral.textSecondary },
+  submitBtn: { borderRadius: radius.pill, paddingVertical: 14, alignItems: "center" },
+  submitText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  successText: { fontSize: 13, color: "#16A34A", fontWeight: "600" },
 });

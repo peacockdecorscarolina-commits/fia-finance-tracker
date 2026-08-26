@@ -25,10 +25,6 @@ export default function RootLayout() {
           <Stack.Screen name="net-worth" options={{ title: "Savings & Investments", ...pushedScreenOptions }} />
           <Stack.Screen name="asset/[id]" options={{ title: "Account", ...pushedScreenOptions }} />
           <Stack.Screen name="sync" options={{ title: "Sync", ...pushedScreenOptions }} />
-          <Stack.Screen
-            name="move-transactions"
-            options={{ title: "Move Transactions", ...pushedScreenOptions }}
-          />
         </Stack>
       </SQLiteProvider>
     </ErrorBoundary>
