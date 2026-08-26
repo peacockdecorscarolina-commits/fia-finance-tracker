@@ -1,13 +1,27 @@
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { Card } from "../components/Card";
-import { PillButton } from "../components/PillButton";
-import { Screen } from "../components/Screen";
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { backupToDrive, restoreFromDrive } from "../lib/googleDrive";
 import { isSignedIn, signIn, signOut } from "../lib/googleAuth";
-import { colors, spacing } from "../lib/theme";
+import { radius, spacing } from "../lib/theme";
+
+// Matches the rest of the app's redesigned screens.
+const ACCENT = "#4C1D95";
+const ACCENT_LIGHT = "#EDE9FE";
+const GRADIENT = ["#4C1D95", "#312E81"] as const;
+const DANGER = "#DC2626";
+const DANGER_LIGHT = "#FEE2E2";
+
+const neutral = {
+  background: "#F2F2F7",
+  card: "#FFFFFF",
+  textPrimary: "#0F172A",
+  textSecondary: "#64748B",
+  border: "#E5E5EA",
+};
 
 type Status = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "error"; message: string } | { kind: "done"; message: string };
 
@@ -57,46 +71,157 @@ export default function SyncScreen() {
   const busy = status.kind === "busy";
 
   return (
-    <Screen>
-      <View style={styles.container}>
-        <Card style={styles.card}>
-          <Text style={styles.title}>Google Drive Sync</Text>
-          <Text style={styles.description}>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
+            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Google Drive Sync</Text>
+          <View style={styles.headerBtn} />
+        </View>
+
+        <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+          <View style={styles.heroIcon}>
+            <Ionicons name="cloud-outline" size={22} color="#FFFFFF" />
+          </View>
+          <Text style={styles.heroText}>
             Back up your data to a hidden file in your own Google Drive, and restore it if this
             device's data is ever missing. Only this app can see that file.
           </Text>
+        </LinearGradient>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Account</Text>
 
           {!signedIn ? (
-            <PillButton title="Sign in with Google" onPress={handleSignIn} disabled={busy} />
+            <Pressable onPress={handleSignIn} disabled={busy} style={[styles.primaryBtnWrap, busy && { opacity: 0.5 }]}>
+              <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryBtn}>
+                <Ionicons name="logo-google" size={16} color="#FFFFFF" />
+                <Text style={styles.primaryBtnText}>Sign in with Google</Text>
+              </LinearGradient>
+            </Pressable>
           ) : (
             <>
-              <PillButton title="Back up now" onPress={handleBackup} disabled={busy} />
-              <PillButton title="Restore from Drive" onPress={handleRestore} disabled={busy} variant="danger" />
-              <PillButton title="Sign out" onPress={handleSignOut} disabled={busy} variant="secondary" />
+              <View style={styles.signedInRow}>
+                <View style={styles.signedInIcon}>
+                  <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
+                </View>
+                <Text style={styles.signedInText}>Signed in with Google</Text>
+              </View>
+
+              <Pressable onPress={handleBackup} disabled={busy} style={[styles.primaryBtnWrap, busy && { opacity: 0.5 }]}>
+                <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryBtn}>
+                  <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.primaryBtnText}>Back up now</Text>
+                </LinearGradient>
+              </Pressable>
+
+              <Pressable onPress={handleRestore} disabled={busy} style={[styles.dangerBtn, busy && { opacity: 0.5 }]}>
+                <Ionicons name="cloud-download-outline" size={16} color={DANGER} />
+                <Text style={styles.dangerBtnText}>Restore from Drive</Text>
+              </Pressable>
+
+              <Pressable onPress={handleSignOut} disabled={busy} style={[styles.secondaryBtn, busy && { opacity: 0.5 }]}>
+                <Text style={styles.secondaryBtnText}>Sign out</Text>
+              </Pressable>
             </>
           )}
 
-          {status.kind === "busy" && <Text style={styles.statusText}>{status.label}</Text>}
-          {status.kind === "error" && <Text style={styles.errorText}>{status.message}</Text>}
-          {status.kind === "done" && <Text style={styles.successText}>{status.message}</Text>}
-        </Card>
-
-        <PillButton
-          title="Back to Home"
-          onPress={() => router.replace("/")}
-          variant="secondary"
-        />
-      </View>
-    </Screen>
+          {status.kind === "busy" && (
+            <View style={styles.statusRow}>
+              <Text style={styles.statusText}>{status.label}</Text>
+            </View>
+          )}
+          {status.kind === "error" && (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{status.message}</Text>
+            </View>
+          )}
+          {status.kind === "done" && (
+            <View style={styles.doneBox}>
+              <Text style={styles.doneText}>{status.message}</Text>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.md },
-  card: { gap: spacing.sm },
-  title: { fontSize: 20, fontWeight: "700", color: colors.textPrimary },
-  description: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.sm },
-  statusText: { fontSize: 13, color: colors.textSecondary, marginTop: spacing.xs },
-  errorText: { fontSize: 13, color: colors.negative, marginTop: spacing.xs },
-  successText: { fontSize: 13, color: colors.positive, marginTop: spacing.xs },
+  safeArea: { flex: 1, backgroundColor: neutral.background },
+  container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: neutral.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: neutral.textPrimary },
+  hero: { borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  heroIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF26",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroText: { fontSize: 13, color: "#FFFFFFE6", lineHeight: 19 },
+  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: neutral.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  signedInRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#F0FDF4",
+    borderRadius: radius.chip,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.sm,
+  },
+  signedInIcon: { alignItems: "center", justifyContent: "center" },
+  signedInText: { fontSize: 13, fontWeight: "600", color: "#16A34A" },
+  primaryBtnWrap: { borderRadius: radius.pill, overflow: "hidden" },
+  primaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+  },
+  primaryBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
+  dangerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: radius.pill,
+    backgroundColor: DANGER_LIGHT,
+  },
+  dangerBtnText: { fontSize: 14, fontWeight: "700", color: DANGER },
+  secondaryBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    borderRadius: radius.pill,
+    backgroundColor: neutral.background,
+  },
+  secondaryBtnText: { fontSize: 14, fontWeight: "700", color: neutral.textSecondary },
+  statusRow: { alignItems: "center", paddingVertical: spacing.xs },
+  statusText: { fontSize: 13, color: neutral.textSecondary },
+  errorBox: { backgroundColor: DANGER_LIGHT, borderRadius: radius.chip, padding: spacing.sm },
+  errorText: { fontSize: 13, color: DANGER, fontWeight: "600" },
+  doneBox: { backgroundColor: "#F0FDF4", borderRadius: radius.chip, padding: spacing.sm },
+  doneText: { fontSize: 13, color: "#16A34A", fontWeight: "600" },
 });

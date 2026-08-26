@@ -5,7 +5,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { LineChart } from "../../components/LineChart";
-import { addAssetBalance, deleteAssetBalance, getAssetBalances, getAssets, renameAsset } from "../../lib/db";
+import { addAssetBalance, deleteAsset, deleteAssetBalance, getAssetBalances, getAssets, renameAsset } from "../../lib/db";
 import { radius, spacing } from "../../lib/theme";
 import type { Asset, AssetBalanceEntry, AssetType } from "../../lib/types";
 
@@ -53,6 +53,7 @@ export default function AssetDetailScreen() {
   const [dateInput, setDateInput] = useState(todayISO());
   const [renaming, setRenaming] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const load = useCallback(() => {
     const assetId = Number(id);
@@ -86,6 +87,11 @@ export default function AssetDetailScreen() {
     await renameAsset(db, Number(id), nameInput.trim());
     setRenaming(false);
     load();
+  }
+
+  async function handleDeleteAsset() {
+    await deleteAsset(db, Number(id));
+    router.back();
   }
 
   return (
@@ -132,6 +138,27 @@ export default function AssetDetailScreen() {
                 </LinearGradient>
               </Pressable>
             </View>
+
+            {!confirmingDelete ? (
+              <Pressable onPress={() => setConfirmingDelete(true)} style={styles.deleteLink}>
+                <Ionicons name="trash-outline" size={14} color="#DC2626" />
+                <Text style={styles.deleteLinkText}>Delete this account</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.confirmBox}>
+                <Text style={styles.confirmText}>
+                  This will permanently delete "{asset?.name}" and all of its balance history. This can't be undone.
+                </Text>
+                <View style={styles.confirmRow}>
+                  <Pressable onPress={() => setConfirmingDelete(false)} style={styles.cancelBtn}>
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable onPress={handleDeleteAsset} style={[styles.deleteBtn, { flex: 1 }]}>
+                    <Text style={styles.deleteBtnText}>Yes, delete</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
           </View>
         )}
 
@@ -329,4 +356,24 @@ const styles = StyleSheet.create({
   },
   entryDate: { flex: 1, fontSize: 13, color: neutral.textSecondary },
   entryBalance: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
+  deleteLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  deleteLinkText: { fontSize: 13, fontWeight: "700", color: "#DC2626" },
+  confirmBox: { backgroundColor: "#FEE2E2", borderRadius: radius.chip, padding: spacing.md, gap: spacing.sm, marginTop: spacing.xs },
+  confirmText: { fontSize: 13, color: "#DC2626", fontWeight: "600" },
+  confirmRow: { flexDirection: "row", gap: spacing.sm },
+  deleteBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    borderRadius: radius.pill,
+    backgroundColor: "#DC2626",
+  },
+  deleteBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
 });
