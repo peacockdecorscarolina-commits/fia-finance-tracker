@@ -44,15 +44,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="upload"
-        options={{
-          title: "Upload",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="cloud-upload-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="summary"
         options={{
           title: "Summary",

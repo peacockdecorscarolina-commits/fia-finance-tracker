@@ -73,13 +73,23 @@ function greeting(): string {
 
 type MoreItem = { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void };
 
-function MoreSheet({ visible, onClose, items }: { visible: boolean; onClose: () => void; items: MoreItem[] }) {
+function MoreSheet({
+  visible,
+  onClose,
+  items,
+  title = "More tools",
+}: {
+  visible: boolean;
+  onClose: () => void;
+  items: MoreItem[];
+  title?: string;
+}) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>More tools</Text>
+          <Text style={styles.sheetTitle}>{title}</Text>
           {items.map((item) => (
             <Pressable
               key={item.label}
@@ -122,6 +132,7 @@ export default function TransactionsScreen() {
   const panelScrollRef = useRef<ScrollView>(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const load = useCallback(() => {
     const { start, end } = getPeriodRange(period);
@@ -182,6 +193,11 @@ export default function TransactionsScreen() {
           },
         ]
       : []),
+  ];
+
+  const addItems: MoreItem[] = [
+    { icon: "create-outline", label: "Add transaction", onPress: () => router.push("/add-transaction") },
+    { icon: "cloud-upload-outline", label: "Upload statement", onPress: () => router.push("/upload") },
   ];
 
   const listHeader = (
@@ -425,11 +441,12 @@ export default function TransactionsScreen() {
         />
       </View>
 
-      <Pressable style={styles.fab} onPress={() => router.push("/add-transaction")}>
+      <Pressable style={styles.fab} onPress={() => setAddOpen(true)}>
         <Ionicons name="add" size={28} color="#FFFFFF" />
       </Pressable>
 
       <MoreSheet visible={moreOpen} onClose={() => setMoreOpen(false)} items={moreItems} />
+      <MoreSheet visible={addOpen} onClose={() => setAddOpen(false)} items={addItems} title="Add" />
     </SafeAreaView>
   );
 }
