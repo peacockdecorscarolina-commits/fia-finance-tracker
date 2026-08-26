@@ -225,7 +225,11 @@ export default function AssetsScreen() {
               <Pressable onPress={() => setAdding(false)} style={styles.cancelBtn}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </Pressable>
-              <Pressable onPress={handleAdd} style={{ flex: 1 }}>
+              <Pressable
+                onPress={handleAdd}
+                disabled={!newName.trim() || !Number.isFinite(Number(newBalance))}
+                style={{ flex: 1, opacity: !newName.trim() || !Number.isFinite(Number(newBalance)) ? 0.5 : 1 }}
+              >
                 <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.saveBtn}>
                   <Text style={styles.saveBtnText}>Save</Text>
                 </LinearGradient>

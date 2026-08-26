@@ -49,6 +49,8 @@ export default function CategoryDrillDownScreen() {
   const [monthlyTrend, setMonthlyTrend] = useState<{ month: string; total: number }[]>([]);
 
   const category = categories.find((c) => c.name === name) ?? null;
+  const isLoanInputValid =
+    Number.isFinite(Number(loanInput)) && Number(loanInput) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(loanDateInput);
   const paidSoFar = category?.loanAsOfDate
     ? Math.abs(
         allTransactions
@@ -68,11 +70,8 @@ export default function CategoryDrillDownScreen() {
   useFocusEffect(load);
 
   async function saveLoanAmount() {
-    if (!category) return;
-    const value = Number(loanInput);
-    const validAmount = Number.isFinite(value) && value > 0 ? value : null;
-    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(loanDateInput) ? loanDateInput : null;
-    await setCategoryLoanAmount(db, category.id, validAmount, validAmount ? validDate : null);
+    if (!category || !isLoanInputValid) return;
+    await setCategoryLoanAmount(db, category.id, Number(loanInput), loanDateInput);
     setEditingLoan(false);
     load();
   }
@@ -135,7 +134,7 @@ export default function CategoryDrillDownScreen() {
                       placeholder="YYYY-MM-DD"
                       placeholderTextColor={colors.textSecondary}
                     />
-                    <PillButton title="Save" onPress={saveLoanAmount} />
+                    <PillButton title="Save" onPress={saveLoanAmount} disabled={!isLoanInputValid} />
                   </View>
                 ) : category.loanAmount ? (
                   <>

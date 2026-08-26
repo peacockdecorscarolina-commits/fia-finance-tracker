@@ -67,6 +67,7 @@ export default function AssetDetailScreen() {
   const firstBalance = entries[entries.length - 1]?.balance ?? currentBalance;
   const delta = currentBalance - firstBalance;
   const pct = firstBalance !== 0 ? (delta / firstBalance) * 100 : 0;
+  const isBalanceInputValid = Number.isFinite(Number(balanceInput)) && /^\d{4}-\d{2}-\d{2}$/.test(dateInput);
 
   async function handleUpdate() {
     const value = Number(balanceInput);
@@ -205,7 +206,11 @@ export default function AssetDetailScreen() {
               <Pressable onPress={() => setUpdating(false)} style={styles.cancelBtn}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </Pressable>
-              <Pressable onPress={handleUpdate} style={{ flex: 1 }}>
+              <Pressable
+                onPress={handleUpdate}
+                disabled={!isBalanceInputValid}
+                style={{ flex: 1, opacity: isBalanceInputValid ? 1 : 0.5 }}
+              >
                 <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.saveBtn}>
                   <Text style={styles.saveBtnText}>Save</Text>
                 </LinearGradient>

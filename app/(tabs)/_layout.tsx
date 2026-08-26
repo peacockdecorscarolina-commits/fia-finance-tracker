@@ -40,7 +40,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Transactions",
-          tabBarIcon: ({ color, size }) => <Ionicons name="list-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
