@@ -3,7 +3,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { formatAmount } from "../components/AmountText";
 import { PdfTextExtractor, type PdfTextExtractorHandle } from "../components/PdfTextExtractor";
@@ -14,21 +14,16 @@ import { formatMerchantName } from "../lib/formatMerchant";
 import { parseStatement } from "../lib/parseStatement";
 import { radius, spacing } from "../lib/theme";
 import type { Account, ExtractedTransaction } from "../lib/types";
+import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 // Matches the rest of the app's redesigned screens.
 const ACCENT = "#4C1D95";
 const ACCENT_LIGHT = "#EDE9FE";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
-
 export default function UploadScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const extractorRef = useRef<PdfTextExtractorHandle>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -95,7 +90,7 @@ export default function UploadScreen() {
   const headerRow = (
     <View style={styles.headerRow}>
       <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-        <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+        <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
       </Pressable>
       <Text style={styles.headerTitle}>Upload Statement</Text>
       <View style={styles.headerBtn} />
@@ -258,25 +253,26 @@ export default function UploadScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { fontSize: 17, fontWeight: "700", color: neutral.textPrimary },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: colors.textPrimary },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md, padding: spacing.lg },
-  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  sectionCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: neutral.textSecondary,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.6,
     marginTop: spacing.xs,
@@ -289,47 +285,47 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 8,
     borderRadius: radius.pill,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
   },
   accountChipActive: { borderColor: ACCENT, backgroundColor: ACCENT_LIGHT },
   accountChipIcon: { width: 20, height: 20, borderRadius: 6, alignItems: "center", justifyContent: "center" },
   accountChipIconText: { color: "#FFFFFF", fontSize: 8, fontWeight: "700" },
-  accountChipText: { color: neutral.textSecondary, fontWeight: "600", fontSize: 13 },
+  accountChipText: { color: colors.textSecondary, fontWeight: "600", fontSize: 13 },
   accountChipTextActive: { color: ACCENT },
   pickButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.chip,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
     borderStyle: "dashed",
     paddingVertical: spacing.md,
   },
-  pickButtonText: { color: neutral.textPrimary, fontWeight: "600", fontSize: 14 },
+  pickButtonText: { color: colors.textPrimary, fontWeight: "600", fontSize: 14 },
   primaryBtnWrap: { borderRadius: radius.pill, overflow: "hidden" },
   primaryBtn: { paddingVertical: 14, alignItems: "center" },
   primaryBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
-  empty: { textAlign: "center", color: neutral.textSecondary, fontSize: 14 },
+  empty: { textAlign: "center", color: colors.textSecondary, fontSize: 14 },
   errorText: { color: "#DC2626", fontSize: 13, marginTop: spacing.sm },
   savedRow: { flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center" },
   savedText: { textAlign: "center", color: "#16A34A", fontWeight: "600" },
-  previewTitle: { fontWeight: "600", color: neutral.textPrimary, marginBottom: spacing.xs, fontSize: 13 },
+  previewTitle: { fontWeight: "600", color: colors.textPrimary, marginBottom: spacing.xs, fontSize: 13 },
   previewRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingVertical: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: neutral.border,
+    borderTopColor: colors.border,
   },
-  previewMerchant: { fontWeight: "600", color: neutral.textPrimary, marginBottom: 4, fontSize: 13 },
+  previewMerchant: { fontWeight: "600", color: colors.textPrimary, marginBottom: 4, fontSize: 13 },
   previewMeta: { flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" },
-  previewDate: { fontSize: 12, color: neutral.textSecondary, marginRight: 4 },
+  previewDate: { fontSize: 12, color: colors.textSecondary, marginRight: 4 },
   previewChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.chip },
   previewChipText: { fontSize: 11, fontWeight: "600" },
   reviewChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.chip, backgroundColor: "#FEF3C7" },
@@ -341,15 +337,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.pill,
-    backgroundColor: neutral.background,
+    backgroundColor: colors.background,
   },
-  cancelBtnText: { fontSize: 14, fontWeight: "700", color: neutral.textSecondary },
+  cancelBtnText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
   confirmBox: {
     marginTop: spacing.sm,
     padding: spacing.sm,
     borderRadius: radius.chip,
     backgroundColor: ACCENT_LIGHT,
   },
-  confirmText: { fontSize: 14, color: neutral.textPrimary, marginBottom: spacing.sm },
+  confirmText: { fontSize: 14, color: ACCENT, marginBottom: spacing.sm },
   confirmAccountName: { fontWeight: "700" },
-});
+  });
+}

@@ -2,25 +2,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { LineChart } from "../../components/LineChart";
 import { addAssetBalance, deleteAsset, deleteAssetBalance, getAssetBalances, getAssets, renameAsset } from "../../lib/db";
 import { radius, spacing } from "../../lib/theme";
+import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 import type { Asset, AssetBalanceEntry, AssetType } from "../../lib/types";
 
-// Matches the rest of the app's redesigned screens.
+// Matches the rest of the app's redesigned screens -- theme-invariant.
 const ACCENT = "#4C1D95";
 const ACCENT_LIGHT = "#EDE9FE";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
-
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -46,6 +39,8 @@ function todayISO(): string {
 export default function AssetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useSQLiteContext();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [asset, setAsset] = useState<Asset | null>(null);
   const [entries, setEntries] = useState<AssetBalanceEntry[]>([]);
   const [updating, setUpdating] = useState(false);
@@ -100,7 +95,7 @@ export default function AssetDetailScreen() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>
             {asset ? `${TYPE_ICON[asset.type]} ${asset.name}` : "Account"}
@@ -112,7 +107,7 @@ export default function AssetDetailScreen() {
             }}
             style={styles.headerBtn}
           >
-            <Ionicons name="pencil" size={18} color={neutral.textPrimary} />
+            <Ionicons name="pencil" size={18} color={colors.textPrimary} />
           </Pressable>
         </View>
 
@@ -125,7 +120,7 @@ export default function AssetDetailScreen() {
                 value={nameInput}
                 onChangeText={setNameInput}
                 placeholder="Account name"
-                placeholderTextColor={neutral.textSecondary}
+                placeholderTextColor={colors.textSecondary}
                 autoFocus
               />
             </View>
@@ -187,19 +182,19 @@ export default function AssetDetailScreen() {
                 onChangeText={setBalanceInput}
                 keyboardType="decimal-pad"
                 placeholder="0.00"
-                placeholderTextColor={neutral.textSecondary}
+                placeholderTextColor={colors.textSecondary}
                 autoFocus
               />
             </View>
             <Text style={styles.fieldLabel}>As of date</Text>
             <View style={styles.inputRow}>
-              <Ionicons name="calendar-outline" size={16} color={neutral.textSecondary} />
+              <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
               <TextInput
                 style={[styles.inputText, { marginLeft: 6 }]}
                 value={dateInput}
                 onChangeText={setDateInput}
                 placeholder="YYYY-MM-DD"
-                placeholderTextColor={neutral.textSecondary}
+                placeholderTextColor={colors.textSecondary}
               />
             </View>
             <View style={styles.updateActions}>
@@ -273,19 +268,20 @@ export default function AssetDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", color: neutral.textPrimary },
+  headerTitle: { flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", color: colors.textPrimary },
   hero: { borderRadius: radius.card, padding: spacing.md, gap: 4 },
   heroLabel: { fontSize: 13, color: "#FFFFFFCC", fontWeight: "600" },
   heroValue: { fontSize: 30, fontWeight: "700", color: "#FFFFFF" },
@@ -307,50 +303,50 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
     borderStyle: "dashed",
     paddingVertical: spacing.md,
   },
   updateBtnText: { fontSize: 15, fontWeight: "700", color: ACCENT },
-  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  sectionCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: neutral.textSecondary,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
-  fieldLabel: { fontSize: 13, fontWeight: "600", color: neutral.textSecondary, marginTop: spacing.xs },
+  fieldLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginTop: spacing.xs },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.chip,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
   },
-  inputText: { flex: 1, fontSize: 15, color: neutral.textPrimary },
-  dollarSign: { fontSize: 15, color: neutral.textSecondary, fontWeight: "600" },
+  inputText: { flex: 1, fontSize: 15, color: colors.textPrimary },
+  dollarSign: { fontSize: 15, color: colors.textSecondary, fontWeight: "600" },
   updateActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
   cancelBtn: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.pill,
-    backgroundColor: neutral.background,
+    backgroundColor: colors.background,
   },
-  cancelBtnText: { fontSize: 14, fontWeight: "700", color: neutral.textSecondary },
+  cancelBtnText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
   saveBtn: { borderRadius: radius.pill, paddingVertical: 12, alignItems: "center" },
   saveBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
-  chartHintText: { fontSize: 13, color: neutral.textSecondary, textAlign: "center" },
-  emptyText: { fontSize: 13, color: neutral.textSecondary, textAlign: "center", paddingVertical: spacing.sm },
+  chartHintText: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
+  emptyText: { fontSize: 13, color: colors.textSecondary, textAlign: "center", paddingVertical: spacing.sm },
   entryRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm },
-  entryRowDivider: { borderTopWidth: 1, borderTopColor: neutral.border },
+  entryRowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
   entryIcon: {
     width: 28,
     height: 28,
@@ -359,8 +355,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  entryDate: { flex: 1, fontSize: 13, color: neutral.textSecondary },
-  entryBalance: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
+  entryDate: { flex: 1, fontSize: 13, color: colors.textSecondary },
+  entryBalance: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
   deleteLink: {
     flexDirection: "row",
     alignItems: "center",
@@ -381,4 +377,5 @@ const styles = StyleSheet.create({
     backgroundColor: "#DC2626",
   },
   deleteBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
-});
+  });
+}

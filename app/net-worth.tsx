@@ -2,27 +2,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { AnimatedAmount } from "../components/AnimatedAmount";
 import { LineChart } from "../components/LineChart";
 import { addAssetBalance, getAllAssetsHistory, getAssetBalances, getAssets, insertAsset } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
+import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 import { ASSET_TYPES, type Asset, type AssetType } from "../lib/types";
 
 // Matches the Summary / Add Transaction / Accounts / Categories / Move
-// Transactions screens' design system.
+// Transactions screens' design system -- theme-invariant.
 const ACCENT = "#4C1D95";
 const ACCENT_LIGHT = "#EDE9FE";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
-
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -43,57 +36,32 @@ const TYPE_TINT: Record<AssetType, string> = {
 
 type AssetWithHistory = Asset & { balance: number; history: number[] };
 
+// Theme-invariant -- doesn't reference any of the five page-chrome tokens,
+// so it can stay a plain top-level component with its own static styles.
 function Sparkline({ points, color }: { points: number[]; color: string }) {
   if (points.length < 2) return <View style={{ width: 40, height: 28 }} />;
   const max = Math.max(...points);
   const min = Math.min(...points);
   const range = max - min || 1;
   return (
-    <View style={styles.sparkline}>
+    <View style={sparklineStyles.sparkline}>
       {points.map((p, i) => {
         const h = 6 + ((p - min) / range) * 22;
-        return <View key={i} style={[styles.sparkBar, { height: h, backgroundColor: color }]} />;
+        return <View key={i} style={[sparklineStyles.sparkBar, { height: h, backgroundColor: color }]} />;
       })}
     </View>
   );
 }
 
-function AssetRow({ asset }: { asset: AssetWithHistory }) {
-  const first = asset.history[0] ?? asset.balance;
-  const delta = asset.balance - first;
-  const pct = first !== 0 ? (delta / first) * 100 : 0;
-  const up = delta >= 0;
-  const hasHistory = asset.history.length >= 2;
-  const color = up ? "#16A34A" : "#DC2626";
-
-  return (
-    <Pressable
-      onPress={() => router.push({ pathname: "/asset/[id]", params: { id: String(asset.id) } })}
-      style={[styles.assetRow, { backgroundColor: TYPE_TINT[asset.type] }]}
-    >
-      <View style={[styles.assetIcon, { backgroundColor: neutral.card }]}>
-        <Text style={{ fontSize: 16 }}>{TYPE_ICON[asset.type]}</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.assetName} numberOfLines={1}>
-          {asset.name}
-        </Text>
-        <Text style={styles.assetType}>{asset.type}</Text>
-        {hasHistory && (
-          <Text style={[styles.assetDelta, { color }]}>
-            {up ? "▲" : "▼"} {formatMoney(Math.abs(delta))} ({Math.abs(pct).toFixed(1)}%)
-          </Text>
-        )}
-      </View>
-      {hasHistory && <Sparkline points={asset.history} color={color} />}
-      <AnimatedAmount value={asset.balance} style={styles.assetBalance} />
-      <Ionicons name="chevron-forward" size={16} color={neutral.textSecondary} />
-    </Pressable>
-  );
-}
+const sparklineStyles = StyleSheet.create({
+  sparkline: { flexDirection: "row", alignItems: "flex-end", gap: 2, height: 28 },
+  sparkBar: { width: 4, borderRadius: 2 },
+});
 
 export default function AssetsScreen() {
   const db = useSQLiteContext();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [assets, setAssets] = useState<AssetWithHistory[]>([]);
   const [totalHistory, setTotalHistory] = useState<{ date: string; total: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,6 +100,40 @@ export default function AssetsScreen() {
     load();
   }
 
+  function AssetRow({ asset }: { asset: AssetWithHistory }) {
+    const first = asset.history[0] ?? asset.balance;
+    const delta = asset.balance - first;
+    const pct = first !== 0 ? (delta / first) * 100 : 0;
+    const up = delta >= 0;
+    const hasHistory = asset.history.length >= 2;
+    const color = up ? "#16A34A" : "#DC2626";
+
+    return (
+      <Pressable
+        onPress={() => router.push({ pathname: "/asset/[id]", params: { id: String(asset.id) } })}
+        style={[styles.assetRow, { backgroundColor: TYPE_TINT[asset.type] }]}
+      >
+        <View style={[styles.assetIcon, { backgroundColor: colors.card }]}>
+          <Text style={{ fontSize: 16 }}>{TYPE_ICON[asset.type]}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.assetName} numberOfLines={1}>
+            {asset.name}
+          </Text>
+          <Text style={styles.assetType}>{asset.type}</Text>
+          {hasHistory && (
+            <Text style={[styles.assetDelta, { color }]}>
+              {up ? "▲" : "▼"} {formatMoney(Math.abs(delta))} ({Math.abs(pct).toFixed(1)}%)
+            </Text>
+          )}
+        </View>
+        {hasHistory && <Sparkline points={asset.history} color={color} />}
+        <AnimatedAmount value={asset.balance} style={styles.assetBalance} />
+        <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+      </Pressable>
+    );
+  }
+
   const total = assets.reduce((sum, a) => sum + a.balance, 0);
   const totalFirst = assets.reduce((sum, a) => sum + (a.history[0] ?? a.balance), 0);
   const totalDelta = total - totalFirst;
@@ -147,7 +149,7 @@ export default function AssetsScreen() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Savings & Investments</Text>
           <View style={styles.headerBtn} />
@@ -189,7 +191,7 @@ export default function AssetsScreen() {
                 value={newName}
                 onChangeText={setNewName}
                 placeholder="e.g. Ally Savings"
-                placeholderTextColor={neutral.textSecondary}
+                placeholderTextColor={colors.textSecondary}
                 autoFocus
               />
             </View>
@@ -218,7 +220,7 @@ export default function AssetsScreen() {
                 onChangeText={setNewBalance}
                 keyboardType="decimal-pad"
                 placeholder="0.00"
-                placeholderTextColor={neutral.textSecondary}
+                placeholderTextColor={colors.textSecondary}
               />
             </View>
             <View style={styles.addActions}>
@@ -270,7 +272,7 @@ export default function AssetsScreen() {
                     <Ionicons
                       name={isCollapsed ? "chevron-down" : "chevron-up"}
                       size={16}
-                      color={neutral.textSecondary}
+                      color={colors.textSecondary}
                     />
                   </Pressable>
                   {!isCollapsed && group.items.map((a) => <AssetRow key={a.id} asset={a} />)}
@@ -294,138 +296,138 @@ export default function AssetsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
-  container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: neutral.card,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: { fontSize: 17, fontWeight: "700", color: neutral.textPrimary },
-  hero: { borderRadius: radius.card, padding: spacing.md, gap: 4 },
-  heroLabel: { fontSize: 13, color: "#FFFFFFCC", fontWeight: "600" },
-  heroValue: { fontSize: 30, fontWeight: "700", color: "#FFFFFF" },
-  heroDeltaPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#FFFFFF1A",
-    borderRadius: radius.chip,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    marginTop: 6,
-    alignSelf: "flex-start",
-  },
-  heroDeltaText: { fontSize: 12, fontWeight: "700" },
-  heroDeltaSub: { fontSize: 11, color: "#FFFFFFCC" },
-  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: neutral.textSecondary,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  groupsLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: neutral.textSecondary,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  fieldLabel: { fontSize: 13, fontWeight: "600", color: neutral.textSecondary, marginTop: spacing.xs },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: neutral.card,
-    borderRadius: radius.chip,
-    borderWidth: 1.5,
-    borderColor: neutral.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-  },
-  inputText: { flex: 1, fontSize: 15, color: neutral.textPrimary },
-  dollarSign: { fontSize: 15, color: neutral.textSecondary, fontWeight: "600" },
-  typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  typeTile: {
-    flexGrow: 1,
-    flexBasis: "22%",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: neutral.card,
-    borderRadius: radius.chip,
-    borderWidth: 1.5,
-    borderColor: neutral.border,
-    paddingVertical: spacing.sm,
-  },
-  typeTileActive: { borderColor: ACCENT, backgroundColor: ACCENT_LIGHT },
-  typeTileText: { fontSize: 11, fontWeight: "600", color: neutral.textSecondary },
-  typeTileTextActive: { color: ACCENT },
-  addActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
-  cancelBtn: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.pill,
-    backgroundColor: neutral.background,
-  },
-  cancelBtnText: { fontSize: 14, fontWeight: "700", color: neutral.textSecondary },
-  saveBtn: { borderRadius: radius.pill, paddingVertical: 12, alignItems: "center" },
-  saveBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
-  addAccountBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    backgroundColor: neutral.card,
-    borderRadius: radius.card,
-    borderWidth: 1.5,
-    borderColor: neutral.border,
-    borderStyle: "dashed",
-    paddingVertical: spacing.md,
-  },
-  addAccountText: { fontSize: 15, fontWeight: "700", color: ACCENT },
-  emptyTitle: { fontSize: 15, fontWeight: "700", color: neutral.textPrimary, textAlign: "center" },
-  emptySubtitle: { fontSize: 13, color: neutral.textSecondary, textAlign: "center" },
-  groupHeaderRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  groupIcon: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  groupHeader: { flex: 1, fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
-  groupSubtotal: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
-  assetRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    borderRadius: radius.chip,
-    padding: spacing.sm,
-  },
-  assetIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  assetName: { fontSize: 13, fontWeight: "700", color: neutral.textPrimary },
-  assetType: { fontSize: 11, color: neutral.textSecondary },
-  assetDelta: { fontSize: 11, fontWeight: "600", marginTop: 2 },
-  assetBalance: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
-  sparkline: { flexDirection: "row", alignItems: "flex-end", gap: 2, height: 28 },
-  sparkBar: { width: 4, borderRadius: 2 },
-  secureRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: neutral.card,
-    borderRadius: radius.card,
-    padding: spacing.md,
-  },
-  secureIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: ACCENT_LIGHT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secureTitle: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
-  secureSubtitle: { fontSize: 12, color: neutral.textSecondary, marginTop: 2 },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.background },
+    container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
+    headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    headerBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.card,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    headerTitle: { fontSize: 17, fontWeight: "700", color: colors.textPrimary },
+    hero: { borderRadius: radius.card, padding: spacing.md, gap: 4 },
+    heroLabel: { fontSize: 13, color: "#FFFFFFCC", fontWeight: "600" },
+    heroValue: { fontSize: 30, fontWeight: "700", color: "#FFFFFF" },
+    heroDeltaPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: "#FFFFFF1A",
+      borderRadius: radius.chip,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+      marginTop: 6,
+      alignSelf: "flex-start",
+    },
+    heroDeltaText: { fontSize: 12, fontWeight: "700" },
+    heroDeltaSub: { fontSize: 11, color: "#FFFFFFCC" },
+    sectionCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+    sectionTitle: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.textSecondary,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+    },
+    groupsLabel: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.textSecondary,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+    },
+    fieldLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginTop: spacing.xs },
+    inputRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.card,
+      borderRadius: radius.chip,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 12,
+    },
+    inputText: { flex: 1, fontSize: 15, color: colors.textPrimary },
+    dollarSign: { fontSize: 15, color: colors.textSecondary, fontWeight: "600" },
+    typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+    typeTile: {
+      flexGrow: 1,
+      flexBasis: "22%",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: colors.card,
+      borderRadius: radius.chip,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      paddingVertical: spacing.sm,
+    },
+    typeTileActive: { borderColor: ACCENT, backgroundColor: ACCENT_LIGHT },
+    typeTileText: { fontSize: 11, fontWeight: "600", color: colors.textSecondary },
+    typeTileTextActive: { color: ACCENT },
+    addActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
+    cancelBtn: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.pill,
+      backgroundColor: colors.background,
+    },
+    cancelBtnText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
+    saveBtn: { borderRadius: radius.pill, paddingVertical: 12, alignItems: "center" },
+    saveBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
+    addAccountBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      backgroundColor: colors.card,
+      borderRadius: radius.card,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      borderStyle: "dashed",
+      paddingVertical: spacing.md,
+    },
+    addAccountText: { fontSize: 15, fontWeight: "700", color: ACCENT },
+    emptyTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary, textAlign: "center" },
+    emptySubtitle: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
+    groupHeaderRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    groupIcon: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+    groupHeader: { flex: 1, fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+    groupSubtotal: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+    assetRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      borderRadius: radius.chip,
+      padding: spacing.sm,
+    },
+    assetIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+    assetName: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
+    assetType: { fontSize: 11, color: colors.textSecondary },
+    assetDelta: { fontSize: 11, fontWeight: "600", marginTop: 2 },
+    assetBalance: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+    secureRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.card,
+      borderRadius: radius.card,
+      padding: spacing.md,
+    },
+    secureIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: ACCENT_LIGHT,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    secureTitle: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+    secureSubtitle: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  });
+}

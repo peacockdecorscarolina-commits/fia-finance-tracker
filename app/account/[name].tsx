@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { LineChart } from "../../components/LineChart";
 import { TransactionRow } from "../../components/TransactionRow";
@@ -21,18 +21,11 @@ import {
 import { currentMonth, monthRange, recentMonths, shiftMonth } from "../../lib/period";
 import { radius, spacing } from "../../lib/theme";
 import type { Account, Category, Transaction } from "../../lib/types";
+import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 
 // Matches the rest of the app's redesigned screens.
 const ACCENT = "#4C1D95";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
-
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -66,6 +59,12 @@ function weeklyPace(daily: { date: string; total: number }[], month: string): { 
 
 // Small white-on-gradient trend line for the hero card -- distinct from the
 // full LineChart (which has an axis + white background, wrong for here).
+// Theme-invariant white dots on the purple hero gradient.
+const heroTrendStyles = StyleSheet.create({
+  dot: { position: "absolute", width: 6, height: 6, borderRadius: 3, backgroundColor: "#FFFFFF" },
+  dotLast: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: "#FFFFFF66" },
+});
+
 function HeroTrend({ points, width = 110, height = 56 }: { points: number[]; width?: number; height?: number }) {
   if (points.length < 2) return <View style={{ width, height }} />;
   const max = Math.max(...points);
@@ -105,9 +104,9 @@ function HeroTrend({ points, width = 110, height = 56 }: { points: number[]; wid
           <View
             key={`dot-${i}`}
             style={[
-              styles.heroDot,
+              heroTrendStyles.dot,
               { left: c.x - (isLast ? 6 : 3), top: c.y - (isLast ? 6 : 3) },
-              isLast && styles.heroDotLast,
+              isLast && heroTrendStyles.dotLast,
             ]}
           />
         );
@@ -117,6 +116,8 @@ function HeroTrend({ points, width = 110, height = 56 }: { points: number[]; wid
 }
 
 export default function AccountDrillDownScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { name, month: monthParam } = useLocalSearchParams<{ name: string; month: string }>();
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -203,9 +204,9 @@ export default function AccountDrillDownScreen() {
         <Text style={styles.sectionTitle}>Transactions</Text>
         <View>
           <Pressable onPress={() => setPickerOpen((v) => !v)} style={styles.monthPill}>
-            <Ionicons name="calendar-outline" size={14} color={neutral.textPrimary} />
+            <Ionicons name="calendar-outline" size={14} color={colors.textPrimary} />
             <Text style={styles.monthPillText}>{formatMonthLabel(month)}</Text>
-            <Ionicons name={pickerOpen ? "chevron-up" : "chevron-down"} size={14} color={neutral.textSecondary} />
+            <Ionicons name={pickerOpen ? "chevron-up" : "chevron-down"} size={14} color={colors.textSecondary} />
           </Pressable>
 
           {pickerOpen && (
@@ -265,7 +266,7 @@ export default function AccountDrillDownScreen() {
       <View style={styles.container}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>
             {name ? `${style.emoji} ${name}` : "Account"}
@@ -301,19 +302,20 @@ export default function AccountDrillDownScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.md },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", color: neutral.textPrimary },
+  headerTitle: { flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", color: colors.textPrimary },
   sectionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -325,19 +327,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
   },
-  monthPillText: { fontSize: 13, fontWeight: "700", color: neutral.textPrimary },
+  monthPillText: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
   monthDropdown: {
     position: "absolute",
     top: 42,
     right: 0,
     width: 190,
     maxHeight: 220,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
     shadowColor: "#0F172A",
     shadowOpacity: 0.15,
@@ -347,8 +349,8 @@ const styles = StyleSheet.create({
     zIndex: 30,
   },
   monthOption: { paddingHorizontal: spacing.md, paddingVertical: 10, borderRadius: radius.chip },
-  monthOptionActive: { backgroundColor: neutral.background },
-  monthOptionText: { fontSize: 14, color: neutral.textPrimary, fontWeight: "500" },
+  monthOptionActive: { backgroundColor: colors.background },
+  monthOptionText: { fontSize: 14, color: colors.textPrimary, fontWeight: "500" },
   monthOptionTextActive: { fontWeight: "700" },
   hero: { borderRadius: radius.card, padding: spacing.md, marginBottom: spacing.md },
   heroTopRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
@@ -367,11 +369,9 @@ const styles = StyleSheet.create({
   },
   heroDeltaText: { fontSize: 12, fontWeight: "700" },
   heroDeltaSub: { fontSize: 11, color: "#FFFFFFCC" },
-  heroDot: { position: "absolute", width: 6, height: 6, borderRadius: 3, backgroundColor: "#FFFFFF" },
-  heroDotLast: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: "#FFFFFF66" },
-  sectionTitle: { fontSize: 18, fontWeight: "700", color: neutral.textPrimary, marginBottom: spacing.sm },
+  sectionTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary, marginBottom: spacing.sm },
   paceCard: {
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -380,26 +380,27 @@ const styles = StyleSheet.create({
   paceTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: neutral.textSecondary,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
   mainList: { flex: 1 },
   listHeaderWrap: { zIndex: 20 },
   list: { gap: spacing.sm, paddingBottom: spacing.xl },
-  emptyCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.lg, alignItems: "center" },
-  emptyText: { fontSize: 13, color: neutral.textSecondary, textAlign: "center" },
+  emptyCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.lg, alignItems: "center" },
+  emptyText: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
   footerCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
     padding: spacing.md,
     marginTop: spacing.sm,
   },
   footerCol: { flex: 1, alignItems: "center", gap: 4 },
-  footerDivider: { width: 1, height: 36, backgroundColor: neutral.border },
+  footerDivider: { width: 1, height: 36, backgroundColor: colors.border },
   footerIcon: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
-  footerLabel: { fontSize: 11, color: neutral.textSecondary, fontWeight: "600" },
-  footerValue: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
-});
+  footerLabel: { fontSize: 11, color: colors.textSecondary, fontWeight: "600" },
+  footerValue: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  });
+}

@@ -2,12 +2,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import { getCategories, insertCategory, renameCategory } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Category } from "../lib/types";
+import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 // Matches the Summary / Add Transaction / Accounts / Move Transactions
 // screens' design system.
@@ -15,15 +16,9 @@ const ACCENT = "#4C1D95";
 const ACCENT_LIGHT = "#EDE9FE";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
-
 export default function CategoriesScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [categories, setCategories] = useState<Category[]>([]);
   const [newName, setNewName] = useState("");
@@ -72,7 +67,7 @@ export default function CategoriesScreen() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Categories</Text>
           <View style={styles.headerBtn} />
@@ -91,7 +86,7 @@ export default function CategoriesScreen() {
               value={newName}
               onChangeText={setNewName}
               placeholder="e.g. Flight"
-              placeholderTextColor={neutral.textSecondary}
+              placeholderTextColor={colors.textSecondary}
               style={styles.inputText}
             />
           </View>
@@ -141,7 +136,7 @@ export default function CategoriesScreen() {
                   <Text style={styles.categoryName} numberOfLines={1}>
                     {item.name}
                   </Text>
-                  <Ionicons name="chevron-forward" size={16} color={neutral.textSecondary} />
+                  <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
                 </Pressable>
               )
             )
@@ -152,20 +147,21 @@ export default function CategoriesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { fontSize: 20, fontWeight: "700", color: neutral.textPrimary },
-  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  headerTitle: { fontSize: 20, fontWeight: "700", color: colors.textPrimary },
+  sectionCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   formHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   formIcon: {
     width: 32,
@@ -178,27 +174,27 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: neutral.textSecondary,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
   inputRow: {
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.chip,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
   },
-  inputText: { fontSize: 15, color: neutral.textPrimary },
+  inputText: { fontSize: 15, color: colors.textPrimary },
   errorText: { fontSize: 12, color: "#DC2626", fontWeight: "600" },
   submitBtn: { borderRadius: radius.pill, paddingVertical: 14, alignItems: "center", marginTop: spacing.xs },
   submitText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
   categoryRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm },
-  categoryRowDivider: { borderTopWidth: 1, borderTopColor: neutral.border },
+  categoryRowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
   categoryIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   categoryEmoji: { fontSize: 18 },
-  categoryName: { flex: 1, fontSize: 15, fontWeight: "600", color: neutral.textPrimary },
+  categoryName: { flex: 1, fontSize: 15, fontWeight: "600", color: colors.textPrimary },
   editRow: { gap: spacing.sm, paddingVertical: spacing.sm },
   editActions: { flexDirection: "row", gap: spacing.sm },
   editCancelBtn: {
@@ -206,10 +202,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderRadius: radius.pill,
-    backgroundColor: neutral.background,
+    backgroundColor: colors.background,
   },
-  editCancelText: { fontSize: 13, fontWeight: "700", color: neutral.textSecondary },
+  editCancelText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
   editSaveBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: ACCENT },
   editSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
-  empty: { textAlign: "center", color: neutral.textSecondary, paddingVertical: spacing.md },
-});
+  empty: { textAlign: "center", color: colors.textSecondary, paddingVertical: spacing.md },
+  });
+}

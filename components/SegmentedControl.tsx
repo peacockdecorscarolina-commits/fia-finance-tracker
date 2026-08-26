@@ -1,6 +1,7 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, radius, spacing } from "../lib/theme";
+import { radius, spacing } from "../lib/theme";
+import { useTheme } from "../lib/ThemeContext";
 
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
@@ -13,8 +14,9 @@ export function SegmentedControl<T extends string>({
   value: T;
   onChange: (value: T) => void;
 }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.card }]}>
       {options.map((option) => {
         const active = option === value;
         if (active) {
@@ -28,7 +30,7 @@ export function SegmentedControl<T extends string>({
         }
         return (
           <Pressable key={option} onPress={() => onChange(option)} style={[styles.segmentWrap, styles.segment]}>
-            <Text style={styles.label}>{option}</Text>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>{option}</Text>
           </Pressable>
         );
       })}
@@ -39,7 +41,6 @@ export function SegmentedControl<T extends string>({
 const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
-    backgroundColor: colors.card,
     borderRadius: radius.pill,
     padding: 4,
   },
@@ -54,9 +55,8 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: colors.pillInactiveText,
   },
   labelActive: {
-    color: colors.pillActiveText,
+    color: "#FFFFFF",
   },
 });

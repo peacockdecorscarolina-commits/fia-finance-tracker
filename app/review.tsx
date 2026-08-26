@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { EmptyState } from "../components/EmptyState";
 import { getCategoryStyle } from "../lib/categoryStyle";
@@ -10,20 +10,15 @@ import { formatMerchantName } from "../lib/formatMerchant";
 import { getCategories, getNeedsReview, setMerchantCategory, setTransactionIgnored } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Category, Transaction } from "../lib/types";
+import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 // Matches the rest of the app's redesigned screens.
 const ACCENT = "#4C1D95";
 const ACCENT_LIGHT = "#EDE9FE";
 
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
-
 export default function ReviewScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [items, setItems] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -52,7 +47,7 @@ export default function ReviewScreen() {
       <View style={styles.container}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Review</Text>
           <View style={styles.headerBtn} />
@@ -130,26 +125,27 @@ export default function ReviewScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.md },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { fontSize: 17, fontWeight: "700", color: neutral.textPrimary },
-  subtitle: { fontSize: 13, color: neutral.textSecondary, marginBottom: spacing.sm },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: colors.textPrimary },
+  subtitle: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.sm },
   list: { gap: spacing.sm, paddingBottom: spacing.xl },
-  card: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  card: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   ignoredCard: { opacity: 0.55 },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
-  merchant: { fontSize: 14, fontWeight: "600", color: neutral.textPrimary, marginBottom: 2 },
-  meta: { fontSize: 12, color: neutral.textSecondary },
+  merchant: { fontSize: 14, fontWeight: "600", color: colors.textPrimary, marginBottom: 2 },
+  meta: { fontSize: 12, color: colors.textSecondary },
   amount: { fontSize: 14, fontWeight: "700" },
   assignButton: {
     backgroundColor: ACCENT_LIGHT,
@@ -163,11 +159,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
     borderRadius: radius.pill,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
   },
-  categoryChipText: { color: neutral.textPrimary, fontWeight: "600", fontSize: 13 },
+  categoryChipText: { color: colors.textPrimary, fontWeight: "600", fontSize: 13 },
   ignoreRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   ignoreLinkText: { fontSize: 12, color: ACCENT, fontWeight: "600" },
-});
+  });
+}

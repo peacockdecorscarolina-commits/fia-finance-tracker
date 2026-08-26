@@ -1,20 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { radius, spacing } from "../lib/theme";
+import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 import type { Category, Transaction } from "../lib/types";
 import { AmountText } from "./AmountText";
 import { Chip } from "./Chip";
 
-// Matches the rest of the app's redesigned screens.
-const neutral = {
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
+// Matches the rest of the app's redesigned screens -- theme-invariant.
+const ACCENT = "#4C1D95";
 const DANGER = "#DC2626";
 const DANGER_LIGHT = "#FEE2E2";
 
@@ -39,6 +35,8 @@ export function TransactionRow({
   onChangeCategory?: (transaction: Transaction, categoryId: number) => void;
   onDelete?: (transaction: Transaction) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [pickingCategory, setPickingCategory] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const categoryStyle = getCategoryStyle(transaction.categoryName);
@@ -73,7 +71,7 @@ export function TransactionRow({
       <View style={styles.actionsRow}>
         {categories && onChangeCategory && (
           <Pressable onPress={() => setPickingCategory((v) => !v)} style={styles.actionBtn}>
-            <Ionicons name="pricetag-outline" size={13} color="#4C1D95" />
+            <Ionicons name="pricetag-outline" size={13} color={ACCENT} />
             <Text style={styles.actionLinkText}>{pickingCategory ? "Cancel" : "Category"}</Text>
           </Pressable>
         )}
@@ -82,7 +80,7 @@ export function TransactionRow({
             <Ionicons
               name={transaction.ignored ? "eye-outline" : "eye-off-outline"}
               size={13}
-              color="#4C1D95"
+              color={ACCENT}
             />
             <Text style={styles.actionLinkText}>{transaction.ignored ? "Include" : "Ignore"}</Text>
           </Pressable>
@@ -131,63 +129,65 @@ export function TransactionRow({
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: neutral.card,
-    borderRadius: radius.card,
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  ignoredCard: { opacity: 0.55 },
-  row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
-  avatar: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  avatarEmoji: { fontSize: 16 },
-  merchant: { fontSize: 14, fontWeight: "600", color: neutral.textPrimary, marginBottom: 2 },
-  meta: { fontSize: 12, color: neutral.textSecondary, marginBottom: 6 },
-  chipRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  categoryChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.chip,
-    alignSelf: "flex-start",
-  },
-  categoryChipEmoji: { fontSize: 12 },
-  categoryChipLabel: { fontSize: 12, fontWeight: "600" },
-  actionsRow: {
-    flexDirection: "row",
-    gap: spacing.md,
-    flexWrap: "wrap",
-    marginTop: spacing.xs,
-    paddingTop: spacing.xs,
-    borderTopWidth: 1,
-    borderTopColor: neutral.border,
-  },
-  actionBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
-  actionLinkText: { fontSize: 12, color: "#4C1D95", fontWeight: "600" },
-  deleteLinkText: { fontSize: 12, color: DANGER, fontWeight: "600" },
-  confirmRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    backgroundColor: DANGER_LIGHT,
-    borderRadius: radius.chip,
-    padding: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  confirmText: { fontSize: 12, color: DANGER, fontWeight: "600", flex: 1 },
-  confirmDeleteText: { fontSize: 12, color: DANGER, fontWeight: "700", textDecorationLine: "underline" },
-  categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
-  categoryOption: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-    backgroundColor: neutral.card,
-    borderWidth: 1,
-    borderColor: neutral.border,
-  },
-  categoryOptionText: { color: neutral.textPrimary, fontWeight: "600", fontSize: 13 },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: radius.card,
+      padding: spacing.md,
+      gap: spacing.xs,
+    },
+    ignoredCard: { opacity: 0.55 },
+    row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+    avatar: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+    avatarEmoji: { fontSize: 16 },
+    merchant: { fontSize: 14, fontWeight: "600", color: colors.textPrimary, marginBottom: 2 },
+    meta: { fontSize: 12, color: colors.textSecondary, marginBottom: 6 },
+    chipRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+    categoryChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: radius.chip,
+      alignSelf: "flex-start",
+    },
+    categoryChipEmoji: { fontSize: 12 },
+    categoryChipLabel: { fontSize: 12, fontWeight: "600" },
+    actionsRow: {
+      flexDirection: "row",
+      gap: spacing.md,
+      flexWrap: "wrap",
+      marginTop: spacing.xs,
+      paddingTop: spacing.xs,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    actionBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
+    actionLinkText: { fontSize: 12, color: ACCENT, fontWeight: "600" },
+    deleteLinkText: { fontSize: 12, color: DANGER, fontWeight: "600" },
+    confirmRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+      backgroundColor: DANGER_LIGHT,
+      borderRadius: radius.chip,
+      padding: spacing.sm,
+      marginTop: spacing.xs,
+    },
+    confirmText: { fontSize: 12, color: DANGER, fontWeight: "600", flex: 1 },
+    confirmDeleteText: { fontSize: 12, color: DANGER, fontWeight: "700", textDecorationLine: "underline" },
+    categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
+    categoryOption: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: 8,
+      borderRadius: radius.pill,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    categoryOptionText: { color: colors.textPrimary, fontWeight: "600", fontSize: 13 },
+  });
+}

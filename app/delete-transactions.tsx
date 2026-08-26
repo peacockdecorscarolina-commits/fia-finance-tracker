@@ -1,12 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getAccountStyle } from "../lib/accountStyle";
 import { deleteTransactions, getAccounts, getTransactions } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Account } from "../lib/types";
+import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 // Matches the rest of the app's redesigned screens.
 const ACCENT = "#4C1D95";
@@ -14,17 +15,11 @@ const ACCENT_LIGHT = "#EDE9FE";
 const DANGER = "#DC2626";
 const DANGER_LIGHT = "#FEE2E2";
 
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
-
 type Status = { kind: "idle" } | { kind: "done"; count: number };
 
 export default function DeleteTransactionsScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountId, setAccountId] = useState<number | null>(null);
@@ -66,7 +61,7 @@ export default function DeleteTransactionsScreen() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Delete Transactions</Text>
           <View style={styles.headerBtn} />
@@ -95,7 +90,7 @@ export default function DeleteTransactionsScreen() {
                   <View style={[styles.tileIcon, { backgroundColor: style.color }]}>
                     <Text style={styles.tileIconText}>{a.name.slice(0, 2).toUpperCase()}</Text>
                   </View>
-                  <Text style={styles.tileLabel} numberOfLines={1}>
+                  <Text style={[styles.tileLabel, active && styles.tileLabelActive]} numberOfLines={1}>
                     {a.name}
                   </Text>
                   {active && (
@@ -113,7 +108,7 @@ export default function DeleteTransactionsScreen() {
           <Text style={styles.sectionTitle}>Date range</Text>
           <View style={styles.dateRow}>
             <View style={[styles.inputRow, { flex: 1 }]}>
-              <Ionicons name="calendar-outline" size={16} color={neutral.textSecondary} />
+              <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
               <TextInput
                 value={start}
                 onChangeText={(v) => {
@@ -122,13 +117,13 @@ export default function DeleteTransactionsScreen() {
                   setConfirming(false);
                 }}
                 placeholder="2025-12-10"
-                placeholderTextColor={neutral.textSecondary}
+                placeholderTextColor={colors.textSecondary}
                 style={[styles.inputText, { marginLeft: 6 }]}
               />
             </View>
             <Text style={styles.toText}>to</Text>
             <View style={[styles.inputRow, { flex: 1 }]}>
-              <Ionicons name="calendar-outline" size={16} color={neutral.textSecondary} />
+              <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
               <TextInput
                 value={end}
                 onChangeText={(v) => {
@@ -137,7 +132,7 @@ export default function DeleteTransactionsScreen() {
                   setConfirming(false);
                 }}
                 placeholder="2026-01-09"
-                placeholderTextColor={neutral.textSecondary}
+                placeholderTextColor={colors.textSecondary}
                 style={[styles.inputText, { marginLeft: 6 }]}
               />
             </View>
@@ -189,25 +184,26 @@ export default function DeleteTransactionsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { fontSize: 17, fontWeight: "700", color: neutral.textPrimary },
-  description: { fontSize: 13, color: neutral.textSecondary },
-  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: colors.textPrimary },
+  description: { fontSize: 13, color: colors.textSecondary },
+  sectionCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: neutral.textSecondary,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
@@ -217,17 +213,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.chip,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
     paddingVertical: 10,
     paddingHorizontal: 8,
   },
   tileActive: { borderColor: ACCENT, backgroundColor: ACCENT_LIGHT },
   tileIcon: { width: 22, height: 22, borderRadius: 6, alignItems: "center", justifyContent: "center" },
   tileIconText: { color: "#FFFFFF", fontSize: 8, fontWeight: "700" },
-  tileLabel: { flex: 1, fontSize: 12, fontWeight: "600", color: neutral.textPrimary },
+  tileLabel: { flex: 1, fontSize: 12, fontWeight: "600", color: colors.textPrimary },
+  tileLabelActive: { color: ACCENT },
   checkBadge: {
     position: "absolute",
     top: -6,
@@ -243,15 +240,15 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.chip,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
   },
-  inputText: { flex: 1, fontSize: 14, color: neutral.textPrimary },
-  toText: { color: neutral.textSecondary, fontWeight: "600" },
+  inputText: { flex: 1, fontSize: 14, color: colors.textPrimary },
+  toText: { color: colors.textSecondary, fontWeight: "600" },
   previewBtn: {
     alignSelf: "flex-start",
     paddingHorizontal: spacing.md,
@@ -260,7 +257,7 @@ const styles = StyleSheet.create({
     backgroundColor: ACCENT_LIGHT,
   },
   previewBtnText: { fontSize: 13, fontWeight: "700", color: ACCENT },
-  previewText: { fontSize: 13, color: neutral.textSecondary },
+  previewText: { fontSize: 13, color: colors.textSecondary },
   deleteBtn: {
     alignItems: "center",
     justifyContent: "center",
@@ -280,7 +277,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: "#FFFFFF",
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
   },
-  cancelBtnText: { fontSize: 14, fontWeight: "700", color: neutral.textSecondary },
-});
+  cancelBtnText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
+  });
+}

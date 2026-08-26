@@ -2,13 +2,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import { getAccounts, getCategories, insertCategory, insertManualTransaction } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Account, Category } from "../lib/types";
+import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 // Matches the Summary screen's redesign exactly -- same purple gradient,
 // same neutral iOS-system palette, same small uppercase section labels.
@@ -16,20 +17,14 @@ const ACCENT = "#4C1D95";
 const ACCENT_LIGHT = "#EDE9FE";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
-
 function today(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export default function AddTransactionScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -97,7 +92,7 @@ export default function AddTransactionScreen() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </Pressable>
         </View>
         <Text style={styles.title}>Add Transaction</Text>
@@ -120,7 +115,7 @@ export default function AddTransactionScreen() {
                   <View style={[styles.tileIcon, { backgroundColor: style.color }]}>
                     <Text style={styles.tileIconText}>{a.name.slice(0, 2).toUpperCase()}</Text>
                   </View>
-                  <Text style={styles.tileLabel} numberOfLines={1}>
+                  <Text style={[styles.tileLabel, active && styles.tileLabelActive]} numberOfLines={1}>
                     {a.name}
                   </Text>
                   {active && (
@@ -147,7 +142,7 @@ export default function AddTransactionScreen() {
                   style={[styles.tile, active && styles.tileActive]}
                 >
                   <Text style={styles.tileEmoji}>{style.emoji}</Text>
-                  <Text style={styles.tileLabel} numberOfLines={1}>
+                  <Text style={[styles.tileLabel, active && styles.tileLabelActive]} numberOfLines={1}>
                     {c.name}
                   </Text>
                   {active && (
@@ -165,8 +160,8 @@ export default function AddTransactionScreen() {
           <Text style={styles.sectionTitle}>Type</Text>
           <View style={styles.typeRow}>
             <Pressable onPress={() => selectType(true)} style={[styles.typeCard, isExpense && styles.typeCardActive]}>
-              <Ionicons name="arrow-up-outline" size={16} color={neutral.textPrimary} />
-              <Text style={styles.typeCardText}>Expense</Text>
+              <Ionicons name="arrow-up-outline" size={16} color={isExpense ? ACCENT : colors.textPrimary} />
+              <Text style={[styles.typeCardText, isExpense && styles.typeCardTextActive]}>Expense</Text>
               {isExpense && (
                 <View style={styles.typeIconBadgeExpense}>
                   <Ionicons name="chevron-down" size={12} color="#FFFFFF" />
@@ -177,8 +172,8 @@ export default function AddTransactionScreen() {
               onPress={() => selectType(false)}
               style={[styles.typeCard, !isExpense && styles.typeCardActive]}
             >
-              <Ionicons name="arrow-up-outline" size={16} color={neutral.textPrimary} />
-              <Text style={styles.typeCardText}>Income / credit</Text>
+              <Ionicons name="arrow-up-outline" size={16} color={!isExpense ? ACCENT : colors.textPrimary} />
+              <Text style={[styles.typeCardText, !isExpense && styles.typeCardTextActive]}>Income / credit</Text>
               {!isExpense && (
                 <View style={styles.typeIconBadgeIncome}>
                   <Ionicons name="arrow-up" size={12} color="#FFFFFF" />
@@ -198,11 +193,11 @@ export default function AddTransactionScreen() {
               onChangeText={setMerchant}
               style={styles.inputText}
               placeholder="e.g. Car Payment"
-              placeholderTextColor={neutral.textSecondary}
+              placeholderTextColor={colors.textSecondary}
             />
             {merchant.length > 0 && (
               <Pressable onPress={() => setMerchant("")}>
-                <Ionicons name="close-circle" size={18} color={neutral.textSecondary} />
+                <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
               </Pressable>
             )}
           </View>
@@ -211,13 +206,13 @@ export default function AddTransactionScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.fieldLabel}>Date</Text>
               <View style={styles.inputRow}>
-                <Ionicons name="calendar-outline" size={16} color={neutral.textSecondary} />
+                <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
                 <TextInput
                   value={date}
                   onChangeText={setDate}
                   style={[styles.inputText, { marginLeft: 6 }]}
                   placeholder="YYYY-MM-DD"
-                  placeholderTextColor={neutral.textSecondary}
+                  placeholderTextColor={colors.textSecondary}
                 />
               </View>
             </View>
@@ -230,7 +225,7 @@ export default function AddTransactionScreen() {
                   onChangeText={setAmountText}
                   style={[styles.inputText, { marginLeft: 4 }]}
                   placeholder="0.00"
-                  placeholderTextColor={neutral.textSecondary}
+                  placeholderTextColor={colors.textSecondary}
                   keyboardType="decimal-pad"
                 />
               </View>
@@ -257,22 +252,23 @@ export default function AddTransactionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.xs },
   headerRow: { flexDirection: "row" },
   backBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
-  title: { fontSize: 24, fontWeight: "700", color: neutral.textPrimary, marginTop: spacing.sm },
-  description: { fontSize: 13, color: neutral.textSecondary, marginBottom: spacing.xs },
+  title: { fontSize: 24, fontWeight: "700", color: colors.textPrimary, marginTop: spacing.sm },
+  description: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.xs },
   sectionCard: {
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
     padding: spacing.md,
     gap: spacing.sm,
@@ -281,7 +277,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: neutral.textSecondary,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
@@ -291,10 +287,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.chip,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
     paddingVertical: 10,
     paddingHorizontal: 8,
   },
@@ -302,7 +298,8 @@ const styles = StyleSheet.create({
   tileIcon: { width: 22, height: 22, borderRadius: 6, alignItems: "center", justifyContent: "center" },
   tileIconText: { color: "#FFFFFF", fontSize: 8, fontWeight: "700" },
   tileEmoji: { fontSize: 16 },
-  tileLabel: { flex: 1, fontSize: 12, fontWeight: "600", color: neutral.textPrimary },
+  tileLabel: { flex: 1, fontSize: 12, fontWeight: "600", color: colors.textPrimary },
+  tileLabelActive: { color: ACCENT },
   checkBadge: {
     position: "absolute",
     top: -6,
@@ -320,15 +317,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.chip,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
     paddingVertical: 14,
     paddingHorizontal: spacing.md,
   },
   typeCardActive: { borderColor: ACCENT, backgroundColor: ACCENT_LIGHT },
-  typeCardText: { flex: 1, fontSize: 14, fontWeight: "600", color: neutral.textPrimary },
+  typeCardText: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+  typeCardTextActive: { color: ACCENT },
   typeIconBadgeExpense: {
     width: 20,
     height: 20,
@@ -345,20 +343,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  fieldLabel: { fontSize: 13, fontWeight: "600", color: neutral.textSecondary, marginTop: spacing.sm },
+  fieldLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginTop: spacing.sm },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.chip,
     borderWidth: 1.5,
-    borderColor: neutral.border,
+    borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
     marginTop: 6,
   },
-  inputText: { flex: 1, fontSize: 15, color: neutral.textPrimary },
-  dollarSign: { fontSize: 15, color: neutral.textSecondary, fontWeight: "600" },
+  inputText: { flex: 1, fontSize: 15, color: colors.textPrimary },
+  dollarSign: { fontSize: 15, color: colors.textSecondary, fontWeight: "600" },
   dateAmountRow: { flexDirection: "row", gap: spacing.sm },
   submitBtn: { borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.md },
   submitText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
@@ -368,10 +366,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: spacing.md,
     marginTop: spacing.md,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.chip,
     padding: spacing.md,
   },
   successText: { fontSize: 14, color: "#16A34A", fontWeight: "700" },
   doneLinkText: { fontSize: 14, color: ACCENT, fontWeight: "700" },
-});
+  });
+}

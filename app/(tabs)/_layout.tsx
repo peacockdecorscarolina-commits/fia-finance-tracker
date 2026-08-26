@@ -3,12 +3,13 @@ import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
 import { StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "../../lib/theme";
+import { useTheme } from "../../lib/ThemeContext";
 
 const TAB_BAR_CONTENT_HEIGHT = 56;
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const { mode, colors } = useTheme();
 
   return (
     <Tabs
@@ -30,7 +31,7 @@ export default function TabLayout() {
         tabBarBackground: () => (
           <BlurView
             intensity={80}
-            tint="light"
+            tint={mode === "dark" ? "dark" : "light"}
             style={[StyleSheet.absoluteFill, { height: TAB_BAR_CONTENT_HEIGHT + insets.bottom }]}
           />
         ),

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
@@ -21,6 +21,7 @@ import {
 } from "../../lib/db";
 import { monthRange } from "../../lib/period";
 import { radius, spacing, tabBarClearance } from "../../lib/theme";
+import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 import { ASSET_TYPES, type AssetType, type Transaction } from "../../lib/types";
 
 const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
@@ -32,18 +33,6 @@ const NET_WORTH_TINT: Record<AssetType, string> = {
 };
 
 const HERO_GRADIENT = ["#4C1D95", "#312E81"] as const;
-
-// Neutral iOS-system-style palette for this screen -- a flat colorful
-// background (the app's usual blue/mint gradient) reads as "web" rather
-// than native; real iOS apps (Wallet, Banking, Health) keep the base
-// neutral and save color for the content itself.
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -83,6 +72,8 @@ function greeting(): string {
 }
 
 function Donut({ slices, total }: { slices: { name: string; value: number; color: string }[]; total: number }) {
+  const { colors } = useTheme();
+  const donutStyles = useMemo(() => makeDonutStyles(colors), [colors]);
   let cumulative = 0;
   const stops = slices.map((s) => {
     const startPct = (cumulative / total) * 100;
@@ -92,13 +83,29 @@ function Donut({ slices, total }: { slices: { name: string; value: number; color
   });
   const gradient = `conic-gradient(${stops.join(", ")})`;
   return (
-    <View style={[styles.donut, { backgroundImage: gradient } as object]}>
-      <View style={styles.donutHole}>
-        <Text style={styles.donutValue}>{formatMoney(total)}</Text>
-        <Text style={styles.donutLabel}>Total</Text>
+    <View style={[donutStyles.donut, { backgroundImage: gradient } as object]}>
+      <View style={donutStyles.donutHole}>
+        <Text style={donutStyles.donutValue}>{formatMoney(total)}</Text>
+        <Text style={donutStyles.donutLabel}>Total</Text>
       </View>
     </View>
   );
+}
+
+function makeDonutStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    donut: { width: 140, height: 140, borderRadius: 70, alignItems: "center", justifyContent: "center" },
+    donutHole: {
+      width: 92,
+      height: 92,
+      borderRadius: 46,
+      backgroundColor: colors.card,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    donutValue: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
+    donutLabel: { fontSize: 11, color: colors.textSecondary },
+  });
 }
 
 type MoreItem = { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void };
@@ -114,12 +121,14 @@ function MoreSheet({
   items: MoreItem[];
   title?: string;
 }) {
+  const { colors } = useTheme();
+  const sheetStyles = useMemo(() => makeSheetStyles(colors), [colors]);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>{title}</Text>
+      <Pressable style={sheetStyles.sheetBackdrop} onPress={onClose}>
+        <Pressable style={sheetStyles.sheet} onPress={(e) => e.stopPropagation()}>
+          <View style={sheetStyles.sheetHandle} />
+          <Text style={sheetStyles.sheetTitle}>{title}</Text>
           {items.map((item) => (
             <Pressable
               key={item.label}
@@ -127,13 +136,13 @@ function MoreSheet({
                 onClose();
                 item.onPress();
               }}
-              style={styles.sheetRow}
+              style={sheetStyles.sheetRow}
             >
-              <View style={styles.sheetIconWrap}>
-                <Ionicons name={item.icon} size={20} color={neutral.textPrimary} />
+              <View style={sheetStyles.sheetIconWrap}>
+                <Ionicons name={item.icon} size={20} color={colors.textPrimary} />
               </View>
-              <Text style={styles.sheetRowLabel}>{item.label}</Text>
-              <Ionicons name="chevron-forward" size={18} color={neutral.textSecondary} />
+              <Text style={sheetStyles.sheetRowLabel}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
             </Pressable>
           ))}
         </Pressable>
@@ -142,7 +151,48 @@ function MoreSheet({
   );
 }
 
+function makeSheetStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    sheetBackdrop: { flex: 1, backgroundColor: "#00000055", justifyContent: "flex-end" },
+    sheet: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: radius.card,
+      borderTopRightRadius: radius.card,
+      padding: spacing.md,
+      gap: spacing.xs,
+    },
+    sheetHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.border,
+      alignSelf: "center",
+      marginBottom: spacing.sm,
+    },
+    sheetTitle: { fontSize: 16, fontWeight: "700", color: colors.textPrimary, marginBottom: spacing.sm },
+    sheetRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    sheetIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: colors.background,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sheetRowLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+  });
+}
+
 export default function SummaryScreen() {
+  const { colors, mode, toggle: toggleTheme } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [month, setMonth] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -227,11 +277,14 @@ export default function SummaryScreen() {
             <Text style={styles.greetingName}>Zaighum 👋</Text>
           </View>
           <View style={styles.headerIcons}>
+            <Pressable onPress={toggleTheme} style={styles.headerIconBtn}>
+              <Ionicons name={mode === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.textPrimary} />
+            </Pressable>
             <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
-              <Ionicons name="ellipsis-horizontal" size={20} color={neutral.textPrimary} />
+              <Ionicons name="ellipsis-horizontal" size={20} color={colors.textPrimary} />
             </Pressable>
             <Pressable onPress={() => router.push("/review")} style={styles.headerIconBtn}>
-              <Ionicons name="notifications-outline" size={20} color={neutral.textPrimary} />
+              <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
               {reviewCount > 0 && (
                 <View style={styles.notifBadge}>
                   <Text style={styles.notifBadgeCount}>{reviewCount > 9 ? "9+" : reviewCount}</Text>
@@ -313,7 +366,7 @@ export default function SummaryScreen() {
                   {delta >= 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
                 </Text>
               )}
-              <Ionicons name="chevron-forward" size={16} color={neutral.textSecondary} />
+              <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
             </Pressable>
           );
         })}
@@ -428,8 +481,9 @@ export default function SummaryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
@@ -437,14 +491,14 @@ const styles = StyleSheet.create({
     paddingBottom: tabBarClearance,
   },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  greetingSmall: { fontSize: 14, color: neutral.textSecondary },
-  greetingName: { fontSize: 22, fontWeight: "700", color: neutral.textPrimary },
+  greetingSmall: { fontSize: 14, color: colors.textSecondary },
+  greetingName: { fontSize: 22, fontWeight: "700", color: colors.textPrimary },
   headerIcons: { flexDirection: "row", gap: spacing.sm },
   headerIconBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -466,15 +520,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     alignSelf: "flex-start",
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
   },
-  monthPillText: { fontSize: 13, fontWeight: "700", color: neutral.textPrimary },
-  monthPillChevron: { fontSize: 9, color: neutral.textSecondary },
+  monthPillText: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
+  monthPillChevron: { fontSize: 9, color: colors.textSecondary },
   monthDropdown: {
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
     padding: spacing.xs,
     gap: 2,
@@ -482,8 +536,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   monthOption: { paddingHorizontal: spacing.md, paddingVertical: 10, borderRadius: radius.chip },
-  monthOptionActive: { backgroundColor: neutral.background },
-  monthOptionText: { fontSize: 14, color: neutral.textPrimary, fontWeight: "500" },
+  monthOptionActive: { backgroundColor: colors.background },
+  monthOptionText: { fontSize: 14, color: colors.textPrimary, fontWeight: "500" },
   monthOptionTextActive: { fontWeight: "700" },
   hero: { borderRadius: radius.card, padding: spacing.md, gap: spacing.md },
   heroTopRow: { flexDirection: "row", alignItems: "flex-start" },
@@ -512,19 +566,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
     padding: spacing.md,
   },
   assetCardIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  assetCardLabel: { fontSize: 12, color: neutral.textSecondary, fontWeight: "600" },
-  assetCardValue: { fontSize: 16, fontWeight: "700", color: neutral.textPrimary, marginTop: 2 },
+  assetCardLabel: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
+  assetCardValue: { fontSize: 16, fontWeight: "700", color: colors.textPrimary, marginTop: 2 },
   assetCardDelta: { fontSize: 12, fontWeight: "600" },
-  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  sectionCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: neutral.textSecondary,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
@@ -532,34 +586,23 @@ const styles = StyleSheet.create({
   badge: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   badgeText: { color: "#FFFFFF", fontWeight: "700", fontSize: 12 },
   accountTopRow: { flexDirection: "row", justifyContent: "space-between" },
-  accountName: { fontSize: 14, fontWeight: "600", color: neutral.textPrimary },
-  accountAmount: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
-  progressTrack: { height: 4, borderRadius: 2, backgroundColor: neutral.border, marginTop: 6, overflow: "hidden" },
+  accountName: { fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+  accountAmount: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  progressTrack: { height: 4, borderRadius: 2, backgroundColor: colors.border, marginTop: 6, overflow: "hidden" },
   progressFill: { height: "100%", borderRadius: 2 },
   accountPct: { fontSize: 12, fontWeight: "700", width: 44, textAlign: "right" },
   categoryRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  donut: { width: 140, height: 140, borderRadius: 70, alignItems: "center", justifyContent: "center" },
-  donutHole: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: neutral.card,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  donutValue: { fontSize: 15, fontWeight: "700", color: neutral.textPrimary },
-  donutLabel: { fontSize: 11, color: neutral.textSecondary },
   legend: { flex: 1, gap: 6 },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendName: { flex: 1, fontSize: 12, color: neutral.textPrimary, fontWeight: "600" },
-  legendPct: { fontSize: 12, color: neutral.textSecondary, fontWeight: "700" },
+  legendName: { flex: 1, fontSize: 12, color: colors.textPrimary, fontWeight: "600" },
+  legendPct: { fontSize: 12, color: colors.textSecondary, fontWeight: "700" },
   txRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   txIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  txName: { fontSize: 14, fontWeight: "600", color: neutral.textPrimary },
-  txMeta: { fontSize: 12, color: neutral.textSecondary },
-  txAmount: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
-  txCategory: { fontSize: 11, color: neutral.textSecondary },
+  txName: { fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+  txMeta: { fontSize: 12, color: colors.textSecondary },
+  txAmount: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  txCategory: { fontSize: 11, color: colors.textSecondary },
   fab: {
     position: "absolute",
     right: spacing.md,
@@ -576,38 +619,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
-  sheetBackdrop: { flex: 1, backgroundColor: "#00000055", justifyContent: "flex-end" },
-  sheet: {
-    backgroundColor: neutral.card,
-    borderTopLeftRadius: radius.card,
-    borderTopRightRadius: radius.card,
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: neutral.border,
-    alignSelf: "center",
-    marginBottom: spacing.sm,
-  },
-  sheetTitle: { fontSize: 16, fontWeight: "700", color: neutral.textPrimary, marginBottom: spacing.sm },
-  sheetRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: neutral.border,
-  },
-  sheetIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: neutral.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sheetRowLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: neutral.textPrimary },
-});
+  });
+}

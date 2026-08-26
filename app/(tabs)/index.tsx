@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { LinearGradient } from "expo-linear-gradient";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Dimensions, FlatList, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { EmptyState } from "../../components/EmptyState";
@@ -30,19 +30,12 @@ import {
 } from "../../lib/db";
 import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/period";
 import { radius, spacing, tabBarClearance } from "../../lib/theme";
+import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 import { ASSET_TYPES, type Account, type AssetType, type Category, type Transaction } from "../../lib/types";
 
-// Matches the rest of the app's redesigned screens.
+// Matches the rest of the app's redesigned screens -- theme-invariant.
 const ACCENT = "#4C1D95";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
-
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
 
 const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
 const PANEL_ORDER: AssetType[] = ["Investment", "401k", "Savings", "Cash"];
@@ -84,12 +77,14 @@ function MoreSheet({
   items: MoreItem[];
   title?: string;
 }) {
+  const { colors } = useTheme();
+  const sheetStyles = useMemo(() => makeSheetStyles(colors), [colors]);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>{title}</Text>
+      <Pressable style={sheetStyles.sheetBackdrop} onPress={onClose}>
+        <Pressable style={sheetStyles.sheet} onPress={(e) => e.stopPropagation()}>
+          <View style={sheetStyles.sheetHandle} />
+          <Text style={sheetStyles.sheetTitle}>{title}</Text>
           {items.map((item) => (
             <Pressable
               key={item.label}
@@ -97,13 +92,13 @@ function MoreSheet({
                 onClose();
                 item.onPress();
               }}
-              style={styles.sheetRow}
+              style={sheetStyles.sheetRow}
             >
-              <View style={styles.sheetIconWrap}>
-                <Ionicons name={item.icon} size={20} color={neutral.textPrimary} />
+              <View style={sheetStyles.sheetIconWrap}>
+                <Ionicons name={item.icon} size={20} color={colors.textPrimary} />
               </View>
-              <Text style={styles.sheetRowLabel}>{item.label}</Text>
-              <Ionicons name="chevron-forward" size={18} color={neutral.textSecondary} />
+              <Text style={sheetStyles.sheetRowLabel}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
             </Pressable>
           ))}
         </Pressable>
@@ -112,7 +107,48 @@ function MoreSheet({
   );
 }
 
+function makeSheetStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    sheetBackdrop: { flex: 1, backgroundColor: "#00000055", justifyContent: "flex-end" },
+    sheet: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: radius.card,
+      borderTopRightRadius: radius.card,
+      padding: spacing.md,
+      gap: spacing.xs,
+    },
+    sheetHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.border,
+      alignSelf: "center",
+      marginBottom: spacing.sm,
+    },
+    sheetTitle: { fontSize: 16, fontWeight: "700", color: colors.textPrimary, marginBottom: spacing.sm },
+    sheetRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    sheetIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: colors.background,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sheetRowLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+  });
+}
+
 export default function TransactionsScreen() {
+  const { colors, mode, toggle: toggleTheme } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | "all">("all");
@@ -208,11 +244,14 @@ export default function TransactionsScreen() {
           <Text style={styles.greetingName}>Zaighum 👋</Text>
         </View>
         <View style={styles.headerIcons}>
+          <Pressable onPress={toggleTheme} style={styles.headerIconBtn}>
+            <Ionicons name={mode === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.textPrimary} />
+          </Pressable>
           <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
-            <Ionicons name="ellipsis-horizontal" size={20} color={neutral.textPrimary} />
+            <Ionicons name="ellipsis-horizontal" size={20} color={colors.textPrimary} />
           </Pressable>
           <Pressable onPress={() => router.push("/review")} style={styles.headerIconBtn}>
-            <Ionicons name="notifications-outline" size={20} color={neutral.textPrimary} />
+            <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
             {reviewCount > 0 && (
               <View style={styles.notifBadge}>
                 <Text style={styles.notifBadgeCount}>{reviewCount > 9 ? "9+" : reviewCount}</Text>
@@ -451,8 +490,9 @@ export default function TransactionsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md },
   headerRow: {
     flexDirection: "row",
@@ -460,14 +500,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: spacing.md,
   },
-  greetingSmall: { fontSize: 14, color: neutral.textSecondary },
-  greetingName: { fontSize: 22, fontWeight: "700", color: neutral.textPrimary },
+  greetingSmall: { fontSize: 14, color: colors.textSecondary },
+  greetingName: { fontSize: 22, fontWeight: "700", color: colors.textPrimary },
   headerIcons: { flexDirection: "row", gap: spacing.sm },
   headerIconBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -489,33 +529,33 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginBottom: spacing.md,
     marginTop: spacing.md,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
   },
   statRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
   statBox: {
     flex: 1,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
     padding: spacing.md,
   },
   statTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
   statIconWrap: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  statLabel: { fontSize: 13, color: neutral.textSecondary, fontWeight: "600" },
-  statValue: { fontSize: 18, fontWeight: "700", color: neutral.textPrimary, marginBottom: 6 },
+  statLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: "600" },
+  statValue: { fontSize: 18, fontWeight: "700", color: colors.textPrimary, marginBottom: 6 },
   assetPanel: { padding: spacing.md, gap: spacing.xs },
-  panelTitle: { fontSize: 13, fontWeight: "600", color: neutral.textSecondary },
-  panelValue: { fontSize: 22, fontWeight: "700", color: neutral.textPrimary },
-  panelDelta: { fontSize: 12, fontWeight: "600", color: neutral.textSecondary, marginBottom: spacing.xs },
+  panelTitle: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
+  panelValue: { fontSize: 22, fontWeight: "700", color: colors.textPrimary },
+  panelDelta: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginBottom: spacing.xs },
   progressTrack: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: neutral.background,
+    backgroundColor: colors.background,
     overflow: "hidden",
   },
   progressFill: { height: "100%", borderRadius: 999, backgroundColor: "#DC2626" },
   dotsRow: { flexDirection: "row", justifyContent: "center", gap: 6, paddingBottom: spacing.sm },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: neutral.border },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.border },
   dotActive: { backgroundColor: ACCENT, width: 16 },
   sectionTitleRow: {
     flexDirection: "row",
@@ -526,7 +566,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: neutral.textPrimary,
+    color: colors.textPrimary,
   },
   clearLink: { fontSize: 13, color: ACCENT, fontWeight: "600" },
   filterScroll: { flexGrow: 0, marginBottom: spacing.md },
@@ -535,9 +575,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
   },
-  filterChipText: { color: neutral.textSecondary, fontWeight: "600", fontSize: 13 },
+  filterChipText: { color: colors.textSecondary, fontWeight: "600", fontSize: 13 },
   filterChipTextActive: { color: "#FFFFFF", fontWeight: "600", fontSize: 13 },
   mainList: { flex: 1 },
   list: { gap: spacing.sm, paddingBottom: tabBarClearance },
@@ -557,40 +597,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
-  sheetBackdrop: { flex: 1, backgroundColor: "#00000055", justifyContent: "flex-end" },
-  sheet: {
-    backgroundColor: neutral.card,
-    borderTopLeftRadius: radius.card,
-    borderTopRightRadius: radius.card,
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: neutral.border,
-    alignSelf: "center",
-    marginBottom: spacing.sm,
-  },
-  sheetTitle: { fontSize: 16, fontWeight: "700", color: neutral.textPrimary, marginBottom: spacing.sm },
-  sheetRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: neutral.border,
-  },
-  sheetIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: neutral.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sheetRowLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: neutral.textPrimary },
-});
+  });
+}
 
 

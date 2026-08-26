@@ -1,7 +1,14 @@
+import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { buildTicks, formatAxisLabel } from "../lib/chartAxis";
-import { colors, spacing } from "../lib/theme";
+import { spacing } from "../lib/theme";
+import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 import type { MonthlyTotal } from "../lib/db";
+
+// Matches the rest of the app's redesigned screens -- theme-invariant.
+const POSITIVE = "#16A34A";
+const NEGATIVE = "#DC2626";
+const ACCENT_LIGHT = "#EDE9FE";
 
 function formatMonthShort(month: string): string {
   const [year, m] = month.split("-").map(Number);
@@ -19,6 +26,8 @@ export function MonthlyBarChart({
   selectedMonth?: string | null;
   onSelectMonth?: (month: string) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const rawMax = Math.max(...data.flatMap((d) => [d.income, d.expenses]), 1);
   const ticks = buildTicks(rawMax);
   const axisMax = ticks[ticks.length - 1];
@@ -27,11 +36,11 @@ export function MonthlyBarChart({
     <View>
       <View style={styles.legendRow}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.positive }]} />
+          <View style={[styles.legendDot, { backgroundColor: POSITIVE }]} />
           <Text style={styles.legendText}>Income</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.negative }]} />
+          <View style={[styles.legendDot, { backgroundColor: NEGATIVE }]} />
           <Text style={styles.legendText}>Expenses</Text>
         </View>
       </View>
@@ -61,7 +70,7 @@ export function MonthlyBarChart({
                       styles.bar,
                       {
                         height: Math.max((item.income / axisMax) * CHART_HEIGHT, 2),
-                        backgroundColor: colors.positive,
+                        backgroundColor: POSITIVE,
                       },
                     ]}
                   />
@@ -70,7 +79,7 @@ export function MonthlyBarChart({
                       styles.bar,
                       {
                         height: Math.max((item.expenses / axisMax) * CHART_HEIGHT, 2),
-                        backgroundColor: colors.negative,
+                        backgroundColor: NEGATIVE,
                       },
                     ]}
                   />
@@ -94,41 +103,43 @@ export function MonthlyBarChart({
   );
 }
 
-const styles = StyleSheet.create({
-  legendRow: { flexDirection: "row", gap: spacing.md, marginBottom: spacing.sm },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
-  chartWithAxis: { flexDirection: "row" },
-  axisColumn: {
-    height: CHART_HEIGHT,
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    marginRight: 2,
-  },
-  axisLabel: { fontSize: 10, color: colors.textSecondary, fontWeight: "600" },
-  plotArea: { flex: 1 },
-  barsRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    height: CHART_HEIGHT,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  monthCol: {
-    alignItems: "flex-end",
-    flexDirection: "row",
-    gap: 3,
-    flex: 1,
-    justifyContent: "flex-start",
-    height: CHART_HEIGHT,
-    borderRadius: 6,
-  },
-  monthColSelected: { backgroundColor: colors.statBg },
-  bar: { width: 8, borderRadius: 4 },
-  monthLabelsRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
-  monthLabel: { fontSize: 11, color: colors.textSecondary, fontWeight: "600", flex: 1, textAlign: "left" },
-  monthLabelSelected: { color: colors.textPrimary, fontWeight: "700" },
-  empty: { textAlign: "center", color: colors.textSecondary, paddingVertical: spacing.lg },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    legendRow: { flexDirection: "row", gap: spacing.md, marginBottom: spacing.sm },
+    legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+    legendDot: { width: 8, height: 8, borderRadius: 4 },
+    legendText: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
+    chartWithAxis: { flexDirection: "row" },
+    axisColumn: {
+      height: CHART_HEIGHT,
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+      marginRight: 2,
+    },
+    axisLabel: { fontSize: 10, color: colors.textSecondary, fontWeight: "600" },
+    plotArea: { flex: 1 },
+    barsRow: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      justifyContent: "space-between",
+      height: CHART_HEIGHT,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    monthCol: {
+      alignItems: "flex-end",
+      flexDirection: "row",
+      gap: 3,
+      flex: 1,
+      justifyContent: "flex-start",
+      height: CHART_HEIGHT,
+      borderRadius: 6,
+    },
+    monthColSelected: { backgroundColor: ACCENT_LIGHT },
+    bar: { width: 8, borderRadius: 4 },
+    monthLabelsRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
+    monthLabel: { fontSize: 11, color: colors.textSecondary, fontWeight: "600", flex: 1, textAlign: "left" },
+    monthLabelSelected: { color: colors.textPrimary, fontWeight: "700" },
+    empty: { textAlign: "center", color: colors.textSecondary, paddingVertical: spacing.lg },
+  });
+}

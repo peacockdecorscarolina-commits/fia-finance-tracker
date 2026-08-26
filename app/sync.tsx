@@ -2,11 +2,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { backupToDrive, restoreFromDrive } from "../lib/googleDrive";
 import { isSignedIn, signIn, signOut } from "../lib/googleAuth";
 import { radius, spacing } from "../lib/theme";
+import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 // Matches the rest of the app's redesigned screens.
 const ACCENT = "#4C1D95";
@@ -15,17 +16,11 @@ const GRADIENT = ["#4C1D95", "#312E81"] as const;
 const DANGER = "#DC2626";
 const DANGER_LIGHT = "#FEE2E2";
 
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-  border: "#E5E5EA",
-};
-
 type Status = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "error"; message: string } | { kind: "done"; message: string };
 
 export default function SyncScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [signedIn, setSignedIn] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
@@ -75,7 +70,7 @@ export default function SyncScreen() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Google Drive Sync</Text>
           <View style={styles.headerBtn} />
@@ -149,19 +144,20 @@ export default function SyncScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: neutral.background },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background },
   container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: neutral.card,
+    backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { fontSize: 17, fontWeight: "700", color: neutral.textPrimary },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: colors.textPrimary },
   hero: { borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   heroIcon: {
     width: 40,
@@ -172,11 +168,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   heroText: { fontSize: 13, color: "#FFFFFFE6", lineHeight: 19 },
-  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  sectionCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: neutral.textSecondary,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
@@ -215,13 +211,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 14,
     borderRadius: radius.pill,
-    backgroundColor: neutral.background,
+    backgroundColor: colors.background,
   },
-  secondaryBtnText: { fontSize: 14, fontWeight: "700", color: neutral.textSecondary },
+  secondaryBtnText: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
   statusRow: { alignItems: "center", paddingVertical: spacing.xs },
-  statusText: { fontSize: 13, color: neutral.textSecondary },
+  statusText: { fontSize: 13, color: colors.textSecondary },
   errorBox: { backgroundColor: DANGER_LIGHT, borderRadius: radius.chip, padding: spacing.sm },
   errorText: { fontSize: 13, color: DANGER, fontWeight: "600" },
   doneBox: { backgroundColor: "#F0FDF4", borderRadius: radius.chip, padding: spacing.sm },
   doneText: { fontSize: 13, color: "#16A34A", fontWeight: "600" },
-});
+  });
+}

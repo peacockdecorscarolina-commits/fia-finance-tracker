@@ -2,25 +2,18 @@ import { Stack } from "expo-router";
 import { SQLiteProvider } from "expo-sqlite";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { initDatabase } from "../lib/db";
-import { colors } from "../lib/theme";
-
-const pushedScreenOptions = {
-  headerShown: true,
-  headerStyle: { backgroundColor: colors.cardSolid },
-  headerTintColor: colors.textPrimary,
-  headerTitleStyle: { fontWeight: "700" as const },
-  headerBackTitle: "Back",
-};
+import { ThemeProvider } from "../lib/ThemeContext";
 
 export default function RootLayout() {
   return (
-    <ErrorBoundary>
-      <SQLiteProvider databaseName="fia.db" onInit={initDatabase}>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="category/[name]" options={{ title: "Category", ...pushedScreenOptions }} />
-        </Stack>
-      </SQLiteProvider>
-    </ErrorBoundary>
+    <ThemeProvider>
+      <ErrorBoundary>
+        <SQLiteProvider databaseName="fia.db" onInit={initDatabase}>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(tabs)" />
+          </Stack>
+        </SQLiteProvider>
+      </ErrorBoundary>
+    </ThemeProvider>
   );
 }

@@ -3,19 +3,36 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Component, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { spacing } from "../lib/theme";
+import { useTheme } from "../lib/ThemeContext";
 
 // Matches the rest of the app's redesigned screens.
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
-const neutral = {
-  background: "#F2F2F7",
-  card: "#FFFFFF",
-  textPrimary: "#0F172A",
-  textSecondary: "#64748B",
-};
-
 type Props = { children: ReactNode };
 type State = { error: Error | null };
+
+// A function component so it can read the current theme -- the class below
+// can't use hooks itself (needs getDerivedStateFromError).
+function ErrorFallback() {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.iconWrap}>
+        <Ionicons name="cloud-offline-outline" size={28} color="#4C1D95" />
+      </View>
+      <Text style={[styles.title, { color: colors.textPrimary }]}>Couldn't load your data</Text>
+      <Text style={[styles.message, { color: colors.textSecondary }]}>
+        This usually clears up with a reload. If it keeps happening, try opening this from your
+        home-screen bookmark instead of a browser tab.
+      </Text>
+      <Pressable onPress={() => window.location.reload()} style={styles.reloadBtnWrap}>
+        <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.reloadBtn}>
+          <Text style={styles.reloadBtnText}>Reload</Text>
+        </LinearGradient>
+      </Pressable>
+    </View>
+  );
+}
 
 // Catches errors from initializing the local database (expo-sqlite's web
 // backend is still experimental on Safari and can fail there -- see the
@@ -31,23 +48,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.error) {
-      return (
-        <View style={styles.container}>
-          <View style={styles.iconWrap}>
-            <Ionicons name="cloud-offline-outline" size={28} color="#4C1D95" />
-          </View>
-          <Text style={styles.title}>Couldn't load your data</Text>
-          <Text style={styles.message}>
-            This usually clears up with a reload. If it keeps happening, try opening this from
-            your home-screen bookmark instead of a browser tab.
-          </Text>
-          <Pressable onPress={() => window.location.reload()} style={styles.reloadBtnWrap}>
-            <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.reloadBtn}>
-              <Text style={styles.reloadBtnText}>Reload</Text>
-            </LinearGradient>
-          </Pressable>
-        </View>
-      );
+      return <ErrorFallback />;
     }
     return this.props.children;
   }
@@ -60,7 +61,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: spacing.lg,
     gap: spacing.sm,
-    backgroundColor: neutral.background,
   },
   iconWrap: {
     width: 56,
@@ -71,8 +71,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.xs,
   },
-  title: { fontSize: 18, fontWeight: "700", color: neutral.textPrimary, textAlign: "center" },
-  message: { fontSize: 14, color: neutral.textSecondary, textAlign: "center", lineHeight: 20 },
+  title: { fontSize: 18, fontWeight: "700", textAlign: "center" },
+  message: { fontSize: 14, textAlign: "center", lineHeight: 20 },
   reloadBtnWrap: { borderRadius: 999, overflow: "hidden", marginTop: spacing.sm, alignSelf: "stretch" },
   reloadBtn: { paddingVertical: 14, alignItems: "center" },
   reloadBtnText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
