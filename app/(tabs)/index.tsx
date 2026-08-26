@@ -6,6 +6,7 @@ import { useCallback, useRef, useState } from "react";
 import { Dimensions, FlatList, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { EmptyState } from "../../components/EmptyState";
+import { LineChart } from "../../components/LineChart";
 import { MiniSparkline } from "../../components/MiniSparkline";
 import { MonthlyBarChart } from "../../components/MonthlyBarChart";
 import { PressScale } from "../../components/PressScale";
@@ -44,12 +45,6 @@ const neutral = {
 };
 
 const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
-const NET_WORTH_TINT: Record<AssetType, string> = {
-  Savings: "#EDE9FE",
-  Investment: "#DCFCE7",
-  "401k": "#DBEAFE",
-  Cash: "#FEF3C7",
-};
 const PANEL_ORDER: AssetType[] = ["Investment", "401k", "Savings", "Cash"];
 const PANEL_WIDTH = Math.min(Dimensions.get("window").width - spacing.md * 2, 420);
 
@@ -62,6 +57,11 @@ const CHART_MONTHS = 12;
 function formatMonthLabel(month: string): string {
   const [year, m] = month.split("-").map(Number);
   return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function formatChartMonth(date: string): string {
+  const [year, m] = date.split("-").map(Number);
+  return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
 }
 
 function greeting(): string {
@@ -271,6 +271,40 @@ export default function TransactionsScreen() {
             </View>
 
             {!loading &&
+              PANEL_ORDER.filter((type) => assets.some((a) => a.type === type)).map((type) => {
+                const history = assetHistories[type] ?? [];
+                const total = assets.filter((a) => a.type === type).reduce((sum, a) => sum + a.balance, 0);
+                const first = history[0]?.total ?? total;
+                const delta = total - first;
+                const pct = first !== 0 ? (delta / first) * 100 : 0;
+                return (
+                  <Pressable key={type} style={{ width: PANEL_WIDTH }} onPress={() => router.push("/net-worth")}>
+                    <View style={styles.assetPanel}>
+                      <Text style={styles.panelTitle}>
+                        {NET_WORTH_ICON[type]} {type}
+                      </Text>
+                      <Text style={styles.panelValue}>{formatMoney(total)}</Text>
+                      {history.length >= 2 && (
+                        <>
+                          <Text
+                            style={[styles.panelDelta, { color: delta >= 0 ? "#16A34A" : "#DC2626" }]}
+                          >
+                            {delta >= 0 ? "▲" : "▼"} {formatMoney(Math.abs(delta))} ({Math.abs(pct).toFixed(1)}%) since first entry
+                          </Text>
+                          <LineChart
+                            points={history.map((h) => h.total)}
+                            labels={history.map((h) => formatChartMonth(h.date))}
+                            color={delta >= 0 ? "#16A34A" : "#DC2626"}
+                            width={PANEL_WIDTH - spacing.md * 2}
+                          />
+                        </>
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+
+            {!loading &&
               loans.map((loan) => (
                 <Pressable
                   key={`loan-${loan.id}`}
@@ -301,9 +335,11 @@ export default function TransactionsScreen() {
               ))}
           </ScrollView>
 
-          {!loading && loans.length > 0 && (
+          {!loading && (loans.length > 0 || assets.length > 0) && (
             <View style={styles.dotsRow}>
-              {Array.from({ length: 1 + loans.length }).map((_, i) => (
+              {Array.from({
+                length: 1 + PANEL_ORDER.filter((type) => assets.some((a) => a.type === type)).length + loans.length,
+              }).map((_, i) => (
                 <Pressable
                   key={i}
                   hitSlop={8}
@@ -318,32 +354,6 @@ export default function TransactionsScreen() {
             </View>
           )}
         </View>
-
-        {!loading &&
-          PANEL_ORDER.filter((type) => assets.some((a) => a.type === type)).map((type) => {
-            const history = assetHistories[type] ?? [];
-            const total = assets.filter((a) => a.type === type).reduce((sum, a) => sum + a.balance, 0);
-            const first = history[0]?.total ?? total;
-            const delta = total - first;
-            const pct = first !== 0 ? (delta / first) * 100 : 0;
-            return (
-              <Pressable key={type} style={styles.assetCard} onPress={() => router.push("/net-worth")}>
-                <View style={[styles.assetCardIcon, { backgroundColor: NET_WORTH_TINT[type] }]}>
-                  <Text style={{ fontSize: 16 }}>{NET_WORTH_ICON[type]}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.assetCardLabel}>{type}</Text>
-                  <Text style={styles.assetCardValue}>{formatMoney(total)}</Text>
-                </View>
-                {history.length >= 2 && (
-                  <Text style={[styles.assetCardDelta, { color: delta >= 0 ? "#16A34A" : "#DC2626" }]}>
-                    {delta >= 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
-                  </Text>
-                )}
-                <Ionicons name="chevron-forward" size={16} color={neutral.textSecondary} />
-              </Pressable>
-            );
-          })}
 
         <View style={styles.sectionTitleRow}>
           <Text style={styles.sectionTitle}>
@@ -490,25 +500,6 @@ const styles = StyleSheet.create({
   dotsRow: { flexDirection: "row", justifyContent: "center", gap: 6, paddingBottom: spacing.sm },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: neutral.border },
   dotActive: { backgroundColor: ACCENT, width: 16 },
-  assetCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: neutral.card,
-    borderRadius: radius.card,
-    padding: spacing.md,
-    marginTop: spacing.sm,
-  },
-  assetCardIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  assetCardLabel: { fontSize: 12, color: neutral.textSecondary, fontWeight: "600" },
-  assetCardValue: { fontSize: 16, fontWeight: "700", color: neutral.textPrimary, marginTop: 2 },
-  assetCardDelta: { fontSize: 12, fontWeight: "600" },
   sectionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
