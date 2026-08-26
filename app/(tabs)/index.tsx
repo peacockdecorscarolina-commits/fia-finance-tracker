@@ -1,15 +1,14 @@
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useRef, useState } from "react";
-import { Dimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Dimensions, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { LineChart } from "../../components/LineChart";
 import { MonthlyBarChart } from "../../components/MonthlyBarChart";
 import { PressScale } from "../../components/PressScale";
-import { Screen } from "../../components/Screen";
 import { SegmentedControl } from "../../components/SegmentedControl";
 import { Shimmer } from "../../components/Shimmer";
 import { TransactionRow } from "../../components/TransactionRow";
@@ -22,14 +21,27 @@ import {
   getIncomeExpenseTotals,
   getLoanSummaries,
   getMonthlyTotals,
+  getNeedsReviewCount,
   getTransactions,
   setMerchantCategory,
   setTransactionIgnored,
   type MonthlyTotal,
 } from "../../lib/db";
 import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/period";
-import { colors, gradientAccent, radius, spacing, tabBarClearance } from "../../lib/theme";
+import { radius, spacing, tabBarClearance } from "../../lib/theme";
 import { ASSET_TYPES, type Account, type AssetType, type Category, type Transaction } from "../../lib/types";
+
+// Matches the rest of the app's redesigned screens.
+const ACCENT = "#4C1D95";
+const GRADIENT = ["#4C1D95", "#312E81"] as const;
+
+const neutral = {
+  background: "#F2F2F7",
+  card: "#FFFFFF",
+  textPrimary: "#0F172A",
+  textSecondary: "#64748B",
+  border: "#E5E5EA",
+};
 
 const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
 const PANEL_ORDER: AssetType[] = ["Investment", "401k", "Savings", "Cash"];
@@ -51,6 +63,44 @@ function formatChartMonth(date: string): string {
   return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
 }
 
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+type MoreItem = { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void };
+
+function MoreSheet({ visible, onClose, items }: { visible: boolean; onClose: () => void; items: MoreItem[] }) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>More tools</Text>
+          {items.map((item) => (
+            <Pressable
+              key={item.label}
+              onPress={() => {
+                onClose();
+                item.onPress();
+              }}
+              style={styles.sheetRow}
+            >
+              <View style={styles.sheetIconWrap}>
+                <Ionicons name={item.icon} size={20} color={neutral.textPrimary} />
+              </View>
+              <Text style={styles.sheetRowLabel}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={18} color={neutral.textSecondary} />
+            </Pressable>
+          ))}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 export default function TransactionsScreen() {
   const db = useSQLiteContext();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -69,6 +119,8 @@ export default function TransactionsScreen() {
   );
   const [panelPage, setPanelPage] = useState(0);
   const panelScrollRef = useRef<ScrollView>(null);
+  const [reviewCount, setReviewCount] = useState(0);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const load = useCallback(() => {
     const { start, end } = getPeriodRange(period);
@@ -79,6 +131,7 @@ export default function TransactionsScreen() {
     getCategories(db).then(setCategories);
     getLoanSummaries(db).then(setLoans);
     getAssetSummaries(db).then(setAssets);
+    getNeedsReviewCount(db).then(setReviewCount);
     Promise.all(ASSET_TYPES.map((type) => getAssetTypeHistory(db, type).then((history) => [type, history] as const))).then(
       (entries) => setAssetHistories(Object.fromEntries(entries) as Record<AssetType, { date: string; total: number }[]>)
     );
@@ -110,9 +163,49 @@ export default function TransactionsScreen() {
     load();
   }
 
+  const moreItems: MoreItem[] = [
+    { icon: "card-outline", label: "Accounts", onPress: () => router.push("/accounts") },
+    { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
+    { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },
+    { icon: "swap-horizontal-outline", label: "Move", onPress: () => router.push("/move-transactions") },
+    { icon: "trash-outline", label: "Delete", onPress: () => router.push("/delete-transactions") },
+    ...(Platform.OS === "web"
+      ? [
+          { icon: "cloud-outline" as const, label: "Sync", onPress: () => router.push("/sync") },
+          {
+            icon: "refresh-outline" as const,
+            label: "Refresh App",
+            onPress: () => {
+              window.location.href = `${window.location.pathname}?refreshed=${Date.now()}`;
+            },
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <Screen>
+    <View style={styles.safeArea}>
       <View style={styles.container}>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.greetingSmall}>{greeting()},</Text>
+            <Text style={styles.greetingName}>Zaighum 👋</Text>
+          </View>
+          <View style={styles.headerIcons}>
+            <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
+              <Ionicons name="ellipsis-horizontal" size={20} color={neutral.textPrimary} />
+            </Pressable>
+            <Pressable onPress={() => router.push("/review")} style={styles.headerIconBtn}>
+              <Ionicons name="notifications-outline" size={20} color={neutral.textPrimary} />
+              {reviewCount > 0 && (
+                <View style={styles.notifBadge}>
+                  <Text style={styles.notifBadgeCount}>{reviewCount > 9 ? "9+" : reviewCount}</Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
+        </View>
+
         <SegmentedControl options={PERIODS} value={period} onChange={setPeriod} />
 
         <View style={styles.statRow}>
@@ -140,7 +233,7 @@ export default function TransactionsScreen() {
           )}
         </View>
 
-        <Card style={styles.panelCard}>
+        <View style={styles.panelCard}>
           <ScrollView
             ref={panelScrollRef}
             horizontal
@@ -172,13 +265,15 @@ export default function TransactionsScreen() {
                       <Text style={styles.panelValue}>{formatMoney(total)}</Text>
                       {history.length >= 2 && (
                         <>
-                          <Text style={[styles.panelDelta, { color: delta >= 0 ? colors.positive : colors.negative }]}>
+                          <Text
+                            style={[styles.panelDelta, { color: delta >= 0 ? "#16A34A" : "#DC2626" }]}
+                          >
                             {delta >= 0 ? "▲" : "▼"} {formatMoney(Math.abs(delta))} ({Math.abs(pct).toFixed(1)}%) since first entry
                           </Text>
                           <LineChart
                             points={history.map((h) => h.total)}
                             labels={history.map((h) => formatChartMonth(h.date))}
-                            color={delta >= 0 ? colors.positive : colors.negative}
+                            color={delta >= 0 ? "#16A34A" : "#DC2626"}
                             width={PANEL_WIDTH - spacing.md * 2}
                           />
                         </>
@@ -199,7 +294,7 @@ export default function TransactionsScreen() {
                 >
                   <View style={styles.assetPanel}>
                     <Text style={styles.panelTitle}>🚗 {loan.name}</Text>
-                    <Text style={[styles.panelValue, { color: colors.negative }]}>{formatMoney(loan.remaining)}</Text>
+                    <Text style={[styles.panelValue, { color: "#DC2626" }]}>{formatMoney(loan.remaining)}</Text>
                     <Text style={styles.panelDelta}>owed</Text>
                     <View style={styles.progressTrack}>
                       <View
@@ -237,7 +332,7 @@ export default function TransactionsScreen() {
               ))}
             </View>
           )}
-        </Card>
+        </View>
 
         <View style={styles.sectionTitleRow}>
           <Text style={styles.sectionTitle}>
@@ -261,12 +356,7 @@ export default function TransactionsScreen() {
             if (active) {
               return (
                 <PressScale key={String(item.id)} onPress={() => setSelectedAccountId(item.id as number | "all")}>
-                  <LinearGradient
-                    colors={gradientAccent}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.filterChip}
-                  >
+                  <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.filterChip}>
                     <Text style={styles.filterChipTextActive}>{item.name}</Text>
                   </LinearGradient>
                 </PressScale>
@@ -307,36 +397,80 @@ export default function TransactionsScreen() {
           )}
         />
       </View>
-    </Screen>
+
+      <Pressable style={styles.fab} onPress={() => router.push("/add-transaction")}>
+        <Ionicons name="add" size={28} color="#FFFFFF" />
+      </Pressable>
+
+      <MoreSheet visible={moreOpen} onClose={() => setMoreOpen(false)} items={moreItems} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: neutral.background },
   container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md },
-  panelCard: { padding: 0, overflow: "hidden", marginBottom: spacing.md },
-  statRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md, marginBottom: spacing.md },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: spacing.md,
+  },
+  greetingSmall: { fontSize: 14, color: neutral.textSecondary },
+  greetingName: { fontSize: 22, fontWeight: "700", color: neutral.textPrimary },
+  headerIcons: { flexDirection: "row", gap: spacing.sm },
+  headerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: neutral.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  notifBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  notifBadgeCount: { fontSize: 9, fontWeight: "700", color: "#FFFFFF" },
+  panelCard: {
+    padding: 0,
+    overflow: "hidden",
+    marginBottom: spacing.md,
+    marginTop: spacing.md,
+    backgroundColor: neutral.card,
+    borderRadius: radius.card,
+  },
+  statRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
   statBox: {
     flex: 1,
-    backgroundColor: colors.statBg,
+    backgroundColor: neutral.card,
     borderRadius: radius.card,
     padding: spacing.md,
   },
-  statLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: "600", marginBottom: 4 },
-  statValue: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
+  statLabel: { fontSize: 13, color: neutral.textSecondary, fontWeight: "600", marginBottom: 4 },
+  statValue: { fontSize: 18, fontWeight: "700", color: neutral.textPrimary },
   assetPanel: { padding: spacing.md, gap: spacing.xs },
-  panelTitle: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-  panelValue: { fontSize: 22, fontWeight: "700", color: colors.textPrimary },
-  panelDelta: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginBottom: spacing.xs },
+  panelTitle: { fontSize: 13, fontWeight: "600", color: neutral.textSecondary },
+  panelValue: { fontSize: 22, fontWeight: "700", color: neutral.textPrimary },
+  panelDelta: { fontSize: 12, fontWeight: "600", color: neutral.textSecondary, marginBottom: spacing.xs },
   progressTrack: {
     height: 8,
-    borderRadius: radius.pill,
-    backgroundColor: colors.statBg,
+    borderRadius: 999,
+    backgroundColor: neutral.background,
     overflow: "hidden",
   },
-  progressFill: { height: "100%", borderRadius: radius.pill, backgroundColor: colors.negative },
+  progressFill: { height: "100%", borderRadius: 999, backgroundColor: "#DC2626" },
   dotsRow: { flexDirection: "row", justifyContent: "center", gap: 6, paddingBottom: spacing.sm },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.border },
-  dotActive: { backgroundColor: colors.accent, width: 16 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: neutral.border },
+  dotActive: { backgroundColor: ACCENT, width: 16 },
   sectionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -346,20 +480,71 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: colors.textPrimary,
+    color: neutral.textPrimary,
   },
-  clearLink: { fontSize: 13, color: colors.accent, fontWeight: "600" },
+  clearLink: { fontSize: 13, color: ACCENT, fontWeight: "600" },
   filterScroll: { flexGrow: 0, marginBottom: spacing.md },
   filterRow: { gap: spacing.sm },
   filterChip: {
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
-    borderRadius: radius.pill,
-    backgroundColor: colors.card,
+    borderRadius: 999,
+    backgroundColor: neutral.card,
   },
-  filterChipText: { color: colors.pillInactiveText, fontWeight: "600", fontSize: 13 },
-  filterChipTextActive: { color: colors.pillActiveText, fontWeight: "600", fontSize: 13 },
+  filterChipText: { color: neutral.textSecondary, fontWeight: "600", fontSize: 13 },
+  filterChipTextActive: { color: "#FFFFFF", fontWeight: "600", fontSize: 13 },
   mainList: { flex: 1 },
   list: { gap: spacing.sm, paddingBottom: tabBarClearance },
-  empty: { textAlign: "center", color: colors.textSecondary, marginTop: spacing.lg },
+  fab: {
+    position: "absolute",
+    right: spacing.md,
+    bottom: tabBarClearance - spacing.md,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#4C1D95",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  sheetBackdrop: { flex: 1, backgroundColor: "#00000055", justifyContent: "flex-end" },
+  sheet: {
+    backgroundColor: neutral.card,
+    borderTopLeftRadius: radius.card,
+    borderTopRightRadius: radius.card,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: neutral.border,
+    alignSelf: "center",
+    marginBottom: spacing.sm,
+  },
+  sheetTitle: { fontSize: 16, fontWeight: "700", color: neutral.textPrimary, marginBottom: spacing.sm },
+  sheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: neutral.border,
+  },
+  sheetIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: neutral.background,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetRowLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: neutral.textPrimary },
 });
+
+

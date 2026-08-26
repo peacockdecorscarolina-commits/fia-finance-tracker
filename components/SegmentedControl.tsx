@@ -1,6 +1,8 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, gradientAccent, radius, spacing } from "../lib/theme";
+import { colors, radius, spacing } from "../lib/theme";
+
+const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
 export function SegmentedControl<T extends string>({
   options,
@@ -18,12 +20,7 @@ export function SegmentedControl<T extends string>({
         if (active) {
           return (
             <Pressable key={option} onPress={() => onChange(option)} style={styles.segmentWrap}>
-              <LinearGradient
-                colors={gradientAccent}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.segment}
-              >
+              <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.segment}>
                 <Text style={[styles.label, styles.labelActive]}>{option}</Text>
               </LinearGradient>
             </Pressable>

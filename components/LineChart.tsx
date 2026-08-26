@@ -74,6 +74,13 @@ export function LineChart({
   const tooltipLeft =
     selected !== null ? Math.min(Math.max(coords[selected].x - TOOLTIP_WIDTH / 2, 0), width - TOOLTIP_WIDTH) : 0;
 
+  // Filled area under the line, like the reference design -- a flat line
+  // alone reads as a plain diagram; the soft gradient wash under it is what
+  // makes it read as a "hero" trend chart. clip-path is web-only, which is
+  // fine since this app only ships as a web export.
+  const areaPoints = coords.map((c) => `${(c.x / width) * 100}% ${(c.y / CHART_HEIGHT) * 100}%`).join(", ");
+  const areaClipPath = `polygon(0% 100%, ${areaPoints}, 100% 100%)`;
+
   return (
     <View style={styles.chartWithAxis}>
       <View style={styles.axisColumn}>
@@ -86,6 +93,12 @@ export function LineChart({
 
       <View style={styles.plotArea} onLayout={onPlotLayout}>
         <View style={[styles.plot, { width, height: CHART_HEIGHT }]}>
+          <View
+            style={[
+              styles.area,
+              { width, height: CHART_HEIGHT, backgroundColor: `${color}29`, clipPath: areaClipPath } as object,
+            ]}
+          />
           {selected !== null && (
             <View style={[styles.tooltip, { left: tooltipLeft, top: Math.max(coords[selected].y - 40, 0) }]}>
               <Text style={styles.tooltipValue}>{formatMoney(points[selected])}</Text>
@@ -152,6 +165,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: colors.border,
   },
+  area: { position: "absolute", left: 0, top: 0 },
   dotHit: { position: "absolute", width: 20, height: 20, alignItems: "center", justifyContent: "center" },
   dot: { width: 6, height: 6, borderRadius: 3 },
   dotSelected: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: "#FFFFFF" },
