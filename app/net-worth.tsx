@@ -5,7 +5,8 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { AnimatedAmount } from "../components/AnimatedAmount";
-import { addAssetBalance, getAssetBalances, getAssets, insertAsset } from "../lib/db";
+import { LineChart } from "../components/LineChart";
+import { addAssetBalance, getAllAssetsHistory, getAssetBalances, getAssets, insertAsset } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import { ASSET_TYPES, type Asset, type AssetType } from "../lib/types";
 
@@ -25,6 +26,11 @@ const neutral = {
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatChartDate(date: string): string {
+  const [year, m] = date.split("-").map(Number);
+  return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
 }
 
 const TYPE_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
@@ -89,6 +95,7 @@ function AssetRow({ asset }: { asset: AssetWithHistory }) {
 export default function AssetsScreen() {
   const db = useSQLiteContext();
   const [assets, setAssets] = useState<AssetWithHistory[]>([]);
+  const [totalHistory, setTotalHistory] = useState<{ date: string; total: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
@@ -108,6 +115,7 @@ export default function AssetsScreen() {
       setAssets(withHistory);
       setLoading(false);
     });
+    getAllAssetsHistory(db).then(setTotalHistory);
   }, [db]);
 
   useFocusEffect(load);
@@ -158,6 +166,18 @@ export default function AssetsScreen() {
               </View>
             )}
           </LinearGradient>
+        )}
+
+        {totalHistory.length >= 2 && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Growth over time</Text>
+            <LineChart
+              points={totalHistory.map((h) => h.total)}
+              labels={totalHistory.map((h) => formatChartDate(h.date))}
+              color={ACCENT}
+              width={320}
+            />
+          </View>
         )}
 
         {adding ? (

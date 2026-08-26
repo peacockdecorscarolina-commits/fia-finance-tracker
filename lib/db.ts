@@ -259,6 +259,29 @@ export async function getAssetTypeHistory(
   return [...byDate.entries()].map(([date, total]) => ({ date, total }));
 }
 
+// Combined balance-over-time across every asset regardless of type -- powers
+// the total savings & investments trend chart.
+export async function getAllAssetsHistory(db: SQLiteDatabase): Promise<{ date: string; total: number }[]> {
+  const assets = await getAssets(db);
+  if (assets.length === 0) return [];
+
+  const latestPerAsset = new Map<number, number>();
+  const byDate = new Map<string, number>();
+  const allEntries: { assetId: number; date: string; balance: number }[] = [];
+  for (const a of assets) {
+    const entries = await getAssetBalances(db, a.id);
+    allEntries.push(...entries.map((e) => ({ assetId: a.id, date: e.date, balance: e.balance })));
+  }
+  allEntries.sort((a, b) => a.date.localeCompare(b.date));
+  for (const entry of allEntries) {
+    latestPerAsset.set(entry.assetId, entry.balance);
+    let total = 0;
+    for (const bal of latestPerAsset.values()) total += bal;
+    byDate.set(entry.date, total);
+  }
+  return [...byDate.entries()].map(([date, total]) => ({ date, total }));
+}
+
 // Remaining balance for every category tracked as a loan -- mirrors the
 // per-category math on the category detail page (only payments dated after
 // loan_as_of_date count against the loan amount).
