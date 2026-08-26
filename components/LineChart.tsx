@@ -6,9 +6,6 @@ import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 type Point = { x: number; y: number };
 
-// Theme-invariant default accent for the line itself.
-const ACCENT = "#4C1D95";
-
 function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -38,7 +35,7 @@ const LABEL_WIDTH = 36;
 export function LineChart({
   points,
   labels,
-  color = ACCENT,
+  color,
   width: fallbackWidth = 320,
 }: {
   points: number[];
@@ -47,6 +44,7 @@ export function LineChart({
   width?: number;
 }) {
   const { colors } = useTheme();
+  const lineColor = color ?? colors.accent;
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [selected, setSelected] = useState<number | null>(null);
   // The axis column's width isn't known until it's measured, so a caller-
@@ -102,7 +100,7 @@ export function LineChart({
           <View
             style={[
               styles.area,
-              { width, height: CHART_HEIGHT, backgroundColor: `${color}29`, clipPath: areaClipPath } as object,
+              { width, height: CHART_HEIGHT, backgroundColor: `${lineColor}29`, clipPath: areaClipPath } as object,
             ]}
           />
           {selected !== null && (
@@ -112,7 +110,7 @@ export function LineChart({
             </View>
           )}
           {coords.slice(1).map((c, i) => (
-            <View key={i} style={segmentStyle(coords[i], c, color, 2.5)} />
+            <View key={i} style={segmentStyle(coords[i], c, lineColor, 2.5)} />
           ))}
           {coords.map((c, i) => (
             <Pressable
@@ -125,7 +123,7 @@ export function LineChart({
                 style={[
                   styles.dot,
                   selected === i && styles.dotSelected,
-                  { backgroundColor: color },
+                  { backgroundColor: lineColor },
                 ]}
               />
             </Pressable>

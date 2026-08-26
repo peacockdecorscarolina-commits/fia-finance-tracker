@@ -106,7 +106,7 @@ export default function CategoryDrillDownScreen() {
           <LineChart
             points={monthlyTrend.map((m) => m.total)}
             labels={monthlyTrend.map((m) => formatMonthShort(m.month))}
-            color={ACCENT}
+            color={colors.accent}
             width={320}
           />
         </View>
@@ -197,7 +197,7 @@ export default function CategoryDrillDownScreen() {
               }}
               style={styles.trackLoanBtn}
             >
-              <Ionicons name="car-outline" size={16} color={ACCENT} />
+              <Ionicons name="car-outline" size={16} color={colors.accent} />
               <Text style={styles.loanEditLink}>Track as a loan</Text>
             </Pressable>
           )}
@@ -282,7 +282,7 @@ function makeStyles(colors: ThemeColors) {
     },
     loanHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
     loanLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-    loanEditLink: { fontSize: 13, color: ACCENT, fontWeight: "600" },
+    loanEditLink: { fontSize: 13, color: colors.accent, fontWeight: "600" },
     loanRemaining: { fontSize: 22, fontWeight: "700", color: colors.textPrimary },
     loanOfTotal: { fontSize: 14, fontWeight: "500", color: colors.textSecondary },
     progressTrack: {

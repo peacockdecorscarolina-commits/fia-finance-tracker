@@ -143,7 +143,7 @@ export default function UploadScreen() {
 
           <Text style={styles.sectionTitle}>Statement PDF</Text>
           <Pressable style={styles.pickButton} onPress={pickFile}>
-            <Ionicons name="document-attach-outline" size={18} color={ACCENT} />
+            <Ionicons name="document-attach-outline" size={18} color={colors.accent} />
             <Text style={styles.pickButtonText}>{fileName ?? "Choose a PDF file"}</Text>
           </Pressable>
 
@@ -160,7 +160,7 @@ export default function UploadScreen() {
               </LinearGradient>
             </Pressable>
           )}
-          {status === "processing" && <ActivityIndicator color={ACCENT} style={{ marginTop: spacing.sm }} />}
+          {status === "processing" && <ActivityIndicator color={colors.accent} style={{ marginTop: spacing.sm }} />}
           {error && <Text style={styles.errorText}>{error}</Text>}
         </View>
 

@@ -1,11 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-// Every redesigned screen defines the same five tokens locally (background,
-// card, textPrimary, textSecondary, border) -- category/status colors
-// (accent purple, danger red, positive green, category tints) stay fixed
-// across modes since saturated colors already read fine on both light and
-// dark surfaces, same as most native apps' dark modes. Only these five
-// "page chrome" tokens actually need to invert.
+// Every redesigned screen defines the same tokens locally (background,
+// card, textPrimary, textSecondary, border, accent) -- danger red,
+// positive green, and category tints stay fixed across modes since those
+// saturated colors already read fine on both light and dark surfaces,
+// same as most native apps' dark modes. `accent` is the one exception:
+// the brand purple (#4C1D95) is dark enough that it goes low-contrast as
+// text/icons directly on a black background, so it brightens in dark mode.
+// Note: `accent` here is only for standalone icons/links/text sitting
+// directly on the page's card/background. It's NOT used for the
+// "selected tile" pattern (light lavender chip + dark purple label) --
+// that pairing is self-contained and intentionally stays fixed in both
+// modes using each screen's local ACCENT/ACCENT_LIGHT constants.
 export type ThemeMode = "light" | "dark";
 
 export type ThemeColors = {
@@ -14,6 +20,7 @@ export type ThemeColors = {
   textPrimary: string;
   textSecondary: string;
   border: string;
+  accent: string;
 };
 
 const LIGHT: ThemeColors = {
@@ -22,6 +29,7 @@ const LIGHT: ThemeColors = {
   textPrimary: "#0F172A",
   textSecondary: "#64748B",
   border: "#E5E5EA",
+  accent: "#4C1D95",
 };
 
 const DARK: ThemeColors = {
@@ -30,6 +38,7 @@ const DARK: ThemeColors = {
   textPrimary: "#F2F2F7",
   textSecondary: "#9CA3AF",
   border: "#2C2C2E",
+  accent: "#A78BFA",
 };
 
 const STORAGE_KEY = "fia-theme-mode";

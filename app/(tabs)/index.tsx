@@ -276,7 +276,7 @@ export default function TransactionsScreen() {
             ) : (
               <>
                 <AnimatedAmount value={totals.expenses} style={styles.statValue} />
-                <MiniSparkline points={monthlyTotals.slice(-6).map((m) => m.expenses)} color={ACCENT} />
+                <MiniSparkline points={monthlyTotals.slice(-6).map((m) => m.expenses)} color={colors.accent} />
               </>
             )}
           </View>
@@ -556,7 +556,7 @@ function makeStyles(colors: ThemeColors) {
   progressFill: { height: "100%", borderRadius: 999, backgroundColor: "#DC2626" },
   dotsRow: { flexDirection: "row", justifyContent: "center", gap: 6, paddingBottom: spacing.sm },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.border },
-  dotActive: { backgroundColor: ACCENT, width: 16 },
+  dotActive: { backgroundColor: colors.accent, width: 16 },
   sectionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -568,7 +568,7 @@ function makeStyles(colors: ThemeColors) {
     fontWeight: "700",
     color: colors.textPrimary,
   },
-  clearLink: { fontSize: 13, color: ACCENT, fontWeight: "600" },
+  clearLink: { fontSize: 13, color: colors.accent, fontWeight: "600" },
   filterScroll: { flexGrow: 0, marginBottom: spacing.md },
   filterRow: { gap: spacing.sm },
   filterChip: {

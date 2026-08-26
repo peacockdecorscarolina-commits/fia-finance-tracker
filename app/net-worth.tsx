@@ -129,7 +129,7 @@ export default function AssetsScreen() {
         </View>
         {hasHistory && <Sparkline points={asset.history} color={color} />}
         <AnimatedAmount value={asset.balance} style={styles.assetBalance} />
-        <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+        <Ionicons name="chevron-forward" size={16} color="#64748B" />
       </Pressable>
     );
   }
@@ -176,7 +176,7 @@ export default function AssetsScreen() {
             <LineChart
               points={totalHistory.map((h) => h.total)}
               labels={totalHistory.map((h) => formatChartDate(h.date))}
-              color={ACCENT}
+              color={colors.accent}
               width={320}
             />
           </View>
@@ -240,7 +240,7 @@ export default function AssetsScreen() {
           </View>
         ) : (
           <Pressable onPress={() => setAdding(true)} style={styles.addAccountBtn}>
-            <Ionicons name="add-circle" size={20} color={ACCENT} />
+            <Ionicons name="add-circle" size={20} color={colors.accent} />
             <Text style={styles.addAccountText}>Add account</Text>
           </Pressable>
         )}
@@ -392,7 +392,7 @@ function makeStyles(colors: ThemeColors) {
       borderStyle: "dashed",
       paddingVertical: spacing.md,
     },
-    addAccountText: { fontSize: 15, fontWeight: "700", color: ACCENT },
+    addAccountText: { fontSize: 15, fontWeight: "700", color: colors.accent },
     emptyTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary, textAlign: "center" },
     emptySubtitle: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
     groupHeaderRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
@@ -407,10 +407,13 @@ function makeStyles(colors: ThemeColors) {
       padding: spacing.sm,
     },
     assetIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-    assetName: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
-    assetType: { fontSize: 11, color: colors.textSecondary },
+    // Fixed (not theme-dependent) -- this row always sits on a pale tinted
+    // background (TYPE_TINT) regardless of light/dark mode, so its text
+    // must stay dark for contrast rather than flipping with the page theme.
+    assetName: { fontSize: 13, fontWeight: "700", color: "#0F172A" },
+    assetType: { fontSize: 11, color: "#64748B" },
     assetDelta: { fontSize: 11, fontWeight: "600", marginTop: 2 },
-    assetBalance: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+    assetBalance: { fontSize: 14, fontWeight: "700", color: "#0F172A" },
     secureRow: {
       flexDirection: "row",
       alignItems: "center",

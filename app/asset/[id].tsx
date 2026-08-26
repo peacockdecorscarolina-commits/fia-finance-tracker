@@ -221,7 +221,7 @@ export default function AssetDetailScreen() {
             }}
             style={styles.updateBtn}
           >
-            <Ionicons name="refresh" size={18} color={ACCENT} />
+            <Ionicons name="refresh" size={18} color={colors.accent} />
             <Text style={styles.updateBtnText}>Update balance</Text>
           </Pressable>
         )}
@@ -232,7 +232,7 @@ export default function AssetDetailScreen() {
             <LineChart
               points={[...entries].reverse().map((e) => e.balance)}
               labels={[...entries].reverse().map((e) => formatChartDate(e.date))}
-              color={ACCENT}
+              color={colors.accent}
               width={320}
             />
           </View>
@@ -310,7 +310,7 @@ function makeStyles(colors: ThemeColors) {
     borderStyle: "dashed",
     paddingVertical: spacing.md,
   },
-  updateBtnText: { fontSize: 15, fontWeight: "700", color: ACCENT },
+  updateBtnText: { fontSize: 15, fontWeight: "700", color: colors.accent },
   sectionCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   sectionTitle: {
     fontSize: 12,

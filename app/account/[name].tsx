@@ -194,7 +194,7 @@ export default function AccountDrillDownScreen() {
           <LineChart
             points={pace.map((p) => p.total)}
             labels={pace.map((p) => p.label)}
-            color={ACCENT}
+            color={colors.accent}
             width={320}
           />
         </View>

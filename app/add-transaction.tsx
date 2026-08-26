@@ -371,6 +371,6 @@ function makeStyles(colors: ThemeColors) {
     padding: spacing.md,
   },
   successText: { fontSize: 14, color: "#16A34A", fontWeight: "700" },
-  doneLinkText: { fontSize: 14, color: ACCENT, fontWeight: "700" },
+  doneLinkText: { fontSize: 14, color: colors.accent, fontWeight: "700" },
   });
 }

@@ -110,7 +110,7 @@ export default function ReviewScreen() {
                   <Ionicons
                     name={item.ignored ? "eye-outline" : "eye-off-outline"}
                     size={13}
-                    color={ACCENT}
+                    color={colors.accent}
                   />
                   <Text style={styles.ignoreLinkText}>
                     {item.ignored ? "Include in totals" : "Ignore (don't count toward totals)"}
@@ -165,6 +165,6 @@ function makeStyles(colors: ThemeColors) {
   },
   categoryChipText: { color: colors.textPrimary, fontWeight: "600", fontSize: 13 },
   ignoreRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  ignoreLinkText: { fontSize: 12, color: ACCENT, fontWeight: "600" },
+  ignoreLinkText: { fontSize: 12, color: colors.accent, fontWeight: "600" },
   });
 }

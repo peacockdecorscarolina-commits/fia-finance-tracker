@@ -71,7 +71,7 @@ export function TransactionRow({
       <View style={styles.actionsRow}>
         {categories && onChangeCategory && (
           <Pressable onPress={() => setPickingCategory((v) => !v)} style={styles.actionBtn}>
-            <Ionicons name="pricetag-outline" size={13} color={ACCENT} />
+            <Ionicons name="pricetag-outline" size={13} color={colors.accent} />
             <Text style={styles.actionLinkText}>{pickingCategory ? "Cancel" : "Category"}</Text>
           </Pressable>
         )}
@@ -80,7 +80,7 @@ export function TransactionRow({
             <Ionicons
               name={transaction.ignored ? "eye-outline" : "eye-off-outline"}
               size={13}
-              color={ACCENT}
+              color={colors.accent}
             />
             <Text style={styles.actionLinkText}>{transaction.ignored ? "Include" : "Ignore"}</Text>
           </Pressable>
@@ -165,7 +165,7 @@ function makeStyles(colors: ThemeColors) {
       borderTopColor: colors.border,
     },
     actionBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
-    actionLinkText: { fontSize: 12, color: ACCENT, fontWeight: "600" },
+    actionLinkText: { fontSize: 12, color: colors.accent, fontWeight: "600" },
     deleteLinkText: { fontSize: 12, color: DANGER, fontWeight: "600" },
     confirmRow: {
       flexDirection: "row",
