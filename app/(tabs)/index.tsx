@@ -184,30 +184,29 @@ export default function TransactionsScreen() {
       : []),
   ];
 
-  return (
-    <View style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.greetingSmall}>{greeting()},</Text>
-            <Text style={styles.greetingName}>Zaighum 👋</Text>
-          </View>
-          <View style={styles.headerIcons}>
-            <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
-              <Ionicons name="ellipsis-horizontal" size={20} color={neutral.textPrimary} />
-            </Pressable>
-            <Pressable onPress={() => router.push("/review")} style={styles.headerIconBtn}>
-              <Ionicons name="notifications-outline" size={20} color={neutral.textPrimary} />
-              {reviewCount > 0 && (
-                <View style={styles.notifBadge}>
-                  <Text style={styles.notifBadgeCount}>{reviewCount > 9 ? "9+" : reviewCount}</Text>
-                </View>
-              )}
-            </Pressable>
-          </View>
+  const listHeader = (
+    <>
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={styles.greetingSmall}>{greeting()},</Text>
+          <Text style={styles.greetingName}>Zaighum 👋</Text>
         </View>
+        <View style={styles.headerIcons}>
+          <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
+            <Ionicons name="ellipsis-horizontal" size={20} color={neutral.textPrimary} />
+          </Pressable>
+          <Pressable onPress={() => router.push("/review")} style={styles.headerIconBtn}>
+            <Ionicons name="notifications-outline" size={20} color={neutral.textPrimary} />
+            {reviewCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeCount}>{reviewCount > 9 ? "9+" : reviewCount}</Text>
+              </View>
+            )}
+          </Pressable>
+        </View>
+      </View>
 
-        <SegmentedControl options={PERIODS} value={period} onChange={setPeriod} />
+      <SegmentedControl options={PERIODS} value={period} onChange={setPeriod} />
 
         <View style={styles.statRow}>
           <View style={styles.statBox}>
@@ -393,12 +392,18 @@ export default function TransactionsScreen() {
             );
           })}
         </ScrollView>
+    </>
+  );
 
+  return (
+    <View style={styles.safeArea}>
+      <View style={styles.container}>
         <FlatList
           style={styles.mainList}
           data={transactions}
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.list}
+          ListHeaderComponent={listHeader}
           ListEmptyComponent={
             loading ? null : (
               <EmptyState
