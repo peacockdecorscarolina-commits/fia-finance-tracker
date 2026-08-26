@@ -29,3 +29,24 @@ export function monthRange(month: string): { start: string; end: string } {
   const end = new Date(year, m, 0);
   return { start: toISODate(start), end: toISODate(end) };
 }
+
+export function currentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function shiftMonth(month: string, delta: number): string {
+  const [year, m] = month.split("-").map(Number);
+  const d = new Date(year, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function recentMonths(from: string, count: number): string[] {
+  const list: string[] = [];
+  let m = from;
+  for (let i = 0; i < count; i++) {
+    list.push(m);
+    m = shiftMonth(m, -1);
+  }
+  return list;
+}

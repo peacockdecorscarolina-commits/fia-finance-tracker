@@ -596,6 +596,85 @@ export async function getCategoryMonthlyTotals(
   return rows.reverse();
 }
 
+// Per-month "spent" (expenses, excluding Income/Payment categories) for one
+// account -- powers the trend sparkline on the card detail page's hero.
+export async function getAccountMonthlyTotals(
+  db: SQLiteDatabase,
+  accountId: number,
+  months: number
+): Promise<{ month: string; total: number }[]> {
+  const rows = await db.getAllAsync<{ month: string; total: number }>(
+    `SELECT
+       substr(transactions.date, 1, 7) as month,
+       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as total
+     FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE transactions.account_id = ? AND transactions.ignored = 0
+     GROUP BY month
+     ORDER BY month DESC
+     LIMIT ?`,
+    INCOME_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME,
+    accountId,
+    months
+  );
+  return rows.reverse();
+}
+
+// Per-day spend (expenses, excluding Income/Payment) for one account within
+// a date range -- bucketed client-side into a rough weekly pace chart on the
+// card detail page, not meant to be a precise day-by-day ledger.
+export async function getAccountDailySpend(
+  db: SQLiteDatabase,
+  accountId: number,
+  start: string,
+  end: string
+): Promise<{ date: string; total: number }[]> {
+  return db.getAllAsync<{ date: string; total: number }>(
+    `SELECT
+       transactions.date as date,
+       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as total
+     FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE transactions.account_id = ? AND transactions.ignored = 0
+       AND transactions.date >= ? AND transactions.date <= ?
+     GROUP BY transactions.date
+     ORDER BY transactions.date ASC`,
+    INCOME_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME,
+    accountId,
+    start,
+    end
+  );
+}
+
+// Total spent (expenses, excluding Payment) and received (Payment category)
+// on one account within a date range -- powers the bottom summary bar on
+// the card detail page.
+export async function getAccountSpendSummary(
+  db: SQLiteDatabase,
+  accountId: number,
+  start: string,
+  end: string
+): Promise<{ spent: number; received: number }> {
+  const row = await db.getFirstAsync<{ spent: number | null; received: number | null }>(
+    `SELECT
+       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as spent,
+       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as received
+     FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE transactions.account_id = ? AND transactions.ignored = 0
+       AND transactions.date >= ? AND transactions.date <= ?`,
+    INCOME_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME,
+    accountId,
+    start,
+    end
+  );
+  return { spent: Math.max(row?.spent ?? 0, 0), received: row?.received ?? 0 };
+}
+
 export async function getLatestTransactionMonth(db: SQLiteDatabase): Promise<string | null> {
   const row = await db.getFirstAsync<{ maxDate: string | null }>(
     "SELECT MAX(date) as maxDate FROM transactions"
