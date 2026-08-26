@@ -214,7 +214,7 @@ export default function SummaryScreen() {
 
         {pickerOpen && (
           <ScrollView style={styles.monthDropdown} nestedScrollEnabled>
-            {recentMonths(month, 12).map((m) => (
+            {recentMonths(currentMonth(), 12).map((m) => (
               <Pressable
                 key={m}
                 style={[styles.monthOption, m === month && styles.monthOptionActive]}
