@@ -1,66 +1,87 @@
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { AnimatedAmount } from "../components/AnimatedAmount";
-import { Card } from "../components/Card";
-import { EmptyState } from "../components/EmptyState";
-import { PillButton } from "../components/PillButton";
-import { Screen } from "../components/Screen";
 import { addAssetBalance, getAssetBalances, getAssets, insertAsset } from "../lib/db";
-import { colors, gradientAccent, radius, spacing } from "../lib/theme";
+import { radius, spacing } from "../lib/theme";
 import { ASSET_TYPES, type Asset, type AssetType } from "../lib/types";
+
+// Matches the Summary / Add Transaction / Accounts / Categories / Move
+// Transactions screens' design system.
+const ACCENT = "#4C1D95";
+const ACCENT_LIGHT = "#EDE9FE";
+const GRADIENT = ["#4C1D95", "#312E81"] as const;
+
+const neutral = {
+  background: "#F2F2F7",
+  card: "#FFFFFF",
+  textPrimary: "#0F172A",
+  textSecondary: "#64748B",
+  border: "#E5E5EA",
+};
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 const TYPE_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
+const TYPE_TINT: Record<AssetType, string> = {
+  Savings: "#EDE9FE",
+  Investment: "#DCFCE7",
+  "401k": "#DBEAFE",
+  Cash: "#FEF3C7",
+};
 
 type AssetWithHistory = Asset & { balance: number; history: number[] };
 
 function Sparkline({ points, color }: { points: number[]; color: string }) {
-  if (points.length < 2) return <View style={{ width: 40, height: 32 }} />;
+  if (points.length < 2) return <View style={{ width: 40, height: 28 }} />;
   const max = Math.max(...points);
   const min = Math.min(...points);
   const range = max - min || 1;
   return (
     <View style={styles.sparkline}>
       {points.map((p, i) => {
-        const h = 6 + ((p - min) / range) * 26;
+        const h = 6 + ((p - min) / range) * 22;
         return <View key={i} style={[styles.sparkBar, { height: h, backgroundColor: color }]} />;
       })}
     </View>
   );
 }
 
-function AssetCard({ asset }: { asset: AssetWithHistory }) {
+function AssetRow({ asset }: { asset: AssetWithHistory }) {
   const first = asset.history[0] ?? asset.balance;
   const delta = asset.balance - first;
   const pct = first !== 0 ? (delta / first) * 100 : 0;
   const up = delta >= 0;
   const hasHistory = asset.history.length >= 2;
+  const color = up ? "#16A34A" : "#DC2626";
 
   return (
-    <Pressable onPress={() => router.push({ pathname: "/asset/[id]", params: { id: String(asset.id) } })}>
-      <Card style={styles.assetCard}>
-        <View style={styles.assetRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.assetName}>
-              {TYPE_ICON[asset.type]} {asset.name}
-            </Text>
-            <Text style={styles.assetType}>{asset.type}</Text>
-            {hasHistory && (
-              <Text style={[styles.assetDelta, { color: up ? colors.positive : colors.negative }]}>
-                {up ? "▲" : "▼"} {formatMoney(Math.abs(delta))} ({Math.abs(pct).toFixed(1)}%)
-              </Text>
-            )}
-          </View>
-          {hasHistory && <Sparkline points={asset.history} color={up ? colors.positive : colors.negative} />}
-        </View>
-        <AnimatedAmount value={asset.balance} style={styles.assetBalance} />
-      </Card>
+    <Pressable
+      onPress={() => router.push({ pathname: "/asset/[id]", params: { id: String(asset.id) } })}
+      style={[styles.assetRow, { backgroundColor: TYPE_TINT[asset.type] }]}
+    >
+      <View style={[styles.assetIcon, { backgroundColor: neutral.card }]}>
+        <Text style={{ fontSize: 16 }}>{TYPE_ICON[asset.type]}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.assetName} numberOfLines={1}>
+          {asset.name}
+        </Text>
+        <Text style={styles.assetType}>{asset.type}</Text>
+        {hasHistory && (
+          <Text style={[styles.assetDelta, { color }]}>
+            {up ? "▲" : "▼"} {formatMoney(Math.abs(delta))} ({Math.abs(pct).toFixed(1)}%)
+          </Text>
+        )}
+      </View>
+      {hasHistory && <Sparkline points={asset.history} color={color} />}
+      <AnimatedAmount value={asset.balance} style={styles.assetBalance} />
+      <Ionicons name="chevron-forward" size={16} color={neutral.textSecondary} />
     </Pressable>
   );
 }
@@ -73,6 +94,7 @@ export default function AssetsScreen() {
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState<AssetType>("Savings");
   const [newBalance, setNewBalance] = useState("");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const load = useCallback(() => {
     getAssets(db).then(async (list) => {
@@ -103,6 +125,9 @@ export default function AssetsScreen() {
   }
 
   const total = assets.reduce((sum, a) => sum + a.balance, 0);
+  const totalFirst = assets.reduce((sum, a) => sum + (a.history[0] ?? a.balance), 0);
+  const totalDelta = total - totalFirst;
+  const totalPct = totalFirst !== 0 ? (totalDelta / totalFirst) * 100 : 0;
 
   const groups = ASSET_TYPES.map((type) => ({
     type,
@@ -110,131 +135,266 @@ export default function AssetsScreen() {
   })).filter((g) => g.items.length > 0);
 
   return (
-    <Screen>
+    <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
+            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Savings & Investments</Text>
+          <View style={styles.headerBtn} />
+        </View>
+
         {!loading && assets.length > 0 && (
-          <LinearGradient
-            colors={gradientAccent}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.netWorthCard}
-          >
-            <Text style={styles.netWorthLabel}>Total savings & investments</Text>
-            <AnimatedAmount value={total} style={styles.netWorthValue} prefix="$" />
+          <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+            <Text style={styles.heroLabel}>Total savings & investments</Text>
+            <AnimatedAmount value={total} style={styles.heroValue} prefix="$" />
+            {totalFirst > 0 && (
+              <View style={styles.heroDeltaPill}>
+                <Text style={[styles.heroDeltaText, { color: totalDelta >= 0 ? "#86EFAC" : "#FCA5A5" }]}>
+                  {totalDelta >= 0 ? "▲" : "▼"} {formatMoney(Math.abs(totalDelta))} ({Math.abs(totalPct).toFixed(1)}%)
+                </Text>
+                <Text style={styles.heroDeltaSub}>Since first entry</Text>
+              </View>
+            )}
           </LinearGradient>
         )}
 
         {adding ? (
-          <Card style={styles.addCard}>
-            <Text style={styles.label}>Name</Text>
-            <TextInput
-              style={styles.input}
-              value={newName}
-              onChangeText={setNewName}
-              placeholder="e.g. Ally Savings"
-              placeholderTextColor={colors.textSecondary}
-              autoFocus
-            />
-            <Text style={styles.label}>Type</Text>
-            <View style={styles.typeRow}>
-              {ASSET_TYPES.map((t) => (
-                <Pressable
-                  key={t}
-                  onPress={() => setNewType(t)}
-                  style={[styles.typeChip, newType === t && styles.typeChipActive]}
-                >
-                  <Text style={[styles.typeChipText, newType === t && styles.typeChipTextActive]}>
-                    {TYPE_ICON[t]} {t}
-                  </Text>
-                </Pressable>
-              ))}
+          <View style={styles.sectionCard}>
+            <Text style={styles.fieldLabel}>Name</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.inputText}
+                value={newName}
+                onChangeText={setNewName}
+                placeholder="e.g. Ally Savings"
+                placeholderTextColor={neutral.textSecondary}
+                autoFocus
+              />
             </View>
-            <Text style={styles.label}>Current balance</Text>
-            <TextInput
-              style={styles.input}
-              value={newBalance}
-              onChangeText={setNewBalance}
-              keyboardType="decimal-pad"
-              placeholder="e.g. 8420.11"
-              placeholderTextColor={colors.textSecondary}
-            />
+            <Text style={styles.fieldLabel}>Type</Text>
+            <View style={styles.typeGrid}>
+              {ASSET_TYPES.map((t) => {
+                const active = newType === t;
+                return (
+                  <Pressable
+                    key={t}
+                    onPress={() => setNewType(t)}
+                    style={[styles.typeTile, active && styles.typeTileActive]}
+                  >
+                    <Text style={{ fontSize: 18 }}>{TYPE_ICON[t]}</Text>
+                    <Text style={[styles.typeTileText, active && styles.typeTileTextActive]}>{t}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.fieldLabel}>Current balance</Text>
+            <View style={styles.inputRow}>
+              <Text style={styles.dollarSign}>$</Text>
+              <TextInput
+                style={[styles.inputText, { marginLeft: 4 }]}
+                value={newBalance}
+                onChangeText={setNewBalance}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                placeholderTextColor={neutral.textSecondary}
+              />
+            </View>
             <View style={styles.addActions}>
-              <PillButton title="Cancel" onPress={() => setAdding(false)} variant="secondary" />
-              <PillButton title="Save" onPress={handleAdd} />
+              <Pressable onPress={() => setAdding(false)} style={styles.cancelBtn}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={handleAdd} style={{ flex: 1 }}>
+                <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.saveBtn}>
+                  <Text style={styles.saveBtnText}>Save</Text>
+                </LinearGradient>
+              </Pressable>
             </View>
-          </Card>
+          </View>
         ) : (
-          <PillButton title="+ Add account" onPress={() => setAdding(true)} />
+          <Pressable onPress={() => setAdding(true)} style={styles.addAccountBtn}>
+            <Ionicons name="add-circle" size={20} color={ACCENT} />
+            <Text style={styles.addAccountText}>Add account</Text>
+          </Pressable>
         )}
 
         {!loading && assets.length === 0 && !adding && (
-          <EmptyState
-            icon="💰"
-            title="Nothing tracked yet"
-            subtitle="Add a savings, investment, or 401k account to start tracking it."
-          />
+          <View style={styles.sectionCard}>
+            <Text style={styles.emptyTitle}>Nothing tracked yet</Text>
+            <Text style={styles.emptySubtitle}>Add a savings, investment, or 401k account to start tracking it.</Text>
+          </View>
         )}
 
-        {groups.map((group) => (
-          <View key={group.type} style={styles.group}>
-            <View style={styles.groupHeaderRow}>
-              <Text style={styles.groupHeader}>
-                {TYPE_ICON[group.type]} {group.type}
-              </Text>
-              <AnimatedAmount
-                value={group.items.reduce((sum, a) => sum + a.balance, 0)}
-                style={styles.groupSubtotal}
-              />
-            </View>
-            {group.items.map((a) => (
-              <AssetCard key={a.id} asset={a} />
-            ))}
+        {groups.length > 0 && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Your accounts</Text>
+            {groups.map((group) => {
+              const isCollapsed = collapsed[group.type];
+              const subtotal = group.items.reduce((sum, a) => sum + a.balance, 0);
+              return (
+                <View key={group.type} style={{ gap: spacing.sm }}>
+                  <Pressable
+                    style={styles.groupHeaderRow}
+                    onPress={() => setCollapsed((c) => ({ ...c, [group.type]: !c[group.type] }))}
+                  >
+                    <View style={[styles.groupIcon, { backgroundColor: TYPE_TINT[group.type] }]}>
+                      <Text style={{ fontSize: 14 }}>{TYPE_ICON[group.type]}</Text>
+                    </View>
+                    <Text style={styles.groupHeader}>{group.type}</Text>
+                    <AnimatedAmount value={subtotal} style={styles.groupSubtotal} />
+                    <Ionicons
+                      name={isCollapsed ? "chevron-down" : "chevron-up"}
+                      size={16}
+                      color={neutral.textSecondary}
+                    />
+                  </Pressable>
+                  {!isCollapsed && group.items.map((a) => <AssetRow key={a.id} asset={a} />)}
+                </View>
+              );
+            })}
           </View>
-        ))}
+        )}
+
+        <View style={styles.secureRow}>
+          <View style={styles.secureIcon}>
+            <Ionicons name="shield-checkmark" size={18} color={ACCENT} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.secureTitle}>Your data is secure</Text>
+            <Text style={styles.secureSubtitle}>Everything here stays on this device unless you back it up.</Text>
+          </View>
+        </View>
       </ScrollView>
-    </Screen>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
-  netWorthCard: { borderRadius: radius.card, padding: spacing.md },
-  netWorthLabel: { fontSize: 13, color: "#FFFFFFCC", fontWeight: "600" },
-  netWorthValue: { fontSize: 26, fontWeight: "700", color: "#FFFFFF", marginTop: 4 },
-  group: { gap: spacing.sm },
-  groupHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: spacing.xs },
-  groupHeader: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
-  groupSubtotal: { fontSize: 14, fontWeight: "700", color: colors.textSecondary },
-  assetCard: { gap: spacing.xs },
-  assetRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  assetName: { fontSize: 15, fontWeight: "600", color: colors.textPrimary },
-  assetType: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  assetBalance: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
-  assetDelta: { fontSize: 12, fontWeight: "600", marginTop: 4 },
-  sparkline: { flexDirection: "row", alignItems: "flex-end", gap: 3, height: 32 },
-  sparkBar: { width: 6, borderRadius: 2 },
-  addCard: { gap: spacing.xs },
-  label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginTop: spacing.xs },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
+  safeArea: { flex: 1, backgroundColor: neutral.background },
+  container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: neutral.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: neutral.textPrimary },
+  hero: { borderRadius: radius.card, padding: spacing.md, gap: 4 },
+  heroLabel: { fontSize: 13, color: "#FFFFFFCC", fontWeight: "600" },
+  heroValue: { fontSize: 30, fontWeight: "700", color: "#FFFFFF" },
+  heroDeltaPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FFFFFF1A",
     borderRadius: radius.chip,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 8,
-    color: colors.textPrimary,
-    fontSize: 14,
+    paddingVertical: 6,
+    marginTop: 6,
+    alignSelf: "flex-start",
   },
-  typeRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  typeChip: {
+  heroDeltaText: { fontSize: 12, fontWeight: "700" },
+  heroDeltaSub: { fontSize: 11, color: "#FFFFFFCC" },
+  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: neutral.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  fieldLabel: { fontSize: 13, fontWeight: "600", color: neutral.textSecondary, marginTop: spacing.xs },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: neutral.card,
+    borderRadius: radius.chip,
+    borderWidth: 1.5,
+    borderColor: neutral.border,
     paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-    backgroundColor: colors.cardSolid,
-    borderWidth: 1,
-    borderColor: colors.border,
+    paddingVertical: 12,
   },
-  typeChipActive: { backgroundColor: colors.pillActive, borderColor: colors.pillActive },
-  typeChipText: { color: colors.textSecondary, fontWeight: "600", fontSize: 13 },
-  typeChipTextActive: { color: colors.pillActiveText },
+  inputText: { flex: 1, fontSize: 15, color: neutral.textPrimary },
+  dollarSign: { fontSize: 15, color: neutral.textSecondary, fontWeight: "600" },
+  typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  typeTile: {
+    flexGrow: 1,
+    flexBasis: "22%",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: neutral.card,
+    borderRadius: radius.chip,
+    borderWidth: 1.5,
+    borderColor: neutral.border,
+    paddingVertical: spacing.sm,
+  },
+  typeTileActive: { borderColor: ACCENT, backgroundColor: ACCENT_LIGHT },
+  typeTileText: { fontSize: 11, fontWeight: "600", color: neutral.textSecondary },
+  typeTileTextActive: { color: ACCENT },
   addActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
+  cancelBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.pill,
+    backgroundColor: neutral.background,
+  },
+  cancelBtnText: { fontSize: 14, fontWeight: "700", color: neutral.textSecondary },
+  saveBtn: { borderRadius: radius.pill, paddingVertical: 12, alignItems: "center" },
+  saveBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
+  addAccountBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: neutral.card,
+    borderRadius: radius.card,
+    borderWidth: 1.5,
+    borderColor: neutral.border,
+    borderStyle: "dashed",
+    paddingVertical: spacing.md,
+  },
+  addAccountText: { fontSize: 15, fontWeight: "700", color: ACCENT },
+  emptyTitle: { fontSize: 15, fontWeight: "700", color: neutral.textPrimary, textAlign: "center" },
+  emptySubtitle: { fontSize: 13, color: neutral.textSecondary, textAlign: "center" },
+  groupHeaderRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  groupIcon: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  groupHeader: { flex: 1, fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
+  groupSubtotal: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
+  assetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: radius.chip,
+    padding: spacing.sm,
+  },
+  assetIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  assetName: { fontSize: 13, fontWeight: "700", color: neutral.textPrimary },
+  assetType: { fontSize: 11, color: neutral.textSecondary },
+  assetDelta: { fontSize: 11, fontWeight: "600", marginTop: 2 },
+  assetBalance: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
+  sparkline: { flexDirection: "row", alignItems: "flex-end", gap: 2, height: 28 },
+  sparkBar: { width: 4, borderRadius: 2 },
+  secureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: neutral.card,
+    borderRadius: radius.card,
+    padding: spacing.md,
+  },
+  secureIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: ACCENT_LIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secureTitle: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
+  secureSubtitle: { fontSize: 12, color: neutral.textSecondary, marginTop: 2 },
 });
