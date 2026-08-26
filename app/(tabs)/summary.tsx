@@ -10,6 +10,8 @@ import { getAccountStyle } from "../../lib/accountStyle";
 import { getCategoryStyle } from "../../lib/categoryStyle";
 import {
   getAccountSummary,
+  getAssetSummaries,
+  getAssetTypeHistory,
   getCategorySummary,
   getNeedsReviewCount,
   getPaymentTotal,
@@ -19,7 +21,15 @@ import {
 } from "../../lib/db";
 import { monthRange } from "../../lib/period";
 import { radius, spacing, tabBarClearance } from "../../lib/theme";
-import type { Transaction } from "../../lib/types";
+import { ASSET_TYPES, type AssetType, type Transaction } from "../../lib/types";
+
+const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
+const NET_WORTH_TINT: Record<AssetType, string> = {
+  Savings: "#EDE9FE",
+  Investment: "#DCFCE7",
+  "401k": "#DBEAFE",
+  Cash: "#FEF3C7",
+};
 
 const HERO_GRADIENT = ["#4C1D95", "#312E81"] as const;
 
@@ -134,10 +144,18 @@ export default function SummaryScreen() {
   const [recent, setRecent] = useState<Transaction[]>([]);
   const [reviewCount, setReviewCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [assets, setAssets] = useState<{ id: number; name: string; type: AssetType; balance: number }[]>([]);
+  const [assetHistories, setAssetHistories] = useState<Record<AssetType, { date: string; total: number }[]>>(
+    {} as Record<AssetType, { date: string; total: number }[]>
+  );
 
   useFocusEffect(
     useCallback(() => {
       getNeedsReviewCount(db).then(setReviewCount);
+      getAssetSummaries(db).then(setAssets);
+      Promise.all(ASSET_TYPES.map((type) => getAssetTypeHistory(db, type).then((history) => [type, history] as const))).then(
+        (entries) => setAssetHistories(Object.fromEntries(entries) as Record<AssetType, { date: string; total: number }[]>)
+      );
       if (month === null) {
         setMonth(currentMonth());
         return;
@@ -258,6 +276,31 @@ export default function SummaryScreen() {
             </View>
           </View>
         </LinearGradient>
+
+        {ASSET_TYPES.filter((type) => assets.some((a) => a.type === type)).map((type) => {
+          const history = assetHistories[type] ?? [];
+          const totalForType = assets.filter((a) => a.type === type).reduce((sum, a) => sum + a.balance, 0);
+          const first = history[0]?.total ?? totalForType;
+          const delta = totalForType - first;
+          const pct = first !== 0 ? (delta / first) * 100 : 0;
+          return (
+            <Pressable key={type} style={styles.assetCard} onPress={() => router.push("/net-worth")}>
+              <View style={[styles.assetCardIcon, { backgroundColor: NET_WORTH_TINT[type] }]}>
+                <Text style={{ fontSize: 16 }}>{NET_WORTH_ICON[type]}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.assetCardLabel}>{type}</Text>
+                <Text style={styles.assetCardValue}>{formatMoney(totalForType)}</Text>
+              </View>
+              {history.length >= 2 && (
+                <Text style={[styles.assetCardDelta, { color: delta >= 0 ? "#16A34A" : "#DC2626" }]}>
+                  {delta >= 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
+                </Text>
+              )}
+              <Ionicons name="chevron-forward" size={16} color={neutral.textSecondary} />
+            </Pressable>
+          );
+        })}
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>By account</Text>
@@ -448,6 +491,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  assetCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: neutral.card,
+    borderRadius: radius.card,
+    padding: spacing.md,
+  },
+  assetCardIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  assetCardLabel: { fontSize: 12, color: neutral.textSecondary, fontWeight: "600" },
+  assetCardValue: { fontSize: 16, fontWeight: "700", color: neutral.textPrimary, marginTop: 2 },
+  assetCardDelta: { fontSize: 12, fontWeight: "600" },
   sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   sectionTitle: {
     fontSize: 12,
