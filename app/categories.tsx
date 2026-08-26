@@ -1,15 +1,27 @@
-import { useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { Card } from "../components/Card";
-import { EmptyState } from "../components/EmptyState";
-import { PillButton } from "../components/PillButton";
-import { Screen } from "../components/Screen";
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import { getCategories, insertCategory, renameCategory } from "../lib/db";
-import { colors, radius, spacing } from "../lib/theme";
+import { radius, spacing } from "../lib/theme";
 import type { Category } from "../lib/types";
+
+// Matches the Summary / Add Transaction / Accounts / Move Transactions
+// screens' design system.
+const ACCENT = "#4C1D95";
+const ACCENT_LIGHT = "#EDE9FE";
+const GRADIENT = ["#4C1D95", "#312E81"] as const;
+
+const neutral = {
+  background: "#F2F2F7",
+  card: "#FFFFFF",
+  textPrimary: "#0F172A",
+  textSecondary: "#64748B",
+  border: "#E5E5EA",
+};
 
 export default function CategoriesScreen() {
   const db = useSQLiteContext();
@@ -56,79 +68,148 @@ export default function CategoriesScreen() {
   }
 
   return (
-    <Screen>
-      <View style={styles.container}>
-        <Card style={styles.formCard}>
-          <Text style={styles.label}>New category</Text>
-          <View style={styles.addRow}>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
+            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Categories</Text>
+          <View style={styles.headerBtn} />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <View style={styles.formHeaderRow}>
+            <Text style={styles.sectionTitle}>Add new category</Text>
+            <View style={styles.formIcon}>
+              <Ionicons name="pricetag-outline" size={18} color={ACCENT} />
+            </View>
+          </View>
+
+          <View style={styles.inputRow}>
             <TextInput
               value={newName}
               onChangeText={setNewName}
               placeholder="e.g. Flight"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.input}
+              placeholderTextColor={neutral.textSecondary}
+              style={styles.inputText}
             />
-            <PillButton title="Add" onPress={handleAdd} disabled={!newName.trim()} />
           </View>
           {error && <Text style={styles.errorText}>{error}</Text>}
-        </Card>
 
-        <FlatList
-          data={categories}
-          keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={styles.list}
-          ListEmptyComponent={<EmptyState icon="🏷️" title="No categories yet" subtitle="Add your first one above." />}
-          renderItem={({ item }) => (
-            <Card style={styles.row}>
-              {editingId === item.id ? (
-                <View style={styles.editRow}>
-                  <TextInput
-                    value={editingName}
-                    onChangeText={setEditingName}
-                    style={styles.input}
-                    autoFocus
-                  />
-                  <PillButton title="Save" onPress={handleRename} disabled={!editingName.trim()} />
-                  <PillButton title="Cancel" onPress={() => setEditingId(null)} variant="secondary" />
+          <Pressable onPress={handleAdd} disabled={!newName.trim()} style={{ opacity: newName.trim() ? 1 : 0.5 }}>
+            <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.submitBtn}>
+              <Text style={styles.submitText}>Add Category</Text>
+            </LinearGradient>
+          </Pressable>
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Your categories</Text>
+          {categories.length === 0 ? (
+            <Text style={styles.empty}>No categories yet — add your first one above.</Text>
+          ) : (
+            categories.map((item, i) =>
+              editingId === item.id ? (
+                <View key={item.id} style={styles.editRow}>
+                  <View style={styles.inputRow}>
+                    <TextInput value={editingName} onChangeText={setEditingName} style={styles.inputText} autoFocus />
+                  </View>
+                  {error && <Text style={styles.errorText}>{error}</Text>}
+                  <View style={styles.editActions}>
+                    <Pressable onPress={() => setEditingId(null)} style={styles.editCancelBtn}>
+                      <Text style={styles.editCancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleRename}
+                      disabled={!editingName.trim()}
+                      style={[styles.editSaveBtn, !editingName.trim() && { opacity: 0.5 }]}
+                    >
+                      <Text style={styles.editSaveText}>Save</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ) : (
-                <Pressable style={styles.rowContent} onPress={() => startEditing(item)}>
-                  <Text style={styles.categoryName}>
-                    {getCategoryStyle(item.name).emoji} {item.name}
+                <Pressable
+                  key={item.id}
+                  onPress={() => startEditing(item)}
+                  style={[styles.categoryRow, i > 0 && styles.categoryRowDivider]}
+                >
+                  <View style={[styles.categoryIcon, { backgroundColor: getCategoryStyle(item.name).color }]}>
+                    <Text style={styles.categoryEmoji}>{getCategoryStyle(item.name).emoji}</Text>
+                  </View>
+                  <Text style={styles.categoryName} numberOfLines={1}>
+                    {item.name}
                   </Text>
-                  <Text style={styles.editHint}>Tap to rename</Text>
+                  <Ionicons name="chevron-forward" size={16} color={neutral.textSecondary} />
                 </Pressable>
-              )}
-            </Card>
+              )
+            )
           )}
-        />
-      </View>
-    </Screen>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.md },
-  formCard: { gap: spacing.sm, marginBottom: spacing.md },
-  label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-  addRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
-  input: {
-    flex: 1,
-    backgroundColor: colors.cardSolid,
-    borderRadius: radius.chip,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: 15,
-    color: colors.textPrimary,
+  safeArea: { flex: 1, backgroundColor: neutral.background },
+  container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: neutral.card,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  errorText: { fontSize: 13, color: colors.negative },
-  list: { gap: spacing.sm, paddingBottom: spacing.lg },
-  row: { flexDirection: "row", alignItems: "center" },
-  rowContent: { flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  editRow: { flex: 1, flexDirection: "row", gap: spacing.sm, alignItems: "center" },
-  categoryName: { fontSize: 16, fontWeight: "600", color: colors.textPrimary },
-  editHint: { fontSize: 12, color: colors.textSecondary },
-  empty: { textAlign: "center", color: colors.textSecondary, marginTop: spacing.lg },
+  headerTitle: { fontSize: 20, fontWeight: "700", color: neutral.textPrimary },
+  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  formHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  formIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: ACCENT_LIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: neutral.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  inputRow: {
+    backgroundColor: neutral.card,
+    borderRadius: radius.chip,
+    borderWidth: 1.5,
+    borderColor: neutral.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+  },
+  inputText: { fontSize: 15, color: neutral.textPrimary },
+  errorText: { fontSize: 12, color: "#DC2626", fontWeight: "600" },
+  submitBtn: { borderRadius: radius.pill, paddingVertical: 14, alignItems: "center", marginTop: spacing.xs },
+  submitText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  categoryRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm },
+  categoryRowDivider: { borderTopWidth: 1, borderTopColor: neutral.border },
+  categoryIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  categoryEmoji: { fontSize: 18 },
+  categoryName: { flex: 1, fontSize: 15, fontWeight: "600", color: neutral.textPrimary },
+  editRow: { gap: spacing.sm, paddingVertical: spacing.sm },
+  editActions: { flexDirection: "row", gap: spacing.sm },
+  editCancelBtn: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    backgroundColor: neutral.background,
+  },
+  editCancelText: { fontSize: 13, fontWeight: "700", color: neutral.textSecondary },
+  editSaveBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: ACCENT },
+  editSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+  empty: { textAlign: "center", color: neutral.textSecondary, paddingVertical: spacing.md },
 });
