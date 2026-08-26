@@ -1,15 +1,26 @@
-import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { Card } from "../../components/Card";
-import { EmptyState } from "../../components/EmptyState";
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { LineChart } from "../../components/LineChart";
-import { PillButton } from "../../components/PillButton";
-import { Screen } from "../../components/Screen";
 import { addAssetBalance, deleteAssetBalance, getAssetBalances, getAssets } from "../../lib/db";
-import { colors, radius, spacing } from "../../lib/theme";
+import { radius, spacing } from "../../lib/theme";
 import type { Asset, AssetBalanceEntry, AssetType } from "../../lib/types";
+
+// Matches the rest of the app's redesigned screens.
+const ACCENT = "#4C1D95";
+const ACCENT_LIGHT = "#EDE9FE";
+const GRADIENT = ["#4C1D95", "#312E81"] as const;
+
+const neutral = {
+  background: "#F2F2F7",
+  card: "#FFFFFF",
+  textPrimary: "#0F172A",
+  textSecondary: "#64748B",
+  border: "#E5E5EA",
+};
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -18,6 +29,12 @@ function formatMoney(value: number): string {
 function formatChartDate(date: string): string {
   const [year, m] = date.split("-").map(Number);
   return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
+}
+
+function formatEntryDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) return date;
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 const TYPE_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
@@ -44,6 +61,9 @@ export default function AssetDetailScreen() {
   useFocusEffect(load);
 
   const currentBalance = entries[0]?.balance ?? 0;
+  const firstBalance = entries[entries.length - 1]?.balance ?? currentBalance;
+  const delta = currentBalance - firstBalance;
+  const pct = firstBalance !== 0 ? (delta / firstBalance) * 100 : 0;
 
   async function handleUpdate() {
     const value = Number(balanceInput);
@@ -60,112 +80,210 @@ export default function AssetDetailScreen() {
   }
 
   return (
-    <Screen>
-      <Stack.Screen options={{ title: asset ? `${TYPE_ICON[asset.type]} ${asset.name}` : "Account" }} />
+    <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Card style={styles.balanceCard}>
-          <Text style={styles.label}>Current balance</Text>
-          <Text style={styles.balance}>{formatMoney(currentBalance)}</Text>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
+            <Ionicons name="arrow-back" size={20} color={neutral.textPrimary} />
+          </Pressable>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {asset ? `${TYPE_ICON[asset.type]} ${asset.name}` : "Account"}
+          </Text>
+          <View style={styles.headerBtn} />
+        </View>
 
-          {updating ? (
-            <View style={styles.updateForm}>
-              <Text style={styles.label}>New balance</Text>
+        <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+          <Text style={styles.heroLabel}>Current balance</Text>
+          <Text style={styles.heroValue}>{formatMoney(currentBalance)}</Text>
+          {entries.length >= 2 && (
+            <View style={styles.heroDeltaPill}>
+              <Text style={[styles.heroDeltaText, { color: delta >= 0 ? "#86EFAC" : "#FCA5A5" }]}>
+                {delta >= 0 ? "▲" : "▼"} {formatMoney(Math.abs(delta))} ({Math.abs(pct).toFixed(1)}%)
+              </Text>
+              <Text style={styles.heroDeltaSub}>Since first entry</Text>
+            </View>
+          )}
+        </LinearGradient>
+
+        {updating ? (
+          <View style={styles.sectionCard}>
+            <Text style={styles.fieldLabel}>New balance</Text>
+            <View style={styles.inputRow}>
+              <Text style={styles.dollarSign}>$</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.inputText, { marginLeft: 4 }]}
                 value={balanceInput}
                 onChangeText={setBalanceInput}
                 keyboardType="decimal-pad"
-                placeholder="e.g. 8650.00"
-                placeholderTextColor={colors.textSecondary}
+                placeholder="0.00"
+                placeholderTextColor={neutral.textSecondary}
                 autoFocus
               />
-              <Text style={styles.label}>As of date</Text>
+            </View>
+            <Text style={styles.fieldLabel}>As of date</Text>
+            <View style={styles.inputRow}>
+              <Ionicons name="calendar-outline" size={16} color={neutral.textSecondary} />
               <TextInput
-                style={styles.input}
+                style={[styles.inputText, { marginLeft: 6 }]}
                 value={dateInput}
                 onChangeText={setDateInput}
                 placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.textSecondary}
+                placeholderTextColor={neutral.textSecondary}
               />
-              <View style={styles.updateActions}>
-                <PillButton title="Cancel" onPress={() => setUpdating(false)} variant="secondary" />
-                <PillButton title="Save" onPress={handleUpdate} />
-              </View>
             </View>
-          ) : (
-            <PillButton
-              title="Update balance"
-              onPress={() => {
-                setBalanceInput(currentBalance ? String(currentBalance) : "");
-                setDateInput(todayISO());
-                setUpdating(true);
-              }}
-            />
-          )}
-        </Card>
+            <View style={styles.updateActions}>
+              <Pressable onPress={() => setUpdating(false)} style={styles.cancelBtn}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={handleUpdate} style={{ flex: 1 }}>
+                <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.saveBtn}>
+                  <Text style={styles.saveBtnText}>Save</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            onPress={() => {
+              setBalanceInput(currentBalance ? String(currentBalance) : "");
+              setDateInput(todayISO());
+              setUpdating(true);
+            }}
+            style={styles.updateBtn}
+          >
+            <Ionicons name="refresh" size={18} color={ACCENT} />
+            <Text style={styles.updateBtnText}>Update balance</Text>
+          </Pressable>
+        )}
 
         {entries.length >= 2 ? (
-          <Card style={styles.chartCard}>
-            <Text style={styles.label}>Balance over time</Text>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Balance over time</Text>
             <LineChart
               points={[...entries].reverse().map((e) => e.balance)}
               labels={[...entries].reverse().map((e) => formatChartDate(e.date))}
-              color={colors.accent}
+              color={ACCENT}
               width={320}
             />
-          </Card>
+          </View>
         ) : entries.length === 1 ? (
-          <Card style={styles.chartHintCard}>
+          <View style={styles.sectionCard}>
             <Text style={styles.chartHintText}>
               Add one more balance entry (e.g. an earlier date) to see a trend graph here.
             </Text>
-          </Card>
+          </View>
         ) : null}
 
-        <Text style={styles.historyTitle}>History</Text>
-        {entries.length === 0 ? (
-          <EmptyState icon="📈" title="No balance logged yet" subtitle="Tap Update balance to add the first entry." />
-        ) : (
-          entries.map((e) => (
-            <Card key={e.id} style={styles.entryCard}>
-              <View style={styles.entryRow}>
-                <Text style={styles.entryDate}>{e.date}</Text>
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>History</Text>
+          {entries.length === 0 ? (
+            <Text style={styles.emptyText}>No balance logged yet. Tap "Update balance" to add the first entry.</Text>
+          ) : (
+            entries.map((e, i) => (
+              <View key={e.id} style={[styles.entryRow, i > 0 && styles.entryRowDivider]}>
+                <View style={styles.entryIcon}>
+                  <Ionicons name="calendar-outline" size={14} color={ACCENT} />
+                </View>
+                <Text style={styles.entryDate}>{formatEntryDate(e.date)}</Text>
                 <Text style={styles.entryBalance}>{formatMoney(e.balance)}</Text>
+                <Pressable onPress={() => handleDeleteEntry(e.id)}>
+                  <Ionicons name="trash-outline" size={16} color="#DC2626" />
+                </Pressable>
               </View>
-              <Pressable onPress={() => handleDeleteEntry(e.id)}>
-                <Text style={styles.deleteLink}>Delete</Text>
-              </Pressable>
-            </Card>
-          ))
-        )}
+            ))
+          )}
+        </View>
       </ScrollView>
-    </Screen>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.sm, paddingBottom: spacing.xl },
-  balanceCard: { gap: spacing.sm },
-  chartCard: { gap: spacing.sm },
-  chartHintCard: {},
-  chartHintText: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
-  label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-  balance: { fontSize: 26, fontWeight: "700", color: colors.textPrimary },
-  updateForm: { gap: spacing.xs },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
+  safeArea: { flex: 1, backgroundColor: neutral.background },
+  container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: neutral.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: { flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", color: neutral.textPrimary },
+  hero: { borderRadius: radius.card, padding: spacing.md, gap: 4 },
+  heroLabel: { fontSize: 13, color: "#FFFFFFCC", fontWeight: "600" },
+  heroValue: { fontSize: 30, fontWeight: "700", color: "#FFFFFF" },
+  heroDeltaPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FFFFFF1A",
     borderRadius: radius.chip,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 8,
-    color: colors.textPrimary,
-    fontSize: 14,
+    paddingVertical: 6,
+    marginTop: 6,
+    alignSelf: "flex-start",
   },
+  heroDeltaText: { fontSize: 12, fontWeight: "700" },
+  heroDeltaSub: { fontSize: 11, color: "#FFFFFFCC" },
+  updateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: neutral.card,
+    borderRadius: radius.card,
+    borderWidth: 1.5,
+    borderColor: neutral.border,
+    borderStyle: "dashed",
+    paddingVertical: spacing.md,
+  },
+  updateBtnText: { fontSize: 15, fontWeight: "700", color: ACCENT },
+  sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: neutral.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  fieldLabel: { fontSize: 13, fontWeight: "600", color: neutral.textSecondary, marginTop: spacing.xs },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: neutral.card,
+    borderRadius: radius.chip,
+    borderWidth: 1.5,
+    borderColor: neutral.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+  },
+  inputText: { flex: 1, fontSize: 15, color: neutral.textPrimary },
+  dollarSign: { fontSize: 15, color: neutral.textSecondary, fontWeight: "600" },
   updateActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
-  historyTitle: { fontSize: 14, fontWeight: "700", color: colors.textPrimary, marginTop: spacing.sm },
-  entryCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  entryRow: { flexDirection: "row", gap: spacing.md, alignItems: "center" },
-  entryDate: { fontSize: 13, color: colors.textSecondary },
-  entryBalance: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
-  deleteLink: { fontSize: 12, color: colors.negative, fontWeight: "600" },
+  cancelBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.pill,
+    backgroundColor: neutral.background,
+  },
+  cancelBtnText: { fontSize: 14, fontWeight: "700", color: neutral.textSecondary },
+  saveBtn: { borderRadius: radius.pill, paddingVertical: 12, alignItems: "center" },
+  saveBtnText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
+  chartHintText: { fontSize: 13, color: neutral.textSecondary, textAlign: "center" },
+  emptyText: { fontSize: 13, color: neutral.textSecondary, textAlign: "center", paddingVertical: spacing.sm },
+  entryRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm },
+  entryRowDivider: { borderTopWidth: 1, borderTopColor: neutral.border },
+  entryIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: ACCENT_LIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  entryDate: { flex: 1, fontSize: 13, color: neutral.textSecondary },
+  entryBalance: { fontSize: 14, fontWeight: "700", color: neutral.textPrimary },
 });
