@@ -20,7 +20,6 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="review" options={{ title: "Review", ...pushedScreenOptions }} />
           <Stack.Screen name="category/[name]" options={{ title: "Category", ...pushedScreenOptions }} />
-          <Stack.Screen name="account/[name]" options={{ title: "Account", ...pushedScreenOptions }} />
         </Stack>
       </SQLiteProvider>
     </ErrorBoundary>

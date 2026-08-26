@@ -3,7 +3,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useRef, useState } from "react";
-import { Dimensions, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Dimensions, FlatList, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { EmptyState } from "../../components/EmptyState";
 import { LineChart } from "../../components/LineChart";
@@ -396,7 +396,7 @@ export default function TransactionsScreen() {
   );
 
   return (
-    <View style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <FlatList
           style={styles.mainList}
@@ -430,7 +430,7 @@ export default function TransactionsScreen() {
       </Pressable>
 
       <MoreSheet visible={moreOpen} onClose={() => setMoreOpen(false)} items={moreItems} />
-    </View>
+    </SafeAreaView>
   );
 }
 
