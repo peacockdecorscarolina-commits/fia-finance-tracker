@@ -247,13 +247,13 @@ export default function AssetsScreen() {
         )}
 
         {groups.length > 0 && (
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Your accounts</Text>
+          <>
+            <Text style={styles.groupsLabel}>Your accounts</Text>
             {groups.map((group) => {
               const isCollapsed = collapsed[group.type];
               const subtotal = group.items.reduce((sum, a) => sum + a.balance, 0);
               return (
-                <View key={group.type} style={{ gap: spacing.sm }}>
+                <View key={group.type} style={[styles.sectionCard, { gap: spacing.sm }]}>
                   <Pressable
                     style={styles.groupHeaderRow}
                     onPress={() => setCollapsed((c) => ({ ...c, [group.type]: !c[group.type] }))}
@@ -273,7 +273,7 @@ export default function AssetsScreen() {
                 </View>
               );
             })}
-          </View>
+          </>
         )}
 
         <View style={styles.secureRow}>
@@ -321,6 +321,13 @@ const styles = StyleSheet.create({
   heroDeltaSub: { fontSize: 11, color: "#FFFFFFCC" },
   sectionCard: { backgroundColor: neutral.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
   sectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: neutral.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  groupsLabel: {
     fontSize: 12,
     fontWeight: "700",
     color: neutral.textSecondary,
