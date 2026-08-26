@@ -5,7 +5,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { LineChart } from "../../components/LineChart";
-import { addAssetBalance, deleteAssetBalance, getAssetBalances, getAssets } from "../../lib/db";
+import { addAssetBalance, deleteAssetBalance, getAssetBalances, getAssets, renameAsset } from "../../lib/db";
 import { radius, spacing } from "../../lib/theme";
 import type { Asset, AssetBalanceEntry, AssetType } from "../../lib/types";
 
@@ -51,6 +51,8 @@ export default function AssetDetailScreen() {
   const [updating, setUpdating] = useState(false);
   const [balanceInput, setBalanceInput] = useState("");
   const [dateInput, setDateInput] = useState(todayISO());
+  const [renaming, setRenaming] = useState(false);
+  const [nameInput, setNameInput] = useState("");
 
   const load = useCallback(() => {
     const assetId = Number(id);
@@ -79,6 +81,13 @@ export default function AssetDetailScreen() {
     load();
   }
 
+  async function handleRename() {
+    if (!nameInput.trim()) return;
+    await renameAsset(db, Number(id), nameInput.trim());
+    setRenaming(false);
+    load();
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
@@ -89,8 +98,42 @@ export default function AssetDetailScreen() {
           <Text style={styles.headerTitle} numberOfLines={1}>
             {asset ? `${TYPE_ICON[asset.type]} ${asset.name}` : "Account"}
           </Text>
-          <View style={styles.headerBtn} />
+          <Pressable
+            onPress={() => {
+              setNameInput(asset?.name ?? "");
+              setRenaming(true);
+            }}
+            style={styles.headerBtn}
+          >
+            <Ionicons name="pencil" size={18} color={neutral.textPrimary} />
+          </Pressable>
         </View>
+
+        {renaming && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.fieldLabel}>Rename account</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.inputText}
+                value={nameInput}
+                onChangeText={setNameInput}
+                placeholder="Account name"
+                placeholderTextColor={neutral.textSecondary}
+                autoFocus
+              />
+            </View>
+            <View style={styles.updateActions}>
+              <Pressable onPress={() => setRenaming(false)} style={styles.cancelBtn}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={handleRename} disabled={!nameInput.trim()} style={{ flex: 1, opacity: nameInput.trim() ? 1 : 0.5 }}>
+                <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.saveBtn}>
+                  <Text style={styles.saveBtnText}>Save</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </View>
+        )}
 
         <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
           <Text style={styles.heroLabel}>Current balance</Text>

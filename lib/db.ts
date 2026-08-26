@@ -188,6 +188,10 @@ export async function getAssets(db: SQLiteDatabase): Promise<Asset[]> {
   return db.getAllAsync<Asset>("SELECT id, name, type FROM assets ORDER BY name");
 }
 
+export async function renameAsset(db: SQLiteDatabase, id: number, name: string) {
+  await db.runAsync("UPDATE assets SET name = ? WHERE id = ?", name, id);
+}
+
 export async function deleteAsset(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM asset_balances WHERE asset_id = ?", id);
   await db.runAsync("DELETE FROM assets WHERE id = ?", id);
