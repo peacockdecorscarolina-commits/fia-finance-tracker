@@ -7,6 +7,7 @@ import { Dimensions, FlatList, Modal, Platform, Pressable, ScrollView, StyleShee
 import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { EmptyState } from "../../components/EmptyState";
 import { LineChart } from "../../components/LineChart";
+import { MiniSparkline } from "../../components/MiniSparkline";
 import { MonthlyBarChart } from "../../components/MonthlyBarChart";
 import { PressScale } from "../../components/PressScale";
 import { SegmentedControl } from "../../components/SegmentedControl";
@@ -210,24 +211,45 @@ export default function TransactionsScreen() {
 
         <View style={styles.statRow}>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Expenses</Text>
+            <View style={styles.statTopRow}>
+              <Text style={styles.statLabel}>Expenses</Text>
+              <View style={[styles.statIconWrap, { backgroundColor: "#EDE9FE" }]}>
+                <Ionicons name="trending-down-outline" size={13} color={ACCENT} />
+              </View>
+            </View>
             {loading ? (
               <Shimmer width={90} height={20} />
             ) : (
-              <AnimatedAmount value={totals.expenses} style={styles.statValue} />
+              <>
+                <AnimatedAmount value={totals.expenses} style={styles.statValue} />
+                <MiniSparkline points={monthlyTotals.slice(-6).map((m) => m.expenses)} color={ACCENT} />
+              </>
             )}
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Income</Text>
+            <View style={styles.statTopRow}>
+              <Text style={styles.statLabel}>Income</Text>
+              <View style={[styles.statIconWrap, { backgroundColor: "#DCFCE7" }]}>
+                <Ionicons name="trending-up-outline" size={13} color="#16A34A" />
+              </View>
+            </View>
             {loading ? (
               <Shimmer width={90} height={20} />
             ) : (
-              <AnimatedAmount value={totals.income} style={styles.statValue} />
+              <>
+                <AnimatedAmount value={totals.income} style={styles.statValue} />
+                <MiniSparkline points={monthlyTotals.slice(-6).map((m) => m.income)} color="#16A34A" />
+              </>
             )}
           </View>
           {!loading && totals.payments !== 0 && (
             <View style={styles.statBox}>
-              <Text style={styles.statLabel}>Payments</Text>
+              <View style={styles.statTopRow}>
+                <Text style={styles.statLabel}>Payments</Text>
+                <View style={[styles.statIconWrap, { backgroundColor: "#FFEDD5" }]}>
+                  <Ionicons name="trending-up-outline" size={13} color="#F97316" />
+                </View>
+              </View>
               <AnimatedAmount value={totals.payments} style={styles.statValue} />
             </View>
           )}
@@ -455,8 +477,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     padding: spacing.md,
   },
-  statLabel: { fontSize: 13, color: neutral.textSecondary, fontWeight: "600", marginBottom: 4 },
-  statValue: { fontSize: 18, fontWeight: "700", color: neutral.textPrimary },
+  statTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+  statIconWrap: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  statLabel: { fontSize: 13, color: neutral.textSecondary, fontWeight: "600" },
+  statValue: { fontSize: 18, fontWeight: "700", color: neutral.textPrimary, marginBottom: 6 },
   assetPanel: { padding: spacing.md, gap: spacing.xs },
   panelTitle: { fontSize: 13, fontWeight: "600", color: neutral.textSecondary },
   panelValue: { fontSize: 22, fontWeight: "700", color: neutral.textPrimary },
