@@ -28,6 +28,7 @@ import {
   setTransactionIgnored,
   type MonthlyTotal,
 } from "../../lib/db";
+import { downloadCsv, transactionsToCsv } from "../../lib/exportCsv";
 import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/period";
 import { radius, spacing, tabBarClearance } from "../../lib/theme";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
@@ -211,6 +212,11 @@ export default function TransactionsScreen() {
     load();
   }
 
+  async function handleExportCsv() {
+    const all = await getTransactions(db);
+    downloadCsv(`transactions-${new Date().toISOString().slice(0, 10)}.csv`, transactionsToCsv(all));
+  }
+
   const moreItems: MoreItem[] = [
     { icon: "card-outline", label: "Accounts", onPress: () => router.push("/accounts") },
     { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
@@ -220,6 +226,7 @@ export default function TransactionsScreen() {
     ...(Platform.OS === "web"
       ? [
           { icon: "cloud-outline" as const, label: "Sync", onPress: () => router.push("/sync") },
+          { icon: "download-outline" as const, label: "Export CSV", onPress: handleExportCsv },
           {
             icon: "refresh-outline" as const,
             label: "Refresh App",
