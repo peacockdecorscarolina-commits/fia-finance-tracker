@@ -345,30 +345,35 @@ export default function SummaryScreen() {
           </View>
         </LinearGradient>
 
-        {ASSET_TYPES.filter((type) => assets.some((a) => a.type === type)).map((type) => {
-          const history = assetHistories[type] ?? [];
-          const totalForType = assets.filter((a) => a.type === type).reduce((sum, a) => sum + a.balance, 0);
-          const first = history[0]?.total ?? totalForType;
-          const delta = totalForType - first;
-          const pct = first !== 0 ? (delta / first) * 100 : 0;
-          return (
-            <Pressable key={type} style={styles.assetCard} onPress={() => router.push("/net-worth")}>
-              <View style={[styles.assetCardIcon, { backgroundColor: NET_WORTH_TINT[type] }]}>
-                <Text style={{ fontSize: 16 }}>{NET_WORTH_ICON[type]}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.assetCardLabel}>{type}</Text>
-                <Text style={styles.assetCardValue}>{formatMoney(totalForType)}</Text>
-              </View>
-              {history.length >= 2 && (
-                <Text style={[styles.assetCardDelta, { color: delta >= 0 ? "#16A34A" : "#DC2626" }]}>
-                  {delta >= 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
-                </Text>
-              )}
-              <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-            </Pressable>
-          );
-        })}
+        {ASSET_TYPES.some((type) => assets.some((a) => a.type === type)) && (
+          <View style={{ gap: spacing.md }}>
+            <Text style={[styles.stackTitle, { marginBottom: 0 }]}>Savings & Investments</Text>
+            {ASSET_TYPES.filter((type) => assets.some((a) => a.type === type)).map((type) => {
+              const history = assetHistories[type] ?? [];
+              const totalForType = assets.filter((a) => a.type === type).reduce((sum, a) => sum + a.balance, 0);
+              const first = history[0]?.total ?? totalForType;
+              const delta = totalForType - first;
+              const pct = first !== 0 ? (delta / first) * 100 : 0;
+              return (
+                <Pressable key={type} style={styles.assetCard} onPress={() => router.push("/net-worth")}>
+                  <View style={[styles.assetCardIcon, { backgroundColor: NET_WORTH_TINT[type] }]}>
+                    <Text style={{ fontSize: 16 }}>{NET_WORTH_ICON[type]}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.assetCardLabel}>{type}</Text>
+                    <Text style={styles.assetCardValue}>{formatMoney(totalForType)}</Text>
+                  </View>
+                  {history.length >= 2 && (
+                    <Text style={[styles.assetCardDelta, { color: delta >= 0 ? "#16A34A" : "#DC2626" }]}>
+                      {delta >= 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
+                    </Text>
+                  )}
+                  <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         <View>
           <Text style={styles.stackTitle}>By account</Text>
@@ -393,69 +398,73 @@ export default function SummaryScreen() {
           )}
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>By category</Text>
-          {loading ? null : categoryTotals.length === 0 ? (
-            <EmptyState icon="📊" title="Nothing here yet" subtitle="No spending recorded for this month." />
-          ) : (
-            <View style={styles.categoryRow}>
-              <Donut
-                total={total}
-                slices={categoryTotals.map((c) => ({
-                  name: c.categoryName,
-                  value: c.total,
-                  color: getCategoryStyle(c.categoryName).color,
-                }))}
-              />
-              <View style={styles.legend}>
-                {categoryTotals.map((c) => {
-                  const style = getCategoryStyle(c.categoryName);
-                  const pct = total > 0 ? (c.total / total) * 100 : 0;
-                  return (
-                    <Pressable
-                      key={c.categoryName}
-                      style={styles.legendRow}
-                      onPress={() =>
-                        router.push({ pathname: "/category/[name]", params: { name: c.categoryName, month } })
-                      }
-                    >
-                      <View style={[styles.legendDot, { backgroundColor: style.color }]} />
-                      <Text style={styles.legendName} numberOfLines={1}>
-                        {style.emoji} {c.categoryName}
-                      </Text>
-                      <Text style={styles.legendPct}>{pct.toFixed(1)}%</Text>
-                    </Pressable>
-                  );
-                })}
+        <View>
+          <Text style={styles.stackTitle}>By category</Text>
+          <View style={styles.sectionCard}>
+            {loading ? null : categoryTotals.length === 0 ? (
+              <EmptyState icon="📊" title="Nothing here yet" subtitle="No spending recorded for this month." />
+            ) : (
+              <View style={styles.categoryRow}>
+                <Donut
+                  total={total}
+                  slices={categoryTotals.map((c) => ({
+                    name: c.categoryName,
+                    value: c.total,
+                    color: getCategoryStyle(c.categoryName).color,
+                  }))}
+                />
+                <View style={styles.legend}>
+                  {categoryTotals.map((c) => {
+                    const style = getCategoryStyle(c.categoryName);
+                    const pct = total > 0 ? (c.total / total) * 100 : 0;
+                    return (
+                      <Pressable
+                        key={c.categoryName}
+                        style={styles.legendRow}
+                        onPress={() =>
+                          router.push({ pathname: "/category/[name]", params: { name: c.categoryName, month } })
+                        }
+                      >
+                        <View style={[styles.legendDot, { backgroundColor: style.color }]} />
+                        <Text style={styles.legendName} numberOfLines={1}>
+                          {style.emoji} {c.categoryName}
+                        </Text>
+                        <Text style={styles.legendPct}>{pct.toFixed(1)}%</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
-            </View>
-          )}
+            )}
+          </View>
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Recent transactions</Text>
-          {loading ? null : recent.length === 0 ? (
-            <EmptyState icon="🧾" title="Nothing here yet" subtitle="No transactions recorded for this month." />
-          ) : (
-            recent.map((t) => {
-              const style = getCategoryStyle(t.categoryName);
-              return (
-                <View key={t.id} style={styles.txRow}>
-                  <View style={[styles.txIcon, { backgroundColor: style.color }]}>
-                    <Text style={{ fontSize: 16 }}>{style.emoji}</Text>
+        <View>
+          <Text style={styles.stackTitle}>Last transactions</Text>
+          <View style={styles.sectionCard}>
+            {loading ? null : recent.length === 0 ? (
+              <EmptyState icon="🧾" title="Nothing here yet" subtitle="No transactions recorded for this month." />
+            ) : (
+              recent.map((t) => {
+                const style = getCategoryStyle(t.categoryName);
+                return (
+                  <View key={t.id} style={styles.txRow}>
+                    <View style={[styles.txIcon, { backgroundColor: style.color }]}>
+                      <Text style={{ fontSize: 16 }}>{style.emoji}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.txName}>{t.merchant}</Text>
+                      <Text style={styles.txMeta}>{t.date}</Text>
+                    </View>
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={styles.txAmount}>{formatMoney(Math.abs(t.amount))}</Text>
+                      <Text style={styles.txCategory}>{t.categoryName}</Text>
+                    </View>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.txName}>{t.merchant}</Text>
-                    <Text style={styles.txMeta}>{t.date}</Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={styles.txAmount}>{formatMoney(Math.abs(t.amount))}</Text>
-                    <Text style={styles.txCategory}>{t.categoryName}</Text>
-                  </View>
-                </View>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </View>
         </View>
       </ScrollView>
 
