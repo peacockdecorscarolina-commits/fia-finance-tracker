@@ -9,7 +9,7 @@ import { formatAmount } from "../components/AmountText";
 import { PdfTextExtractor, type PdfTextExtractorHandle } from "../components/PdfTextExtractor";
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getAccounts, insertExtractedTransactions } from "../lib/db";
+import { getAccounts, getDateAmountKeys, insertExtractedTransactions } from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { parseStatement } from "../lib/parseStatement";
 import { radius, spacing } from "../lib/theme";
@@ -34,6 +34,7 @@ export default function UploadScreen() {
   const [extracted, setExtracted] = useState<ExtractedTransaction[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
+  const [duplicateKeys, setDuplicateKeys] = useState<Set<string>>(new Set());
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null;
 
@@ -56,18 +57,29 @@ export default function UploadScreen() {
   }
 
   async function process() {
-    if (!fileUri || !extractorRef.current) return;
+    if (!fileUri || !extractorRef.current || accountId === null) return;
     setStatus("processing");
     setError(null);
     try {
       const text = await extractorRef.current.extractText(fileUri);
-      setExtracted(parseStatement(text));
+      const [rows, keys] = await Promise.all([
+        Promise.resolve(parseStatement(text)),
+        getDateAmountKeys(db, accountId),
+      ]);
+      setExtracted(rows);
+      setDuplicateKeys(keys);
       setStatus("preview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read that PDF.");
       setStatus("idle");
     }
   }
+
+  function isDuplicate(t: ExtractedTransaction): boolean {
+    return duplicateKeys.has(`${t.date}|${t.amount.toFixed(2)}`);
+  }
+
+  const duplicateCount = extracted.filter(isDuplicate).length;
 
   async function save() {
     if (!accountId) return;
@@ -84,6 +96,7 @@ export default function UploadScreen() {
     setFileName(null);
     setFileUri(null);
     setExtracted([]);
+    setDuplicateKeys(new Set());
     setConfirmingSave(false);
   }
 
@@ -181,10 +194,20 @@ export default function UploadScreen() {
               Found {extracted.length} transactions for {selectedAccount?.name ?? "this account"} — review, then
               save
             </Text>
+            {duplicateCount > 0 && (
+              <View style={styles.dupBanner}>
+                <Ionicons name="warning-outline" size={16} color="#B45309" />
+                <Text style={styles.dupBannerText}>
+                  {duplicateCount} of these match a date & amount already in this account — possible duplicates,
+                  marked below.
+                </Text>
+              </View>
+            )}
             {extracted.map((t, i) => {
               const style = getCategoryStyle(t.category);
+              const dup = isDuplicate(t);
               return (
-                <View key={i} style={styles.previewRow}>
+                <View key={i} style={[styles.previewRow, dup && styles.previewRowDup]}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.previewMerchant}>{formatMerchantName(t.merchant)}</Text>
                     <View style={styles.previewMeta}>
@@ -197,6 +220,11 @@ export default function UploadScreen() {
                       {t.needsReview && (
                         <View style={styles.reviewChip}>
                           <Text style={styles.reviewChipText}>needs review</Text>
+                        </View>
+                      )}
+                      {dup && (
+                        <View style={styles.dupChip}>
+                          <Text style={styles.dupChipText}>possible duplicate</Text>
                         </View>
                       )}
                     </View>
@@ -228,6 +256,8 @@ export default function UploadScreen() {
                 <Text style={styles.confirmText}>
                   Save {extracted.length} transaction{extracted.length === 1 ? "" : "s"} to{" "}
                   <Text style={styles.confirmAccountName}>{selectedAccount?.name ?? "this account"}</Text>?
+                  {duplicateCount > 0 &&
+                    ` This includes ${duplicateCount} possible duplicate${duplicateCount === 1 ? "" : "s"}.`}
                 </Text>
                 <View style={styles.previewActions}>
                   <Pressable onPress={() => setConfirmingSave(false)} style={styles.cancelBtn}>
@@ -315,6 +345,16 @@ function makeStyles(colors: ThemeColors) {
   savedRow: { flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center" },
   savedText: { textAlign: "center", color: "#16A34A", fontWeight: "600" },
   previewTitle: { fontWeight: "600", color: colors.textPrimary, marginBottom: spacing.xs, fontSize: 13 },
+  dupBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FEF3C7",
+    borderRadius: radius.chip,
+    padding: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  dupBannerText: { flex: 1, fontSize: 12, fontWeight: "600", color: "#B45309" },
   previewRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -323,6 +363,14 @@ function makeStyles(colors: ThemeColors) {
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
+  previewRowDup: {
+    backgroundColor: "#FFFBEB",
+    borderRadius: radius.chip,
+    paddingHorizontal: spacing.xs,
+    borderTopWidth: 0,
+  },
+  dupChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.chip, backgroundColor: "#FDE68A" },
+  dupChipText: { fontSize: 11, fontWeight: "600", color: "#92400E" },
   previewMerchant: { fontWeight: "600", color: colors.textPrimary, marginBottom: 4, fontSize: 13 },
   previewMeta: { flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" },
   previewDate: { fontSize: 12, color: colors.textSecondary, marginRight: 4 },

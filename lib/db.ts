@@ -425,6 +425,17 @@ export async function getTransactions(
   return rows.map(toTransaction);
 }
 
+// Used for duplicate detection -- a lightweight date+amount fingerprint of
+// every transaction already on an account, so new statement rows / manual
+// entries can be flagged before they're saved.
+export async function getDateAmountKeys(db: SQLiteDatabase, accountId: number): Promise<Set<string>> {
+  const rows = await db.getAllAsync<{ date: string; amount: number }>(
+    "SELECT date, amount FROM transactions WHERE account_id = ?",
+    accountId
+  );
+  return new Set(rows.map((r) => `${r.date}|${r.amount.toFixed(2)}`));
+}
+
 // Reassigns transactions from one account to another within a date range --
 // for fixing a statement that got uploaded/saved under the wrong account.
 export async function moveTransactions(
