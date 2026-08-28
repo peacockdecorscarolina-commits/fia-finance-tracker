@@ -4,8 +4,10 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { getAccountStyle } from "../lib/accountStyle";
-import { deleteAccount, getAccounts, insertAccount, renameAccount } from "../lib/db";
+import { WalletCardStack, type WalletCardItem } from "../components/WalletCardStack";
+import { getAccountCardColor } from "../lib/accountStyle";
+import { deleteAccount, getAccounts, getAccountSpendSummary, insertAccount, renameAccount } from "../lib/db";
+import { getPeriodRange, currentMonth } from "../lib/period";
 import { radius, spacing } from "../lib/theme";
 import type { Account } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -22,18 +24,16 @@ const ACCOUNT_TYPES = [
   { value: "Other", icon: "ellipsis-horizontal-circle-outline" as const },
 ];
 
-const TYPE_PILL_COLOR: Record<string, string> = {
-  Checking: "#6D28D9",
-  "Credit Card": "#2563EB",
-  Savings: "#16A34A",
-  Other: "#64748B",
-};
+function formatMoney(value: number): string {
+  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 export default function AccountsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [spendByAccount, setSpendByAccount] = useState<Record<number, number>>({});
   const [name, setName] = useState("");
   const [type, setType] = useState<(typeof ACCOUNT_TYPES)[number]["value"]>("Checking");
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -41,10 +41,38 @@ export default function AccountsScreen() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
 
   const load = useCallback(() => {
-    getAccounts(db).then(setAccounts);
+    getAccounts(db).then(async (list) => {
+      setAccounts(list);
+      const { start, end } = getPeriodRange("Month");
+      const entries = await Promise.all(
+        list.map(async (a) => [a.id, (await getAccountSpendSummary(db, a.id, start, end)).spent] as const)
+      );
+      setSpendByAccount(Object.fromEntries(entries));
+    });
   }, [db]);
 
   useFocusEffect(load);
+
+  const cardItems: WalletCardItem[] = accounts.map((a) => {
+    const spend = spendByAccount[a.id] ?? 0;
+    return {
+      key: String(a.id),
+      name: a.name,
+      subtitle: a.type,
+      footerRight: spend > 0 ? `${formatMoney(spend)} this month` : undefined,
+      color: getAccountCardColor(a.name),
+    };
+  });
+
+  function handleCardPress(item: WalletCardItem) {
+    const account = accounts.find((a) => String(a.id) === item.key);
+    if (account) router.push({ pathname: "/account/[name]", params: { name: account.name, month: currentMonth() } });
+  }
+
+  function handleCardEdit(item: WalletCardItem) {
+    const account = accounts.find((a) => String(a.id) === item.key);
+    if (account) startEditing(account);
+  }
 
   async function handleAdd() {
     if (!name.trim()) return;
@@ -72,6 +100,8 @@ export default function AccountsScreen() {
     setEditingId(null);
     load();
   }
+
+  const editingAccount = accounts.find((a) => a.id === editingId) ?? null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -130,79 +160,63 @@ export default function AccountsScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Your accounts</Text>
-          {accounts.length === 0 ? (
-            <Text style={styles.empty}>No accounts yet — add one above to get started.</Text>
-          ) : (
-            accounts.map((item, i) =>
-              editingId === item.id ? (
-                <View key={item.id} style={styles.editRow}>
-                  <View style={styles.inputRow}>
-                    <TextInput value={editingName} onChangeText={setEditingName} style={styles.inputText} autoFocus />
-                  </View>
-                  <View style={styles.editActions}>
-                    <Pressable onPress={() => setEditingId(null)} style={styles.editCancelBtn}>
-                      <Text style={styles.editCancelText}>Cancel</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={saveEdit}
-                      disabled={!editingName.trim()}
-                      style={[styles.editSaveBtn, !editingName.trim() && { opacity: 0.5 }]}
-                    >
-                      <Text style={styles.editSaveText}>Save</Text>
-                    </Pressable>
-                  </View>
+        <View>
+          <View style={styles.stackHeaderRow}>
+            <Text style={styles.sectionTitle}>Your accounts</Text>
+            {accounts.length > 1 && <Text style={styles.stackHint}>Tap a card to bring it forward</Text>}
+          </View>
 
-                  {confirmingDeleteId !== item.id ? (
-                    <Pressable onPress={() => setConfirmingDeleteId(item.id)} style={styles.deleteLink}>
-                      <Ionicons name="trash-outline" size={14} color="#DC2626" />
-                      <Text style={styles.deleteLinkText}>Delete this account</Text>
-                    </Pressable>
-                  ) : (
-                    <View style={styles.confirmBox}>
-                      <Text style={styles.confirmText}>
-                        This will permanently delete "{item.name}" and all of its transactions. This can't be undone.
-                      </Text>
-                      <View style={styles.editActions}>
-                        <Pressable onPress={() => setConfirmingDeleteId(null)} style={styles.editCancelBtn}>
-                          <Text style={styles.editCancelText}>Cancel</Text>
-                        </Pressable>
-                        <Pressable onPress={() => handleDelete(item.id)} style={styles.deleteBtn}>
-                          <Text style={styles.deleteBtnText}>Yes, delete</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  )}
-                </View>
-              ) : (
-                <Pressable
-                  key={item.id}
-                  onPress={() => startEditing(item)}
-                  style={[styles.accountRow, i > 0 && styles.accountRowDivider]}
-                >
-                  <View style={[styles.accountIcon, { backgroundColor: getAccountStyle(item.name).color }]}>
-                    <Text style={styles.accountIconText}>{item.name.slice(0, 2).toUpperCase()}</Text>
-                  </View>
-                  <Text style={styles.accountName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <View
-                    style={[
-                      styles.typePill,
-                      { backgroundColor: `${TYPE_PILL_COLOR[item.type] ?? colors.textSecondary}1A` },
-                    ]}
-                  >
-                    <Text style={[styles.typePillText, { color: TYPE_PILL_COLOR[item.type] ?? colors.textSecondary }]}>
-                      {item.type}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-                </Pressable>
-              )
-            )
+          {accounts.length === 0 ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.empty}>No accounts yet — add one above to get started.</Text>
+            </View>
+          ) : (
+            <WalletCardStack items={cardItems} onPressFront={handleCardPress} onEdit={handleCardEdit} />
           )}
         </View>
+
+        {editingAccount && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Edit "{editingAccount.name}"</Text>
+            <View style={styles.inputRow}>
+              <TextInput value={editingName} onChangeText={setEditingName} style={styles.inputText} autoFocus />
+            </View>
+            <View style={styles.editActions}>
+              <Pressable onPress={() => setEditingId(null)} style={styles.editCancelBtn}>
+                <Text style={styles.editCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={saveEdit}
+                disabled={!editingName.trim()}
+                style={[styles.editSaveBtn, !editingName.trim() && { opacity: 0.5 }]}
+              >
+                <Text style={styles.editSaveText}>Save</Text>
+              </Pressable>
+            </View>
+
+            {confirmingDeleteId !== editingAccount.id ? (
+              <Pressable onPress={() => setConfirmingDeleteId(editingAccount.id)} style={styles.deleteLink}>
+                <Ionicons name="trash-outline" size={14} color="#DC2626" />
+                <Text style={styles.deleteLinkText}>Delete this account</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.confirmBox}>
+                <Text style={styles.confirmText}>
+                  This will permanently delete "{editingAccount.name}" and all of its transactions. This can't be
+                  undone.
+                </Text>
+                <View style={styles.editActions}>
+                  <Pressable onPress={() => setConfirmingDeleteId(null)} style={styles.editCancelBtn}>
+                    <Text style={styles.editCancelText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable onPress={() => handleDelete(editingAccount.id)} style={styles.deleteBtn}>
+                    <Text style={styles.deleteBtnText}>Yes, delete</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={styles.footerRow}>
           <Ionicons name="lock-closed" size={12} color={colors.textSecondary} />
@@ -244,6 +258,13 @@ function makeStyles(colors: ThemeColors) {
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
+  stackHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  stackHint: { fontSize: 11, color: colors.textSecondary },
   fieldLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginTop: spacing.xs },
   inputRow: {
     flexDirection: "row",
@@ -283,14 +304,6 @@ function makeStyles(colors: ThemeColors) {
   typeTileTextActive: { color: ACCENT },
   submitBtn: { borderRadius: radius.pill, paddingVertical: 14, alignItems: "center", marginTop: spacing.xs },
   submitText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
-  accountRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm },
-  accountRowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
-  accountIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  accountIconText: { color: "#FFFFFF", fontWeight: "700", fontSize: 12 },
-  accountName: { flex: 1, fontSize: 15, fontWeight: "600", color: colors.textPrimary },
-  typePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill },
-  typePillText: { fontSize: 11, fontWeight: "700" },
-  editRow: { gap: spacing.sm, paddingVertical: spacing.sm },
   editActions: { flexDirection: "row", gap: spacing.sm },
   editCancelBtn: {
     flex: 1,

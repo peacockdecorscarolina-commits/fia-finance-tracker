@@ -4,9 +4,9 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { EmptyState } from "../../components/EmptyState";
-import { getAccountStyle } from "../../lib/accountStyle";
+import { WalletCardStack, type WalletCardItem } from "../../components/WalletCardStack";
+import { getAccountCardColor } from "../../lib/accountStyle";
 import { getCategoryStyle } from "../../lib/categoryStyle";
 import {
   getAccountSummary,
@@ -241,7 +241,6 @@ export default function SummaryScreen() {
   const total = categoryTotals.reduce((sum, c) => sum + c.total, 0);
   const pctChange = prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : 0;
   const remaining = Math.max(total - paymentTotal, 0);
-  const accountMax = Math.max(...accountTotals.map((a) => a.total), 1);
 
   const moreItems: MoreItem[] = [
     { icon: "card-outline", label: "Accounts", onPress: () => router.push("/accounts") },
@@ -371,37 +370,26 @@ export default function SummaryScreen() {
           );
         })}
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>By account</Text>
+        <View>
+          <Text style={styles.stackTitle}>By account</Text>
           {loading ? null : accountTotals.length === 0 ? (
-            <EmptyState icon="📊" title="Nothing here yet" subtitle="No spending recorded on any card this month." />
+            <View style={styles.sectionCard}>
+              <EmptyState icon="📊" title="Nothing here yet" subtitle="No spending recorded on any card this month." />
+            </View>
           ) : (
-            accountTotals.map((a) => {
-              const style = getAccountStyle(a.accountName);
-              const pct = (a.total / accountMax) * 100;
-              const share = total > 0 ? (a.total / total) * 100 : 0;
-              return (
-                <Pressable
-                  key={a.accountName}
-                  style={styles.accountRow}
-                  onPress={() => router.push({ pathname: "/account/[name]", params: { name: a.accountName, month } })}
-                >
-                  <View style={[styles.badge, { backgroundColor: style.color }]}>
-                    <Text style={styles.badgeText}>{a.accountName.slice(0, 2).toUpperCase()}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={styles.accountTopRow}>
-                      <Text style={styles.accountName}>{a.accountName}</Text>
-                      <AnimatedAmount value={a.total} style={styles.accountAmount} />
-                    </View>
-                    <View style={styles.progressTrack}>
-                      <View style={[styles.progressFill, { width: `${pct}%`, backgroundColor: style.color }]} />
-                    </View>
-                  </View>
-                  <Text style={[styles.accountPct, { color: style.color }]}>{share.toFixed(1)}%</Text>
-                </Pressable>
-              );
-            })
+            <WalletCardStack
+              items={accountTotals.map((a) => {
+                const share = total > 0 ? (a.total / total) * 100 : 0;
+                return {
+                  key: a.accountName,
+                  name: a.accountName,
+                  subtitle: `${share.toFixed(1)}% of spend`,
+                  footerRight: formatMoney(a.total),
+                  color: getAccountCardColor(a.accountName),
+                } satisfies WalletCardItem;
+              })}
+              onPressFront={(item) => router.push({ pathname: "/account/[name]", params: { name: item.name, month } })}
+            />
           )}
         </View>
 
@@ -582,15 +570,14 @@ function makeStyles(colors: ThemeColors) {
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
-  accountRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  badge: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  badgeText: { color: "#FFFFFF", fontWeight: "700", fontSize: 12 },
-  accountTopRow: { flexDirection: "row", justifyContent: "space-between" },
-  accountName: { fontSize: 14, fontWeight: "600", color: colors.textPrimary },
-  accountAmount: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
-  progressTrack: { height: 4, borderRadius: 2, backgroundColor: colors.border, marginTop: 6, overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 2 },
-  accountPct: { fontSize: 12, fontWeight: "700", width: 44, textAlign: "right" },
+  stackTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: spacing.sm,
+  },
   categoryRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   legend: { flex: 1, gap: 6 },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 6 },
