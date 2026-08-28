@@ -414,11 +414,16 @@ export default function TransactionsScreen() {
           <Text style={styles.sectionTitle}>
             {selectedMonth ? `Spent in ${formatMonthLabel(selectedMonth)}` : "Transactions"}
           </Text>
-          {selectedMonth && (
-            <Pressable onPress={() => setSelectedMonth(null)}>
-              <Text style={styles.clearLink}>Show all</Text>
+          <View style={styles.sectionTitleActions}>
+            {selectedMonth && (
+              <Pressable onPress={() => setSelectedMonth(null)}>
+                <Text style={styles.clearLink}>Clear filter</Text>
+              </Pressable>
+            )}
+            <Pressable onPress={() => router.push("/all-transactions")}>
+              <Text style={styles.clearLink}>See all</Text>
             </Pressable>
-          )}
+          </View>
         </View>
 
         <ScrollView
@@ -563,6 +568,7 @@ function makeStyles(colors: ThemeColors) {
     justifyContent: "space-between",
     marginBottom: spacing.sm,
   },
+  sectionTitleActions: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
