@@ -110,7 +110,7 @@ export default function CategoryDrillDownScreen() {
 
   const listHeader = (
     <>
-      {monthlyTrend.filter((m) => m.total > 0).length >= 2 && (
+      {!category?.loanAmount && monthlyTrend.filter((m) => m.total > 0).length >= 2 && (
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Monthly spend</Text>
           <LineChart
