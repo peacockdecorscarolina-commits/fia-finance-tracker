@@ -292,7 +292,7 @@ export async function getAllAssetsHistory(db: SQLiteDatabase): Promise<{ date: s
 // loan_as_of_date count against the loan amount).
 export async function getLoanSummaries(
   db: SQLiteDatabase
-): Promise<{ id: number; name: string; loanAmount: number; remaining: number }[]> {
+): Promise<{ id: number; name: string; loanAmount: number; loanAsOfDate: string; remaining: number }[]> {
   const categories = await getCategories(db);
   const results = [];
   for (const c of categories) {
@@ -301,7 +301,13 @@ export async function getLoanSummaries(
     const paid = Math.abs(
       txs.filter((t) => !t.ignored && t.date > c.loanAsOfDate!).reduce((sum, t) => sum + t.amount, 0)
     );
-    results.push({ id: c.id, name: c.name, loanAmount: c.loanAmount, remaining: Math.max(c.loanAmount - paid, 0) });
+    results.push({
+      id: c.id,
+      name: c.name,
+      loanAmount: c.loanAmount,
+      loanAsOfDate: c.loanAsOfDate,
+      remaining: Math.max(c.loanAmount - paid, 0),
+    });
   }
   return results;
 }

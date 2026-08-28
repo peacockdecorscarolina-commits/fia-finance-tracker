@@ -20,6 +20,7 @@ import {
   getAssetTypeHistory,
   getCategories,
   getIncomeExpenseTotals,
+  getLoanBalanceHistory,
   getLoanSummaries,
   getMonthlyTotals,
   getNeedsReviewCount,
@@ -160,7 +161,10 @@ export default function TransactionsScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loans, setLoans] = useState<{ id: number; name: string; loanAmount: number; remaining: number }[]>([]);
+  const [loans, setLoans] = useState<
+    { id: number; name: string; loanAmount: number; loanAsOfDate: string; remaining: number }[]
+  >([]);
+  const [loanHistories, setLoanHistories] = useState<Record<number, { month: string; remaining: number }[]>>({});
   const [assets, setAssets] = useState<{ id: number; name: string; type: AssetType; balance: number }[]>([]);
   const [assetHistories, setAssetHistories] = useState<Record<AssetType, { date: string; total: number }[]>>(
     {} as Record<AssetType, { date: string; total: number }[]>
@@ -178,7 +182,13 @@ export default function TransactionsScreen() {
 
     getAccounts(db).then(setAccounts);
     getCategories(db).then(setCategories);
-    getLoanSummaries(db).then(setLoans);
+    getLoanSummaries(db).then(async (loanList) => {
+      setLoans(loanList);
+      const histories = await Promise.all(
+        loanList.map((l) => getLoanBalanceHistory(db, l.name, l.loanAmount, l.loanAsOfDate))
+      );
+      setLoanHistories(Object.fromEntries(loanList.map((l, i) => [l.id, histories[i]])));
+    });
     getAssetSummaries(db).then(setAssets);
     getNeedsReviewCount(db).then(setReviewCount);
     Promise.all(ASSET_TYPES.map((type) => getAssetTypeHistory(db, type).then((history) => [type, history] as const))).then(
@@ -392,6 +402,15 @@ export default function TransactionsScreen() {
                         ]}
                       />
                     </View>
+                    {(loanHistories[loan.id]?.length ?? 0) >= 2 && (
+                      <LineChart
+                        points={loanHistories[loan.id].map((h) => h.remaining)}
+                        labels={loanHistories[loan.id].map((h) => formatChartMonth(h.month))}
+                        color="#DC2626"
+                        width={PANEL_WIDTH - spacing.md * 2}
+                        zeroBaseline={false}
+                      />
+                    )}
                   </View>
                 </Pressable>
               ))}
