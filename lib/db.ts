@@ -179,6 +179,11 @@ export async function renameAccount(db: SQLiteDatabase, id: number, name: string
   await db.runAsync("UPDATE accounts SET name = ? WHERE id = ?", name, id);
 }
 
+export async function deleteAccount(db: SQLiteDatabase, id: number) {
+  await db.runAsync("DELETE FROM transactions WHERE account_id = ?", id);
+  await db.runAsync("DELETE FROM accounts WHERE id = ?", id);
+}
+
 export async function insertAsset(db: SQLiteDatabase, name: string, type: AssetType): Promise<number> {
   const result = await db.runAsync("INSERT INTO assets (name, type) VALUES (?, ?)", name, type);
   return result.lastInsertRowId;

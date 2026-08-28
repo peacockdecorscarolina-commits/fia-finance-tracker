@@ -5,7 +5,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { getAccountStyle } from "../lib/accountStyle";
-import { getAccounts, insertAccount, renameAccount } from "../lib/db";
+import { deleteAccount, getAccounts, insertAccount, renameAccount } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Account } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -38,6 +38,7 @@ export default function AccountsScreen() {
   const [type, setType] = useState<(typeof ACCOUNT_TYPES)[number]["value"]>("Checking");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     getAccounts(db).then(setAccounts);
@@ -55,11 +56,19 @@ export default function AccountsScreen() {
   function startEditing(account: Account) {
     setEditingId(account.id);
     setEditingName(account.name);
+    setConfirmingDeleteId(null);
   }
 
   async function saveEdit() {
     if (editingId === null || !editingName.trim()) return;
     await renameAccount(db, editingId, editingName.trim());
+    setEditingId(null);
+    load();
+  }
+
+  async function handleDelete(id: number) {
+    await deleteAccount(db, id);
+    setConfirmingDeleteId(null);
     setEditingId(null);
     load();
   }
@@ -144,6 +153,27 @@ export default function AccountsScreen() {
                       <Text style={styles.editSaveText}>Save</Text>
                     </Pressable>
                   </View>
+
+                  {confirmingDeleteId !== item.id ? (
+                    <Pressable onPress={() => setConfirmingDeleteId(item.id)} style={styles.deleteLink}>
+                      <Ionicons name="trash-outline" size={14} color="#DC2626" />
+                      <Text style={styles.deleteLinkText}>Delete this account</Text>
+                    </Pressable>
+                  ) : (
+                    <View style={styles.confirmBox}>
+                      <Text style={styles.confirmText}>
+                        This will permanently delete "{item.name}" and all of its transactions. This can't be undone.
+                      </Text>
+                      <View style={styles.editActions}>
+                        <Pressable onPress={() => setConfirmingDeleteId(null)} style={styles.editCancelBtn}>
+                          <Text style={styles.editCancelText}>Cancel</Text>
+                        </Pressable>
+                        <Pressable onPress={() => handleDelete(item.id)} style={styles.deleteBtn}>
+                          <Text style={styles.deleteBtnText}>Yes, delete</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  )}
                 </View>
               ) : (
                 <Pressable
@@ -272,6 +302,25 @@ function makeStyles(colors: ThemeColors) {
   editCancelText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
   editSaveBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: ACCENT },
   editSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+  deleteLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: spacing.xs,
+  },
+  deleteLinkText: { fontSize: 13, fontWeight: "700", color: "#DC2626" },
+  confirmBox: { backgroundColor: "#FEE2E2", borderRadius: radius.chip, padding: spacing.md, gap: spacing.sm },
+  confirmText: { fontSize: 13, color: "#DC2626", fontWeight: "600" },
+  deleteBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    backgroundColor: "#DC2626",
+  },
+  deleteBtnText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
   empty: { textAlign: "center", color: colors.textSecondary, paddingVertical: spacing.md },
   footerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   footerText: { fontSize: 12, color: colors.textSecondary },
