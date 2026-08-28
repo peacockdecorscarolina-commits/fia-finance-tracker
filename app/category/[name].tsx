@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
 import { LineChart } from "../../components/LineChart";
 import { TransactionRow } from "../../components/TransactionRow";
@@ -11,6 +11,7 @@ import {
   deleteTransaction,
   getCategories,
   getCategoryMonthlyTotals,
+  getLoanBalanceHistory,
   getTransactions,
   setCategoryLoanAmount,
   setMerchantCategory,
@@ -52,6 +53,7 @@ export default function CategoryDrillDownScreen() {
   const [loanInput, setLoanInput] = useState("");
   const [loanDateInput, setLoanDateInput] = useState("");
   const [monthlyTrend, setMonthlyTrend] = useState<{ month: string; total: number }[]>([]);
+  const [loanHistory, setLoanHistory] = useState<{ month: string; remaining: number }[]>([]);
 
   const category = categories.find((c) => c.name === name) ?? null;
   const isLoanInputValid =
@@ -73,6 +75,14 @@ export default function CategoryDrillDownScreen() {
   }, [db, name, month]);
 
   useFocusEffect(load);
+
+  useEffect(() => {
+    if (!name || !category?.loanAmount || !category.loanAsOfDate) {
+      setLoanHistory([]);
+      return;
+    }
+    getLoanBalanceHistory(db, name, category.loanAmount, category.loanAsOfDate).then(setLoanHistory);
+  }, [db, name, category?.loanAmount, category?.loanAsOfDate]);
 
   async function saveLoanAmount() {
     if (!category || !isLoanInputValid) return;
@@ -187,6 +197,19 @@ export default function CategoryDrillDownScreen() {
                 {Math.round(Math.min(100, Math.max(0, (paidSoFar / category.loanAmount) * 100)))}% paid off
                 {category.loanAsOfDate ? ` · as of ${category.loanAsOfDate}` : ""}
               </Text>
+
+              {loanHistory.length >= 2 && (
+                <View style={styles.payoffChartWrap}>
+                  <Text style={styles.loanLabel}>Payoff progress</Text>
+                  <LineChart
+                    points={loanHistory.map((h) => h.remaining)}
+                    labels={loanHistory.map((h) => formatMonthShort(h.month))}
+                    color="#DC2626"
+                    width={320}
+                    zeroBaseline={false}
+                  />
+                </View>
+              )}
             </>
           ) : (
             <Pressable
@@ -294,6 +317,7 @@ function makeStyles(colors: ThemeColors) {
     },
     progressFillAbs: { height: "100%", borderRadius: radius.pill },
     pctLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+    payoffChartWrap: { marginTop: spacing.sm, gap: spacing.sm },
     loanEditForm: { gap: spacing.xs },
     loanEditActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
     inputRow: {

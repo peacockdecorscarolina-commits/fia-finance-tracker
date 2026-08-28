@@ -37,11 +37,18 @@ export function LineChart({
   labels,
   color,
   width: fallbackWidth = 320,
+  zeroBaseline = true,
 }: {
   points: number[];
   labels?: string[];
   color?: string;
   width?: number;
+  // Growth charts (asset balances, net worth) read naturally anchored at
+  // $0. A large, slow-moving payoff balance doesn't -- a few hundred
+  // dollars of progress against a $0-24k axis is visually flat even when
+  // real progress is being made, so those charts opt out and get an axis
+  // that fits their own min/max instead.
+  zeroBaseline?: boolean;
 }) {
   const { colors } = useTheme();
   const lineColor = color ?? colors.accent;
@@ -63,8 +70,8 @@ export function LineChart({
   }
 
   const rawMax = Math.max(...points);
-  const rawMin = Math.min(0, Math.min(...points));
-  const ticks = buildTicks(rawMax, rawMin);
+  const rawMin = zeroBaseline ? Math.min(0, Math.min(...points)) : Math.min(...points);
+  const ticks = buildTicks(rawMax, rawMin, zeroBaseline);
   const axisMax = ticks[ticks.length - 1];
   const axisMin = ticks[0];
   const axisRange = axisMax - axisMin || 1;

@@ -306,6 +306,44 @@ export async function getLoanSummaries(
   return results;
 }
 
+// Remaining loan balance at the end of every month from loan_as_of_date to
+// now -- lets the payoff be charted as a declining line rather than just a
+// single current-balance snapshot.
+export async function getLoanBalanceHistory(
+  db: SQLiteDatabase,
+  categoryName: string,
+  loanAmount: number,
+  loanAsOfDate: string
+): Promise<{ month: string; remaining: number }[]> {
+  const txs = await getTransactions(db, { categoryName });
+  const payments = txs
+    .filter((t) => !t.ignored && t.date > loanAsOfDate)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const months: string[] = [];
+  let [y, m] = loanAsOfDate.slice(0, 7).split("-").map(Number);
+  const [endY, endM] = new Date().toISOString().slice(0, 7).split("-").map(Number);
+  while (y < endY || (y === endY && m <= endM)) {
+    months.push(`${y}-${String(m).padStart(2, "0")}`);
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+
+  let paidSoFar = 0;
+  let paymentIndex = 0;
+  return months.map((month) => {
+    const monthEnd = `${month}-31`;
+    while (paymentIndex < payments.length && payments[paymentIndex].date <= monthEnd) {
+      paidSoFar += Math.abs(payments[paymentIndex].amount);
+      paymentIndex++;
+    }
+    return { month, remaining: Math.max(loanAmount - paidSoFar, 0) };
+  });
+}
+
 export async function deleteAssetBalance(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM asset_balances WHERE id = ?", id);
 }

@@ -13,9 +13,10 @@ export function niceStep(rawMax: number): number {
 // Builds tick values from a floor up to (and including) a ceiling that's a
 // whole number of steps above the raw max, so the top gridline is never
 // below the highest plotted value.
-export function buildTicks(rawMax: number, rawMin = 0): number[] {
-  const step = niceStep(rawMax - Math.min(rawMin, 0));
-  const floor = rawMin < 0 ? Math.floor(rawMin / step) * step : 0;
+export function buildTicks(rawMax: number, rawMin = 0, floorAtZero = true): number[] {
+  const effectiveMin = floorAtZero ? Math.min(rawMin, 0) : rawMin;
+  const step = niceStep(rawMax - effectiveMin);
+  const floor = floorAtZero ? (rawMin < 0 ? Math.floor(rawMin / step) * step : 0) : Math.floor(rawMin / step) * step;
   const topTick = Math.ceil(rawMax / step) * step;
   const ticks: number[] = [];
   for (let v = floor; v <= topTick; v += step) ticks.push(v);
