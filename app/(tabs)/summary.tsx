@@ -71,40 +71,84 @@ function greeting(): string {
   return "Good evening";
 }
 
+const DONUT_SIZE = 140;
+const DONUT_HOLE_SIZE = 92;
+
 function Donut({ slices, total }: { slices: { name: string; value: number; color: string }[]; total: number }) {
   const { colors } = useTheme();
   const donutStyles = useMemo(() => makeDonutStyles(colors), [colors]);
+  const [selected, setSelected] = useState<number | null>(null);
   let cumulative = 0;
   const stops = slices.map((s) => {
     const startPct = (cumulative / total) * 100;
     cumulative += s.value;
     const endPct = (cumulative / total) * 100;
-    return `${s.color} ${startPct}% ${endPct}%`;
+    return { ...s, startPct, endPct };
   });
-  const gradient = `conic-gradient(${stops.join(", ")})`;
+  const gradient = `conic-gradient(${stops.map((s) => `${s.color} ${s.startPct}% ${s.endPct}%`).join(", ")})`;
+
+  // The donut is a single CSS conic-gradient, not discrete SVG wedges, so
+  // figuring out which slice was tapped means converting the tap position
+  // into an angle ourselves: measure clockwise from the top (12 o'clock) to
+  // match how conic-gradient lays out its 0%/100% stops, then match that
+  // against each slice's [startPct, endPct) range.
+  function handlePress(e: {
+    nativeEvent: { locationX?: number; locationY?: number; offsetX?: number; offsetY?: number };
+  }) {
+    // Web-only: RN Web's synthetic locationX/locationY isn't reliably
+    // element-relative, but the underlying DOM MouseEvent's offsetX/offsetY
+    // is exactly that -- position relative to this Pressable's own box.
+    const locationX = e.nativeEvent.offsetX ?? e.nativeEvent.locationX ?? 0;
+    const locationY = e.nativeEvent.offsetY ?? e.nativeEvent.locationY ?? 0;
+    const center = DONUT_SIZE / 2;
+    const dx = locationX - center;
+    const dy = locationY - center;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance < DONUT_HOLE_SIZE / 2 || distance > DONUT_SIZE / 2) {
+      setSelected(null);
+      return;
+    }
+    const angleFromEast = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const angleFromNorth = ((angleFromEast + 90) % 360 + 360) % 360;
+    const pct = (angleFromNorth / 360) * 100;
+    const index = stops.findIndex((s) => pct >= s.startPct && pct < s.endPct);
+    setSelected((current) => (current === index ? null : index));
+  }
+
+  const active = selected !== null ? stops[selected] : null;
+
   return (
-    <View style={[donutStyles.donut, { backgroundImage: gradient } as object]}>
+    <Pressable onPress={handlePress} style={[donutStyles.donut, { backgroundImage: gradient } as object]}>
       <View style={donutStyles.donutHole}>
-        <Text style={donutStyles.donutValue}>{formatMoney(total)}</Text>
-        <Text style={donutStyles.donutLabel}>Total</Text>
+        <Text style={donutStyles.donutValue}>{formatMoney(active ? active.value : total)}</Text>
+        <Text style={donutStyles.donutLabel} numberOfLines={1}>
+          {active ? active.name : "Total"}
+        </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
 function makeDonutStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    donut: { width: 140, height: 140, borderRadius: 70, alignItems: "center", justifyContent: "center" },
-    donutHole: {
-      width: 92,
-      height: 92,
-      borderRadius: 46,
-      backgroundColor: colors.card,
+    donut: {
+      width: DONUT_SIZE,
+      height: DONUT_SIZE,
+      borderRadius: DONUT_SIZE / 2,
       alignItems: "center",
       justifyContent: "center",
     },
+    donutHole: {
+      width: DONUT_HOLE_SIZE,
+      height: DONUT_HOLE_SIZE,
+      borderRadius: DONUT_HOLE_SIZE / 2,
+      backgroundColor: colors.card,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 4,
+    },
     donutValue: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
-    donutLabel: { fontSize: 11, color: colors.textSecondary },
+    donutLabel: { fontSize: 11, color: colors.textSecondary, textAlign: "center" },
   });
 }
 
