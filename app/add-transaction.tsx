@@ -7,9 +7,9 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 import { formatAmount } from "../components/AmountText";
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getAccounts, getCategories, getDateAmountKeys, insertCategory, insertManualTransaction } from "../lib/db";
+import { getAccounts, getCategories, getDuplicateLookup, insertCategory, insertManualTransaction } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
-import type { Account, Category } from "../lib/types";
+import type { Account, Category, Transaction } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 // Matches the Summary screen's redesign exactly -- same purple gradient,
@@ -36,11 +36,11 @@ export default function AddTransactionScreen() {
   const [merchant, setMerchant] = useState("Car Payment");
   const [amountText, setAmountText] = useState("");
   const [saved, setSaved] = useState(false);
-  const [duplicateKeys, setDuplicateKeys] = useState<Set<string>>(new Set());
+  const [duplicateLookup, setDuplicateLookup] = useState<Map<string, Transaction>>(new Map());
 
   useEffect(() => {
     if (accountId === null) return;
-    getDateAmountKeys(db, accountId).then(setDuplicateKeys);
+    getDuplicateLookup(db, accountId).then(setDuplicateLookup);
   }, [db, accountId]);
 
   useFocusEffect(
@@ -81,7 +81,8 @@ export default function AddTransactionScreen() {
   const isValidAmount = amountText.trim() !== "" && !Number.isNaN(amount) && amount > 0;
   const canSave = accountId !== null && categoryId !== null && isValidDate && isValidAmount && merchant.trim() !== "";
   const signedAmount = isExpense ? -amount : amount;
-  const isDuplicate = isValidDate && isValidAmount && duplicateKeys.has(`${date}|${signedAmount.toFixed(2)}`);
+  const duplicateMatch =
+    isValidDate && isValidAmount ? duplicateLookup.get(`${date}|${signedAmount.toFixed(2)}`) : undefined;
 
   async function handleSave() {
     if (!canSave || accountId === null || categoryId === null) return;
@@ -94,7 +95,7 @@ export default function AddTransactionScreen() {
     });
     setSaved(true);
     setAmountText("");
-    getDateAmountKeys(db, accountId).then(setDuplicateKeys);
+    getDuplicateLookup(db, accountId).then(setDuplicateLookup);
   }
 
   return (
@@ -243,12 +244,24 @@ export default function AddTransactionScreen() {
           </View>
         </View>
 
-        {isDuplicate && !saved && (
+        {duplicateMatch && !saved && (
           <View style={styles.dupBanner}>
-            <Ionicons name="warning-outline" size={16} color="#B45309" />
-            <Text style={styles.dupBannerText}>
-              This looks like a duplicate — there's already a transaction on {date} for {formatAmount(signedAmount)} in this account.
-            </Text>
+            <View style={styles.dupBannerHeader}>
+              <Ionicons name="warning-outline" size={16} color="#B45309" />
+              <Text style={styles.dupBannerText}>This looks like a duplicate of an existing transaction:</Text>
+            </View>
+            <View style={styles.dupMatchRow}>
+              <Text style={styles.dupMatchEmoji}>{getCategoryStyle(duplicateMatch.categoryName).emoji}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dupMatchMerchant} numberOfLines={1}>
+                  {duplicateMatch.merchant}
+                </Text>
+                <Text style={styles.dupMatchMeta}>
+                  {duplicateMatch.date} · {duplicateMatch.categoryName}
+                </Text>
+              </View>
+              <Text style={styles.dupMatchAmount}>{formatAmount(duplicateMatch.amount)}</Text>
+            </View>
           </View>
         )}
 
@@ -378,15 +391,26 @@ function makeStyles(colors: ThemeColors) {
   dollarSign: { fontSize: 15, color: colors.textSecondary, fontWeight: "600" },
   dateAmountRow: { flexDirection: "row", gap: spacing.sm },
   dupBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    gap: spacing.sm,
     backgroundColor: "#FEF3C7",
     borderRadius: radius.chip,
     padding: spacing.sm,
     marginTop: spacing.md,
   },
+  dupBannerHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   dupBannerText: { flex: 1, fontSize: 12, fontWeight: "600", color: "#B45309" },
+  dupMatchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.chip,
+    padding: spacing.sm,
+  },
+  dupMatchEmoji: { fontSize: 18 },
+  dupMatchMerchant: { fontSize: 13, fontWeight: "700", color: "#78350F" },
+  dupMatchMeta: { fontSize: 11, color: "#92400E", marginTop: 1 },
+  dupMatchAmount: { fontSize: 13, fontWeight: "700", color: "#78350F" },
   submitBtn: { borderRadius: radius.pill, paddingVertical: 16, alignItems: "center", marginTop: spacing.md },
   submitText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   savedRow: {

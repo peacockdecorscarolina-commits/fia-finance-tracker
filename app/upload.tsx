@@ -9,11 +9,11 @@ import { formatAmount } from "../components/AmountText";
 import { PdfTextExtractor, type PdfTextExtractorHandle } from "../components/PdfTextExtractor";
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getAccounts, getDateAmountKeys, insertExtractedTransactions } from "../lib/db";
+import { getAccounts, getDuplicateLookup, insertExtractedTransactions } from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { parseStatement } from "../lib/parseStatement";
 import { radius, spacing } from "../lib/theme";
-import type { Account, ExtractedTransaction } from "../lib/types";
+import type { Account, ExtractedTransaction, Transaction } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 // Matches the rest of the app's redesigned screens.
@@ -34,7 +34,7 @@ export default function UploadScreen() {
   const [extracted, setExtracted] = useState<ExtractedTransaction[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
-  const [duplicateKeys, setDuplicateKeys] = useState<Set<string>>(new Set());
+  const [duplicateLookup, setDuplicateLookup] = useState<Map<string, Transaction>>(new Map());
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null;
 
@@ -62,12 +62,12 @@ export default function UploadScreen() {
     setError(null);
     try {
       const text = await extractorRef.current.extractText(fileUri);
-      const [rows, keys] = await Promise.all([
+      const [rows, lookup] = await Promise.all([
         Promise.resolve(parseStatement(text)),
-        getDateAmountKeys(db, accountId),
+        getDuplicateLookup(db, accountId),
       ]);
       setExtracted(rows);
-      setDuplicateKeys(keys);
+      setDuplicateLookup(lookup);
       setStatus("preview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read that PDF.");
@@ -75,11 +75,11 @@ export default function UploadScreen() {
     }
   }
 
-  function isDuplicate(t: ExtractedTransaction): boolean {
-    return duplicateKeys.has(`${t.date}|${t.amount.toFixed(2)}`);
+  function getDuplicateMatch(t: ExtractedTransaction): Transaction | undefined {
+    return duplicateLookup.get(`${t.date}|${t.amount.toFixed(2)}`);
   }
 
-  const duplicateCount = extracted.filter(isDuplicate).length;
+  const duplicateCount = extracted.filter(getDuplicateMatch).length;
 
   async function save() {
     if (!accountId) return;
@@ -96,7 +96,7 @@ export default function UploadScreen() {
     setFileName(null);
     setFileUri(null);
     setExtracted([]);
-    setDuplicateKeys(new Set());
+    setDuplicateLookup(new Map());
     setConfirmingSave(false);
   }
 
@@ -205,33 +205,49 @@ export default function UploadScreen() {
             )}
             {extracted.map((t, i) => {
               const style = getCategoryStyle(t.category);
-              const dup = isDuplicate(t);
+              const dupMatch = getDuplicateMatch(t);
               return (
-                <View key={i} style={[styles.previewRow, dup && styles.previewRowDup]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.previewMerchant}>{formatMerchantName(t.merchant)}</Text>
-                    <View style={styles.previewMeta}>
-                      <Text style={styles.previewDate}>{t.date}</Text>
-                      <View style={[styles.previewChip, { backgroundColor: `${style.color}1F` }]}>
-                        <Text style={[styles.previewChipText, { color: style.color }]}>
-                          {style.emoji} {t.category}
+                <View key={i} style={[styles.previewRow, dupMatch && styles.previewRowDup]}>
+                  <View style={styles.previewRowTop}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.previewMerchant}>{formatMerchantName(t.merchant)}</Text>
+                      <View style={styles.previewMeta}>
+                        <Text style={styles.previewDate}>{t.date}</Text>
+                        <View style={[styles.previewChip, { backgroundColor: `${style.color}1F` }]}>
+                          <Text style={[styles.previewChipText, { color: style.color }]}>
+                            {style.emoji} {t.category}
+                          </Text>
+                        </View>
+                        {t.needsReview && (
+                          <View style={styles.reviewChip}>
+                            <Text style={styles.reviewChipText}>needs review</Text>
+                          </View>
+                        )}
+                        {dupMatch && (
+                          <View style={styles.dupChip}>
+                            <Text style={styles.dupChipText}>possible duplicate</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    <Text style={[styles.previewAmount, { color: t.amount < 0 ? "#DC2626" : "#16A34A" }]}>
+                      {formatAmount(t.amount)}
+                    </Text>
+                  </View>
+                  {dupMatch && (
+                    <View style={styles.dupMatchRow}>
+                      <Text style={styles.dupMatchEmoji}>{getCategoryStyle(dupMatch.categoryName).emoji}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.dupMatchMerchant} numberOfLines={1}>
+                          Matches: {dupMatch.merchant}
+                        </Text>
+                        <Text style={styles.dupMatchMeta}>
+                          {dupMatch.date} · {dupMatch.accountName} · {dupMatch.categoryName}
                         </Text>
                       </View>
-                      {t.needsReview && (
-                        <View style={styles.reviewChip}>
-                          <Text style={styles.reviewChipText}>needs review</Text>
-                        </View>
-                      )}
-                      {dup && (
-                        <View style={styles.dupChip}>
-                          <Text style={styles.dupChipText}>possible duplicate</Text>
-                        </View>
-                      )}
+                      <Text style={styles.dupMatchAmount}>{formatAmount(dupMatch.amount)}</Text>
                     </View>
-                  </View>
-                  <Text style={[styles.previewAmount, { color: t.amount < 0 ? "#DC2626" : "#16A34A" }]}>
-                    {formatAmount(t.amount)}
-                  </Text>
+                  )}
                 </View>
               );
             })}
@@ -356,13 +372,12 @@ function makeStyles(colors: ThemeColors) {
   },
   dupBannerText: { flex: 1, fontSize: 12, fontWeight: "600", color: "#B45309" },
   previewRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     paddingVertical: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    gap: spacing.xs,
   },
+  previewRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   previewRowDup: {
     backgroundColor: "#FFFBEB",
     borderRadius: radius.chip,
@@ -371,6 +386,18 @@ function makeStyles(colors: ThemeColors) {
   },
   dupChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.chip, backgroundColor: "#FDE68A" },
   dupChipText: { fontSize: 11, fontWeight: "600", color: "#92400E" },
+  dupMatchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.chip,
+    padding: spacing.sm,
+  },
+  dupMatchEmoji: { fontSize: 16 },
+  dupMatchMerchant: { fontSize: 12, fontWeight: "700", color: "#78350F" },
+  dupMatchMeta: { fontSize: 11, color: "#92400E", marginTop: 1 },
+  dupMatchAmount: { fontSize: 12, fontWeight: "700", color: "#78350F" },
   previewMerchant: { fontWeight: "600", color: colors.textPrimary, marginBottom: 4, fontSize: 13 },
   previewMeta: { flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" },
   previewDate: { fontSize: 12, color: colors.textSecondary, marginRight: 4 },
