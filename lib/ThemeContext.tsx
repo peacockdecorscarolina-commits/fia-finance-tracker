@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Appearance, Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Every redesigned screen defines the same tokens locally (background,
 // card, textPrimary, textSecondary, border, accent) -- danger red,
@@ -43,19 +45,28 @@ const DARK: ThemeColors = {
 
 const STORAGE_KEY = "fia-theme-mode";
 
+// Web: localStorage/matchMedia let us read the saved preference (and the
+// system's dark-mode setting) synchronously, so the first paint is already
+// correct with no flash of the wrong theme. Native has no synchronous
+// storage API, so getInitialMode() there just returns the system's current
+// appearance as a best guess, and ThemeProvider corrects it from AsyncStorage
+// once that resolves (see the effect below).
 function getInitialMode(): ThemeMode {
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored === "light" || stored === "dark") return stored;
-  } catch {
-    // localStorage can throw in private-browsing contexts -- fall through.
+  if (Platform.OS === "web") {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (stored === "light" || stored === "dark") return stored;
+    } catch {
+      // localStorage can throw in private-browsing contexts -- fall through.
+    }
+    try {
+      if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) return "dark";
+    } catch {
+      // matchMedia can be unavailable in some embedded webviews.
+    }
+    return "light";
   }
-  try {
-    if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) return "dark";
-  } catch {
-    // matchMedia can be unavailable in some embedded webviews.
-  }
-  return "light";
+  return Appearance.getColorScheme() === "dark" ? "dark" : "light";
 }
 
 type ThemeContextValue = { mode: ThemeMode; colors: ThemeColors; toggle: () => void };
@@ -65,12 +76,27 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<ThemeMode>(getInitialMode);
 
+  // Native-only: once AsyncStorage resolves, override the initial
+  // system-appearance guess with the user's last explicit choice, if any.
   useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, mode);
-    } catch {
-      // Ignore -- the preference just won't persist this session.
+    if (Platform.OS === "web") return;
+    AsyncStorage.getItem(STORAGE_KEY).then((stored) => {
+      if (stored === "light" || stored === "dark") setMode(stored);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, mode);
+      } catch {
+        // Ignore -- the preference just won't persist this session.
+      }
+      return;
     }
+    AsyncStorage.setItem(STORAGE_KEY, mode).catch(() => {
+      // Ignore -- the preference just won't persist this session.
+    });
   }, [mode]);
 
   const value = useMemo<ThemeContextValue>(

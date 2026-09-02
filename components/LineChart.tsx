@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
+import Svg, { Polygon } from "react-native-svg";
 import { buildTicks, formatAxisLabel } from "../lib/chartAxis";
 import { radius } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -87,10 +88,13 @@ export function LineChart({
 
   // Filled area under the line, like the reference design -- a flat line
   // alone reads as a plain diagram; the soft gradient wash under it is what
-  // makes it read as a "hero" trend chart. clip-path is web-only, which is
-  // fine since this app only ships as a web export.
+  // makes it read as a "hero" trend chart. Web draws it with a CSS
+  // clip-path (cheap, and matches every other web-only visual trick in this
+  // app); native has no clip-path, so it draws the same shape as an actual
+  // SVG polygon instead -- react-native-svg ships with Expo already.
   const areaPoints = coords.map((c) => `${(c.x / width) * 100}% ${(c.y / CHART_HEIGHT) * 100}%`).join(", ");
   const areaClipPath = `polygon(0% 100%, ${areaPoints}, 100% 100%)`;
+  const areaSvgPoints = `0,${CHART_HEIGHT} ${coords.map((c) => `${c.x},${c.y}`).join(" ")} ${width},${CHART_HEIGHT}`;
 
   return (
     <View style={styles.chartWithAxis}>
@@ -104,12 +108,18 @@ export function LineChart({
 
       <View style={styles.plotArea} onLayout={onPlotLayout}>
         <View style={[styles.plot, { width, height: CHART_HEIGHT }]}>
-          <View
-            style={[
-              styles.area,
-              { width, height: CHART_HEIGHT, backgroundColor: `${lineColor}29`, clipPath: areaClipPath } as object,
-            ]}
-          />
+          {Platform.OS === "web" ? (
+            <View
+              style={[
+                styles.area,
+                { width, height: CHART_HEIGHT, backgroundColor: `${lineColor}29`, clipPath: areaClipPath } as object,
+              ]}
+            />
+          ) : (
+            <Svg width={width} height={CHART_HEIGHT} style={styles.area}>
+              <Polygon points={areaSvgPoints} fill={lineColor} fillOpacity={0.16} />
+            </Svg>
+          )}
           {selected !== null && (
             <View style={[styles.tooltip, { left: tooltipLeft, top: Math.max(coords[selected].y - 40, 0) }]}>
               <Text style={styles.tooltipValue}>{formatMoney(points[selected])}</Text>
