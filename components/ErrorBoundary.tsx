@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Component, type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { spacing } from "../lib/theme";
 import { useTheme } from "../lib/ThemeContext";
 
@@ -13,7 +13,7 @@ type State = { error: Error | null };
 
 // A function component so it can read the current theme -- the class below
 // can't use hooks itself (needs getDerivedStateFromError).
-function ErrorFallback() {
+function ErrorFallback({ onRetry }: { onRetry: () => void }) {
   const { colors } = useTheme();
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -22,12 +22,22 @@ function ErrorFallback() {
       </View>
       <Text style={[styles.title, { color: colors.textPrimary }]}>Couldn't load your data</Text>
       <Text style={[styles.message, { color: colors.textSecondary }]}>
-        This usually clears up with a reload. If it keeps happening, try opening this from your
-        home-screen bookmark instead of a browser tab.
+        {Platform.OS === "web"
+          ? "This usually clears up with a reload. If it keeps happening, try opening this from your home-screen bookmark instead of a browser tab."
+          : "This usually clears up by trying again. If it keeps happening, try closing and reopening the app."}
       </Text>
-      <Pressable onPress={() => window.location.reload()} style={styles.reloadBtnWrap}>
+      <Pressable
+        onPress={() => {
+          if (Platform.OS === "web") {
+            window.location.reload();
+          } else {
+            onRetry();
+          }
+        }}
+        style={styles.reloadBtnWrap}
+      >
         <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.reloadBtn}>
-          <Text style={styles.reloadBtnText}>Reload</Text>
+          <Text style={styles.reloadBtnText}>{Platform.OS === "web" ? "Reload" : "Try Again"}</Text>
         </LinearGradient>
       </Pressable>
     </View>
@@ -46,9 +56,13 @@ export class ErrorBoundary extends Component<Props, State> {
     return { error };
   }
 
+  handleRetry = () => {
+    this.setState({ error: null });
+  };
+
   render() {
     if (this.state.error) {
-      return <ErrorFallback />;
+      return <ErrorFallback onRetry={this.handleRetry} />;
     }
     return this.props.children;
   }
