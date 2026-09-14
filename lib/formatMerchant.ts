@@ -21,7 +21,79 @@ function isNoiseToken(token: string): boolean {
   return false;
 }
 
+// Common merchants recognized by a substring of their statement text,
+// mapped to the name people actually know them by -- statements often print
+// a store number, city, or legal-entity suffix along with the brand (e.g.
+// "WALMART SUPERCENTER #1234 ROUND ROCK TX", "TJMAXX 0512 AUSTIN TX"), which
+// the generic trailing-noise trim below can't always fully strip since that
+// noise isn't always at the very end. Checked against the raw statement
+// text, so it works regardless of where in the string the noise falls.
+const KNOWN_MERCHANTS: { match: string; display: string }[] = [
+  { match: "WALMART", display: "Walmart" },
+  { match: "WAL-MART", display: "Walmart" },
+  { match: "TARGET", display: "Target" },
+  { match: "TJMAXX", display: "TJ Maxx" },
+  { match: "TJ MAXX", display: "TJ Maxx" },
+  { match: "MARSHALLS", display: "Marshalls" },
+  { match: "ROSS STORES", display: "Ross" },
+  { match: "COSTCO", display: "Costco" },
+  { match: "SAMS CLUB", display: "Sam's Club" },
+  { match: "SAM'S CLUB", display: "Sam's Club" },
+  { match: "AMAZON", display: "Amazon" },
+  { match: "AMZN", display: "Amazon" },
+  { match: "WHOLEFDS", display: "Whole Foods" },
+  { match: "WHOLE FOODS", display: "Whole Foods" },
+  { match: "TRADER JOE", display: "Trader Joe's" },
+  { match: "KROGER", display: "Kroger" },
+  { match: "SAFEWAY", display: "Safeway" },
+  { match: "PUBLIX", display: "Publix" },
+  { match: "ALDI", display: "Aldi" },
+  { match: "CVS", display: "CVS" },
+  { match: "WALGREENS", display: "Walgreens" },
+  { match: "HOME DEPOT", display: "Home Depot" },
+  { match: "HOMEDEPOT", display: "Home Depot" },
+  { match: "LOWES", display: "Lowe's" },
+  { match: "BEST BUY", display: "Best Buy" },
+  { match: "BESTBUY", display: "Best Buy" },
+  { match: "STARBUCKS", display: "Starbucks" },
+  { match: "MCDONALD", display: "McDonald's" },
+  { match: "CHIPOTLE", display: "Chipotle" },
+  { match: "CHICK-FIL-A", display: "Chick-fil-A" },
+  { match: "CHICKFILA", display: "Chick-fil-A" },
+  { match: "UBER EATS", display: "Uber Eats" },
+  { match: "UBER TRIP", display: "Uber" },
+  { match: "UBER", display: "Uber" },
+  { match: "LYFT", display: "Lyft" },
+  { match: "NETFLIX", display: "Netflix" },
+  { match: "SPOTIFY", display: "Spotify" },
+  { match: "APPLE.COM", display: "Apple" },
+  { match: "APPLE COM", display: "Apple" },
+  { match: "SHELL OIL", display: "Shell" },
+  { match: "CHEVRON", display: "Chevron" },
+  { match: "EXXON", display: "Exxon" },
+  { match: "7-ELEVEN", display: "7-Eleven" },
+  { match: "7 ELEVEN", display: "7-Eleven" },
+];
+
+function matchKnownMerchant(raw: string): string | null {
+  const normalized = raw.toUpperCase().replace(/[^A-Z0-9']+/g, " ").replace(/\s+/g, " ").trim();
+  for (const { match, display } of KNOWN_MERCHANTS) {
+    if (normalized.includes(match)) return display;
+  }
+  return null;
+}
+
+function titleCase(s: string): string {
+  return s
+    .split(" ")
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word))
+    .join(" ");
+}
+
 export function formatMerchantName(raw: string): string {
+  const known = matchKnownMerchant(raw);
+  if (known) return known;
+
   let tokens = raw.trim().split(/\s+/);
   if (tokens[0]?.toLowerCase() === "aplpay") tokens = tokens.slice(1);
 
@@ -36,5 +108,6 @@ export function formatMerchantName(raw: string): string {
     tokens.pop();
   }
 
-  return tokens.join(" ") || raw.trim();
+  const cleaned = tokens.join(" ") || raw.trim();
+  return titleCase(cleaned);
 }
