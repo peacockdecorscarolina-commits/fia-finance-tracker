@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { DEFAULT_ACCOUNTS } from "./defaultAccounts";
 import type { Account, Asset, AssetBalanceEntry, AssetType, Category, ExtractedTransaction, Transaction } from "./types";
+import { loadCategoryEmojiOverrides, setCategoryEmojiOverride } from "./categoryStyle";
 
 // Merchant memory (merchant_category_map) only helps if the same merchant
 // produces the same key across different statements -- but several issuers'
@@ -82,6 +83,9 @@ export async function initDatabase(db: SQLiteDatabase) {
   if (!categoryColumns.some((c) => c.name === "loan_as_of_date")) {
     await db.execAsync("ALTER TABLE categories ADD COLUMN loan_as_of_date TEXT");
   }
+  if (!categoryColumns.some((c) => c.name === "emoji")) {
+    await db.execAsync("ALTER TABLE categories ADD COLUMN emoji TEXT");
+  }
 
   const existing = await db.getFirstAsync<{ count: number }>(
     "SELECT COUNT(*) as count FROM categories"
@@ -91,6 +95,11 @@ export async function initDatabase(db: SQLiteDatabase) {
       await db.runAsync("INSERT INTO categories (name) VALUES (?)", name);
     }
   }
+
+  const emojiOverrides = await db.getAllAsync<{ name: string; emoji: string }>(
+    "SELECT name, emoji FROM categories WHERE emoji IS NOT NULL"
+  );
+  loadCategoryEmojiOverrides(emojiOverrides);
 
   for (const account of DEFAULT_ACCOUNTS) {
     const found = await db.getFirstAsync<{ id: number }>(
@@ -113,12 +122,14 @@ export async function getCategories(db: SQLiteDatabase): Promise<Category[]> {
     name: string;
     loan_amount: number | null;
     loan_as_of_date: string | null;
-  }>("SELECT id, name, loan_amount, loan_as_of_date FROM categories ORDER BY name");
+    emoji: string | null;
+  }>("SELECT id, name, loan_amount, loan_as_of_date, emoji FROM categories ORDER BY name");
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
     loanAmount: r.loan_amount,
     loanAsOfDate: r.loan_as_of_date,
+    emoji: r.emoji,
   }));
 }
 
@@ -149,13 +160,39 @@ async function getCategoryIdByName(db: SQLiteDatabase, name: string): Promise<nu
   return fallback!.id;
 }
 
-export async function insertCategory(db: SQLiteDatabase, name: string): Promise<number> {
-  const result = await db.runAsync("INSERT INTO categories (name) VALUES (?)", name);
+export async function insertCategory(
+  db: SQLiteDatabase,
+  name: string,
+  emoji?: string | null
+): Promise<number> {
+  const result = await db.runAsync(
+    "INSERT INTO categories (name, emoji) VALUES (?, ?)",
+    name,
+    emoji || null
+  );
+  if (emoji) setCategoryEmojiOverride(name, emoji);
   return result.lastInsertRowId;
 }
 
 export async function renameCategory(db: SQLiteDatabase, id: number, name: string) {
   await db.runAsync("UPDATE categories SET name = ? WHERE id = ?", name, id);
+}
+
+export async function setCategoryEmoji(db: SQLiteDatabase, id: number, name: string, emoji: string | null) {
+  await db.runAsync("UPDATE categories SET emoji = ? WHERE id = ?", emoji || null, id);
+  setCategoryEmojiOverride(name, emoji);
+}
+
+// Deleting a category reassigns its transactions to "Other" rather than
+// deleting them -- unlike an account or asset, a category is just a label,
+// and the underlying spend data is still meaningful without it.
+export async function deleteCategory(db: SQLiteDatabase, id: number) {
+  const other = await db.getFirstAsync<{ id: number }>("SELECT id FROM categories WHERE name = ?", "Other");
+  if (other && other.id !== id) {
+    await db.runAsync("UPDATE transactions SET category_id = ? WHERE category_id = ?", other.id, id);
+  }
+  await db.runAsync("DELETE FROM merchant_category_map WHERE category_id = ?", id);
+  await db.runAsync("DELETE FROM categories WHERE id = ?", id);
 }
 
 export async function insertAccount(

@@ -9,6 +9,7 @@ export type Category = {
   name: string;
   loanAmount: number | null;
   loanAsOfDate: string | null;
+  emoji: string | null;
 };
 
 export type Transaction = {

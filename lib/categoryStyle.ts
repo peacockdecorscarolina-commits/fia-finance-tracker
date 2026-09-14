@@ -40,8 +40,31 @@ const KNOWN: Record<string, { emoji: string; color: string }> = {
   other: { emoji: "❗", color: "#64748B" },
 };
 
+// User-chosen emoji overrides, keyed by normalized category name. Populated
+// from the categories table on app start (see initDatabase) and kept in
+// sync as the user adds/edits categories, so getCategoryStyle can stay a
+// plain synchronous function every call site already relies on.
+const emojiOverrides = new Map<string, string>();
+
+function normalize(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+export function loadCategoryEmojiOverrides(rows: { name: string; emoji: string }[]) {
+  emojiOverrides.clear();
+  for (const row of rows) emojiOverrides.set(normalize(row.name), row.emoji);
+}
+
+export function setCategoryEmojiOverride(name: string, emoji: string | null | undefined) {
+  if (emoji) emojiOverrides.set(normalize(name), emoji);
+  else emojiOverrides.delete(normalize(name));
+}
+
 export function getCategoryStyle(name: string): { emoji: string; color: string } {
-  const known = KNOWN[name.trim().toLowerCase()];
+  const color = KNOWN[normalize(name)]?.color ?? fallbackColorFor(name);
+  const override = emojiOverrides.get(normalize(name));
+  if (override) return { emoji: override, color };
+  const known = KNOWN[normalize(name)];
   if (known) return known;
-  return { emoji: "🏷️", color: fallbackColorFor(name) };
+  return { emoji: "🏷️", color };
 }

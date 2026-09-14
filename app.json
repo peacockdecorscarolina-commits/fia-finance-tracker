@@ -9,7 +9,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.app"
+      "bundleIdentifier": "com.zaighum99.fia"
     },
     "android": {
       "adaptiveIcon": {
@@ -32,6 +32,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c2062549-8b7b-4f68-8946-40a9c5d6a67e"
+      }
+    },
+    "owner": "zaighum99"
   }
 }
