@@ -7,6 +7,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 import { formatAmount } from "../components/AmountText";
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
+import { formatMerchantName } from "../lib/formatMerchant";
 import { getAccounts, getCategories, getDuplicateLookup, insertCategory, insertManualTransaction } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Account, Category, Transaction } from "../lib/types";
@@ -254,7 +255,7 @@ export default function AddTransactionScreen() {
               <Text style={styles.dupMatchEmoji}>{getCategoryStyle(duplicateMatch.categoryName).emoji}</Text>
               <View style={{ flex: 1 }}>
                 <Text style={styles.dupMatchMerchant} numberOfLines={1}>
-                  {duplicateMatch.merchant}
+                  {formatMerchantName(duplicateMatch.merchant)}
                 </Text>
                 <Text style={styles.dupMatchMeta}>
                   {duplicateMatch.date} · {duplicateMatch.categoryName}
