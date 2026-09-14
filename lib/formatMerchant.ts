@@ -21,6 +21,29 @@ function isNoiseToken(token: string): boolean {
   return false;
 }
 
+// Unlike a bare digit token or a 2-letter state code (both plausible,
+// if unlikely, parts of a real merchant name -- see the "IN-N-OUT" risk
+// noted below), these two forms never legitimately appear inside one, so
+// they're safe to drop no matter where in the string they land.
+function isUnambiguousNoiseToken(token: string): boolean {
+  return /^#\d+$/.test(token) || /^\d{3}[-.]?\d{3}[-.]?\d{4}$/.test(token);
+}
+
+// A statement's leftover street address usually starts with a short
+// all-digits street number ("1728 BUSH RIVER RD", "100 HALLIEBUG LN"). Once
+// one shows up, everything from there to the end is address, not merchant
+// name -- so unlike isNoiseToken (which only trims a trailing run), this
+// truncates from wherever that street number first appears. Skipped for the
+// first two tokens so an actual merchant name that starts with a number
+// (rare, but real -- "76" gas stations, "7-Eleven") isn't cut down to
+// nothing; those are also caught earlier by the known-merchant list anyway.
+function findStreetAddressStart(tokens: string[]): number {
+  for (let i = 2; i < tokens.length; i++) {
+    if (/^\d{1,6}$/.test(tokens[i])) return i;
+  }
+  return -1;
+}
+
 // Common merchants recognized by a substring of their statement text,
 // mapped to the name people actually know them by -- statements often print
 // a store number, city, or legal-entity suffix along with the brand (e.g.
@@ -73,6 +96,13 @@ const KNOWN_MERCHANTS: { match: string; display: string }[] = [
   { match: "EXXON", display: "Exxon" },
   { match: "7-ELEVEN", display: "7-Eleven" },
   { match: "7 ELEVEN", display: "7-Eleven" },
+  { match: "SOUTHWEST", display: "Southwest Airlines" },
+  { match: "AMERICAN AIRL", display: "American Airlines" }, // statements often truncate to "AIRLI" mid-column
+  { match: "UNITED AIRLINES", display: "United Airlines" },
+  { match: "DELTA AIR", display: "Delta Air Lines" },
+  { match: "TRACTOR SUPPLY", display: "Tractor Supply" },
+  { match: "H-E-B", display: "H-E-B" },
+  { match: "H E B", display: "H-E-B" },
 ];
 
 function matchKnownMerchant(raw: string): string | null {
@@ -83,10 +113,18 @@ function matchKnownMerchant(raw: string): string | null {
   return null;
 }
 
+// A hyphenated run of single letters ("H-E-B") is an initialism, not a
+// word -- title-casing it letter-by-letter would turn it into "H-e-b".
+const INITIALISM = /^[A-Za-z](-[A-Za-z])+$/;
+
 function titleCase(s: string): string {
   return s
     .split(" ")
-    .map((word) => (word ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word))
+    .map((word) => {
+      if (!word) return word;
+      if (INITIALISM.test(word)) return word.toUpperCase();
+      return word[0].toUpperCase() + word.slice(1).toLowerCase();
+    })
     .join(" ");
 }
 
@@ -104,7 +142,12 @@ export function formatMerchantName(raw: string): string {
     return starIndex >= 0 ? t.slice(starIndex + 1) : t;
   }).filter((t) => t.length > 0);
 
-  while (tokens.length > 1 && isNoiseToken(tokens[tokens.length - 1])) {
+  tokens = tokens.filter((t) => !isUnambiguousNoiseToken(t));
+
+  const addressStart = findStreetAddressStart(tokens);
+  if (addressStart > 0) tokens = tokens.slice(0, addressStart);
+
+  while (tokens.length > 1 && (isNoiseToken(tokens[tokens.length - 1]) || /^[^A-Za-z0-9]+$/.test(tokens[tokens.length - 1]))) {
     tokens.pop();
   }
 
