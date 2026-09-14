@@ -5,7 +5,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getCategories, insertCategory, renameCategory } from "../lib/db";
+import { deleteCategory, getCategories, insertCategory, renameCategory, setCategoryEmoji } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Category } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -22,8 +22,11 @@ export default function CategoriesScreen() {
   const db = useSQLiteContext();
   const [categories, setCategories] = useState<Category[]>([]);
   const [newName, setNewName] = useState("");
+  const [newEmoji, setNewEmoji] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [editingEmoji, setEditingEmoji] = useState("");
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -36,8 +39,9 @@ export default function CategoriesScreen() {
     if (!newName.trim()) return;
     setError(null);
     try {
-      await insertCategory(db, newName.trim());
+      await insertCategory(db, newName.trim(), newEmoji.trim() || null);
       setNewName("");
+      setNewEmoji("");
       load();
     } catch {
       setError("That category already exists.");
@@ -47,6 +51,8 @@ export default function CategoriesScreen() {
   function startEditing(category: Category) {
     setEditingId(category.id);
     setEditingName(category.name);
+    setEditingEmoji(category.emoji ?? "");
+    setConfirmingDeleteId(null);
     setError(null);
   }
 
@@ -55,11 +61,19 @@ export default function CategoriesScreen() {
     setError(null);
     try {
       await renameCategory(db, editingId, editingName.trim());
+      await setCategoryEmoji(db, editingId, editingName.trim(), editingEmoji.trim() || null);
       setEditingId(null);
       load();
     } catch {
       setError("That name is already used by another category.");
     }
+  }
+
+  async function handleDelete(id: number) {
+    await deleteCategory(db, id);
+    setConfirmingDeleteId(null);
+    setEditingId(null);
+    load();
   }
 
   return (
@@ -81,15 +95,27 @@ export default function CategoriesScreen() {
             </View>
           </View>
 
-          <View style={styles.inputRow}>
-            <TextInput
-              value={newName}
-              onChangeText={setNewName}
-              placeholder="e.g. Flight"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.inputText}
-            />
+          <View style={styles.addFormRow}>
+            <View style={styles.emojiInputRow}>
+              <TextInput
+                value={newEmoji}
+                onChangeText={setNewEmoji}
+                placeholder="🏷️"
+                placeholderTextColor={colors.textSecondary}
+                style={styles.emojiInputText}
+              />
+            </View>
+            <View style={[styles.inputRow, { flex: 1 }]}>
+              <TextInput
+                value={newName}
+                onChangeText={setNewName}
+                placeholder="e.g. Flight"
+                placeholderTextColor={colors.textSecondary}
+                style={styles.inputText}
+              />
+            </View>
           </View>
+          <Text style={styles.hint}>Optional: pick your own emoji, or leave blank for an automatic one.</Text>
           {error && <Text style={styles.errorText}>{error}</Text>}
 
           <Pressable onPress={handleAdd} disabled={!newName.trim()} style={{ opacity: newName.trim() ? 1 : 0.5 }}>
@@ -107,8 +133,13 @@ export default function CategoriesScreen() {
             categories.map((item, i) =>
               editingId === item.id ? (
                 <View key={item.id} style={styles.editRow}>
-                  <View style={styles.inputRow}>
-                    <TextInput value={editingName} onChangeText={setEditingName} style={styles.inputText} autoFocus />
+                  <View style={styles.addFormRow}>
+                    <View style={styles.emojiInputRow}>
+                      <TextInput value={editingEmoji} onChangeText={setEditingEmoji} placeholder="🏷️" placeholderTextColor={colors.textSecondary} style={styles.emojiInputText} />
+                    </View>
+                    <View style={[styles.inputRow, { flex: 1 }]}>
+                      <TextInput value={editingName} onChangeText={setEditingName} style={styles.inputText} autoFocus />
+                    </View>
                   </View>
                   {error && <Text style={styles.errorText}>{error}</Text>}
                   <View style={styles.editActions}>
@@ -123,6 +154,29 @@ export default function CategoriesScreen() {
                       <Text style={styles.editSaveText}>Save</Text>
                     </Pressable>
                   </View>
+
+                  {item.name.trim().toLowerCase() !== "other" &&
+                    (confirmingDeleteId !== item.id ? (
+                      <Pressable onPress={() => setConfirmingDeleteId(item.id)} style={styles.deleteLink}>
+                        <Ionicons name="trash-outline" size={14} color="#DC2626" />
+                        <Text style={styles.deleteLinkText}>Delete this category</Text>
+                      </Pressable>
+                    ) : (
+                      <View style={styles.confirmBox}>
+                        <Text style={styles.confirmText}>
+                          This will delete "{item.name}" and move any transactions in it to "Other". This can't be
+                          undone.
+                        </Text>
+                        <View style={styles.editActions}>
+                          <Pressable onPress={() => setConfirmingDeleteId(null)} style={styles.editCancelBtn}>
+                            <Text style={styles.editCancelText}>Cancel</Text>
+                          </Pressable>
+                          <Pressable onPress={() => handleDelete(item.id)} style={styles.deleteBtn}>
+                            <Text style={styles.deleteBtnText}>Yes, delete</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))}
                 </View>
               ) : (
                 <Pressable
@@ -187,6 +241,19 @@ function makeStyles(colors: ThemeColors) {
     paddingVertical: 12,
   },
   inputText: { fontSize: 15, color: colors.textPrimary },
+  addFormRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
+  emojiInputRow: {
+    width: 52,
+    backgroundColor: colors.card,
+    borderRadius: radius.chip,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  emojiInputText: { fontSize: 18, textAlign: "center", color: colors.textPrimary },
+  hint: { fontSize: 11, color: colors.textSecondary },
   errorText: { fontSize: 12, color: "#DC2626", fontWeight: "600" },
   submitBtn: { borderRadius: radius.pill, paddingVertical: 14, alignItems: "center", marginTop: spacing.xs },
   submitText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
@@ -207,6 +274,12 @@ function makeStyles(colors: ThemeColors) {
   editCancelText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
   editSaveBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: ACCENT },
   editSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+  deleteLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: spacing.xs },
+  deleteLinkText: { fontSize: 13, fontWeight: "700", color: "#DC2626" },
+  confirmBox: { backgroundColor: "#FEE2E2", borderRadius: radius.chip, padding: spacing.md, gap: spacing.sm },
+  confirmText: { fontSize: 13, color: "#DC2626", fontWeight: "600" },
+  deleteBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: "#DC2626" },
+  deleteBtnText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
   empty: { textAlign: "center", color: colors.textSecondary, paddingVertical: spacing.md },
   });
 }
