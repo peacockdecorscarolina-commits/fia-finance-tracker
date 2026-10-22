@@ -536,6 +536,49 @@ export async function getTransferCandidates(db: SQLiteDatabase, transaction: Tra
   return rows.map(toTransaction);
 }
 
+export type TransferMatch = { a: Transaction; b: Transaction };
+
+// Scans the whole dataset for likely transfer pairs at once, rather than
+// requiring the user to open each transaction individually and search from
+// there (see getTransferCandidates) -- meant for a dedicated review screen
+// surfaced after an upload, or opened manually, so transfers can be found
+// whenever both sides happen to exist, not only when uploaded together.
+// Same matching rule as getTransferCandidates (opposite sign, same
+// magnitude, different account, within a week), run as a self-join instead
+// of per-transaction. One transaction can appear in more than one returned
+// pair if several candidates are ambiguous (e.g. two similar-amount
+// transactions near the same date) -- confirming one link removes both its
+// transactions from future scans since they're no longer unlinked.
+export async function findTransferMatches(db: SQLiteDatabase): Promise<TransferMatch[]> {
+  const rows = await db.getAllAsync<{ aId: number; bId: number; dayGap: number }>(
+    `SELECT a.id as aId, b.id as bId, ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) as dayGap
+     FROM transactions a
+     JOIN transactions b ON b.id > a.id
+     WHERE a.linked_transaction_id IS NULL
+       AND b.linked_transaction_id IS NULL
+       AND a.account_id != b.account_id
+       AND ABS(a.amount + b.amount) < 0.01
+       AND ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) <= 7
+     ORDER BY dayGap ASC
+     LIMIT 50`
+  );
+  if (rows.length === 0) return [];
+  const ids = [...new Set(rows.flatMap((r) => [r.aId, r.bId]))];
+  const placeholders = ids.map(() => "?").join(", ");
+  const transactionRows = await db.getAllAsync<TransactionRow>(
+    `${TRANSACTION_SELECT} WHERE transactions.id IN (${placeholders})`,
+    ...ids
+  );
+  const byId = new Map(transactionRows.map((row) => [row.id, toTransaction(row)]));
+  return rows
+    .map((r) => {
+      const a = byId.get(r.aId);
+      const b = byId.get(r.bId);
+      return a && b ? { a, b } : null;
+    })
+    .filter((m): m is TransferMatch => m !== null);
+}
+
 // Links two transactions as the two sides of one real transfer. Rather than
 // a separate "is this a transfer" flag, linking also decides which side
 // counts toward spend totals: the incoming (positive-amount) side keeps
