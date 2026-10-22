@@ -761,7 +761,13 @@ export async function unlinkTransaction(db: SQLiteDatabase, id: number) {
 
 export async function getTransactions(
   db: SQLiteDatabase,
-  filters?: { accountId?: number; start?: string; end?: string; categoryName?: string }
+  filters?: {
+    accountId?: number;
+    start?: string;
+    end?: string;
+    categoryName?: string;
+    excludeCategoryNames?: string[];
+  }
 ): Promise<Transaction[]> {
   const clauses: string[] = [];
   const params: (string | number)[] = [];
@@ -780,6 +786,11 @@ export async function getTransactions(
   if (filters?.categoryName) {
     clauses.push("LOWER(categories.name) = LOWER(?)");
     params.push(filters.categoryName);
+  }
+  if (filters?.excludeCategoryNames?.length) {
+    const placeholders = filters.excludeCategoryNames.map(() => "LOWER(?)").join(", ");
+    clauses.push(`LOWER(categories.name) NOT IN (${placeholders})`);
+    params.push(...filters.excludeCategoryNames);
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const rows = await db.getAllAsync<TransactionRow>(
@@ -891,11 +902,11 @@ export async function setMerchantCategory(
 // against its category's expenses instead of counting as separate income --
 // e.g. a $500 purchase with a later $13 return shows as $487 of expenses,
 // not $500 of expenses plus $13 of income.
-const INCOME_CATEGORY_NAME = "Income";
+export const INCOME_CATEGORY_NAME = "Income";
 // Category name treated as a card/debt payment -- fully separate from both
 // Income and Expenses (like a transfer, not spending or earning), with its
 // own visible monthly total instead.
-const PAYMENT_CATEGORY_NAME = "Payment";
+export const PAYMENT_CATEGORY_NAME = "Payment";
 
 export type IncomeExpenseTotals = { income: number; expenses: number; payments: number };
 

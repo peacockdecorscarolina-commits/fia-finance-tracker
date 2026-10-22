@@ -294,7 +294,13 @@ export default function TransactionsScreen() {
       <SegmentedControl options={PERIODS} value={period} onChange={setPeriod} />
 
         <View style={styles.statRow}>
-          <Pressable style={styles.statBox} onPress={() => router.push("/all-transactions")}>
+          <Pressable
+            style={styles.statBox}
+            onPress={() => {
+              const { start, end } = getPeriodRange(period);
+              router.push({ pathname: "/all-transactions", params: { start, end, mode: "expenses" } });
+            }}
+          >
             <View style={styles.statTopRow}>
               <Text style={styles.statLabel}>Expenses</Text>
               <View style={[styles.statIconWrap, { backgroundColor: "#EDE9FE" }]}>
@@ -312,7 +318,10 @@ export default function TransactionsScreen() {
           </Pressable>
           <Pressable
             style={styles.statBox}
-            onPress={() => router.push({ pathname: "/category/[name]", params: { name: "Income", month: selectedMonth ?? period } })}
+            onPress={() => {
+              const { start, end } = getPeriodRange(period);
+              router.push({ pathname: "/all-transactions", params: { start, end, categoryName: "Income" } });
+            }}
           >
             <View style={styles.statTopRow}>
               <Text style={styles.statLabel}>Income</Text>
@@ -331,7 +340,10 @@ export default function TransactionsScreen() {
           </Pressable>
           <Pressable
             style={styles.statBox}
-            onPress={() => router.push({ pathname: "/category/[name]", params: { name: "Payment", month: selectedMonth ?? period } })}
+            onPress={() => {
+              const { start, end } = getPeriodRange(period);
+              router.push({ pathname: "/all-transactions", params: { start, end, categoryName: "Payment" } });
+            }}
           >
             <View style={styles.statTopRow}>
               <Text style={styles.statLabel}>Payments</Text>
