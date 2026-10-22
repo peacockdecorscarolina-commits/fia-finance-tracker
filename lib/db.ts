@@ -584,6 +584,15 @@ export async function setTransactionIgnored(db: SQLiteDatabase, id: number, igno
   await db.runAsync("UPDATE transactions SET ignored = ? WHERE id = ?", ignored ? 1 : 0, id);
 }
 
+// For the swipe-to-ignore action on the Review stack: marking something
+// ignored there is the reviewer's actual decision about it (usually "this
+// is a transfer, not spend"), so it should also resolve needs_review --
+// otherwise it would keep reappearing in the stack every time, since
+// setTransactionIgnored alone never touches that flag.
+export async function ignoreAndResolveReview(db: SQLiteDatabase, id: number) {
+  await db.runAsync("UPDATE transactions SET ignored = 1, needs_review = 0 WHERE id = ?", id);
+}
+
 // Likely transfer matches for a transaction -- the other side of the same
 // real money movement, e.g. a checking withdrawal that pays off a credit
 // card and that card's own "payment received" credit. A real match always
