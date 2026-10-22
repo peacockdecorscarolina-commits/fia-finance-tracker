@@ -69,8 +69,8 @@ export default function CategoriesScreen() {
     }
   }
 
-  async function handleDelete(id: number) {
-    await deleteCategory(db, id);
+  async function handleDelete(id: number, name: string) {
+    await deleteCategory(db, id, name);
     setConfirmingDeleteId(null);
     setEditingId(null);
     load();
@@ -171,7 +171,7 @@ export default function CategoriesScreen() {
                           <Pressable onPress={() => setConfirmingDeleteId(null)} style={styles.editCancelBtn}>
                             <Text style={styles.editCancelText}>Cancel</Text>
                           </Pressable>
-                          <Pressable onPress={() => handleDelete(item.id)} style={styles.deleteBtn}>
+                          <Pressable onPress={() => handleDelete(item.id, item.name)} style={styles.deleteBtn}>
                             <Text style={styles.deleteBtnText}>Yes, delete</Text>
                           </Pressable>
                         </View>
