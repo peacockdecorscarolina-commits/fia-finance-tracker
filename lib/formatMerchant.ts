@@ -102,13 +102,22 @@ const KNOWN_MERCHANTS: { match: string; display: string }[] = [
   { match: "DELTA AIR", display: "Delta Air Lines" },
   { match: "TRACTOR SUPPLY", display: "Tractor Supply" },
   { match: "H-E-B", display: "H-E-B" },
-  { match: "H E B", display: "H-E-B" },
+  { match: "WM SUPERCENTER", display: "Walmart" },
 ];
 
+function normalizeForMatch(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9']+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function matchKnownMerchant(raw: string): string | null {
-  const normalized = raw.toUpperCase().replace(/[^A-Z0-9']+/g, " ").replace(/\s+/g, " ").trim();
+  const normalized = normalizeForMatch(raw);
+  // The lookup's own "match" strings (e.g. "WAL-MART", "7-ELEVEN") go
+  // through the same normalization as the input before comparing -- a
+  // literal "WAL-MART".includes("WAL-MART") check would never fire against
+  // normalized input, since the hyphen was already turned into a space
+  // there, so the un-normalized pattern just silently never matched.
   for (const { match, display } of KNOWN_MERCHANTS) {
-    if (normalized.includes(match)) return display;
+    if (normalized.includes(normalizeForMatch(match))) return display;
   }
   return null;
 }

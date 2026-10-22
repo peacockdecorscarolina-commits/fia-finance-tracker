@@ -199,13 +199,17 @@ export async function setCategoryEmoji(db: SQLiteDatabase, id: number, name: str
 // Deleting a category reassigns its transactions to "Other" rather than
 // deleting them -- unlike an account or asset, a category is just a label,
 // and the underlying spend data is still meaningful without it.
-export async function deleteCategory(db: SQLiteDatabase, id: number) {
+export async function deleteCategory(db: SQLiteDatabase, id: number, name: string) {
   const other = await db.getFirstAsync<{ id: number }>("SELECT id FROM categories WHERE name = ?", "Other");
   if (other && other.id !== id) {
     await db.runAsync("UPDATE transactions SET category_id = ? WHERE category_id = ?", other.id, id);
   }
   await db.runAsync("DELETE FROM merchant_category_map WHERE category_id = ?", id);
   await db.runAsync("DELETE FROM categories WHERE id = ?", id);
+  // Without this, a deleted category's custom emoji lingers in the
+  // in-memory override map (keyed by name, not id) and would silently get
+  // inherited by a new category created later under the same name.
+  setCategoryEmojiOverride(name, null);
 }
 
 export async function insertAccount(
@@ -647,7 +651,7 @@ export async function getIncomeExpenseTotals(
     `SELECT
        SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as income,
        SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as expenses,
-       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as payments
+       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN ABS(transactions.amount) ELSE 0 END) as payments
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE ${clauses.join(" AND ")}`,
@@ -820,7 +824,13 @@ export async function getCategorySummary(
 // Expenses (see getIncomeExpenseTotals).
 export async function getPaymentTotal(db: SQLiteDatabase, month: string): Promise<number> {
   const row = await db.getFirstAsync<{ total: number | null }>(
-    `SELECT SUM(transactions.amount) as total
+    // ABS() because a payment can be recorded as a positive credit (the
+    // credit card side's own statement, e.g. "ONLINE PAYMENT THANK YOU") or
+    // a negative debit (the paired withdrawal on the account it was paid
+    // from) depending on which statement it was uploaded from -- this total
+    // is meant to read as a magnitude ("$800 paid") either way, not flip
+    // negative just because of which side happened to get tagged.
+    `SELECT SUM(ABS(transactions.amount)) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND LOWER(categories.name) = LOWER(?)`,
