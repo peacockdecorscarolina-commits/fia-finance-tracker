@@ -9,9 +9,9 @@ import { formatAmount } from "../components/AmountText";
 import { PdfTextExtractor, type PdfTextExtractorHandle } from "../components/PdfTextExtractor";
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getAccounts, getDuplicateLookup, insertExtractedTransactions } from "../lib/db";
+import { getAccounts, getDuplicateLookup, insertExtractedTransactions, setAccountStartingBalance } from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
-import { parseStatement } from "../lib/parseStatement";
+import { findStatementEndingBalance, parseStatement } from "../lib/parseStatement";
 import { radius, spacing } from "../lib/theme";
 import type { Account, ExtractedTransaction, Transaction } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -35,6 +35,7 @@ export default function UploadScreen() {
   const [error, setError] = useState<string | null>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
   const [duplicateLookup, setDuplicateLookup] = useState<Map<string, Transaction>>(new Map());
+  const [endingBalance, setEndingBalance] = useState<{ balance: number; date: string } | null>(null);
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null;
 
@@ -68,6 +69,7 @@ export default function UploadScreen() {
       ]);
       setExtracted(rows);
       setDuplicateLookup(lookup);
+      setEndingBalance(findStatementEndingBalance(text));
       setStatus("preview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read that PDF.");
@@ -84,6 +86,9 @@ export default function UploadScreen() {
   async function save() {
     if (!accountId) return;
     await insertExtractedTransactions(db, accountId, extracted);
+    if (endingBalance) {
+      await setAccountStartingBalance(db, accountId, endingBalance.balance, endingBalance.date);
+    }
     setStatus("saved");
     setFileName(null);
     setFileUri(null);
@@ -97,6 +102,7 @@ export default function UploadScreen() {
     setFileUri(null);
     setExtracted([]);
     setDuplicateLookup(new Map());
+    setEndingBalance(null);
     setConfirmingSave(false);
   }
 
@@ -185,6 +191,12 @@ export default function UploadScreen() {
               <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
               <Text style={styles.savedText}>Saved! Check the Transactions tab.</Text>
             </View>
+            {endingBalance && (
+              <Text style={styles.balanceUpdatedText}>
+                Updated {selectedAccount?.name ?? "this account"}'s balance to{" "}
+                {formatAmount(endingBalance.balance)} as of {endingBalance.date}, from this statement.
+              </Text>
+            )}
             <Pressable onPress={() => router.push("/find-transfers")} style={styles.findTransfersLink}>
               <Ionicons name="swap-horizontal-outline" size={14} color={ACCENT} />
               <Text style={styles.findTransfersText}>
@@ -366,6 +378,7 @@ function makeStyles(colors: ThemeColors) {
   errorText: { color: "#DC2626", fontSize: 13, marginTop: spacing.sm },
   savedRow: { flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center" },
   savedText: { textAlign: "center", color: "#16A34A", fontWeight: "600" },
+  balanceUpdatedText: { textAlign: "center", color: colors.textSecondary, fontSize: 12, marginTop: spacing.xs },
   findTransfersLink: {
     flexDirection: "row",
     alignItems: "center",
