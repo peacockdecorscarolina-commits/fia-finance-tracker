@@ -9,6 +9,8 @@ import { getAccountCardColor } from "../../lib/accountStyle";
 import { darken } from "../../lib/color";
 import { getCategoryStyle } from "../../lib/categoryStyle";
 import {
+  getAccountBalances,
+  getAccounts,
   getAccountSummary,
   getAssetSummaries,
   getAssetTypeHistory,
@@ -22,7 +24,7 @@ import {
 import { monthRange } from "../../lib/period";
 import { radius, spacing, tabBarClearance } from "../../lib/theme";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
-import { ASSET_TYPES, type AssetType, type Transaction } from "../../lib/types";
+import { ASSET_TYPES, type Account, type AssetType, type Transaction } from "../../lib/types";
 
 const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
 const NET_WORTH_TINT: Record<AssetType, string> = {
@@ -244,6 +246,8 @@ export default function SummaryScreen() {
   const [addOpen, setAddOpen] = useState(false);
   const [categoryTotals, setCategoryTotals] = useState<CategoryTotal[]>([]);
   const [accountTotals, setAccountTotals] = useState<AccountTotal[]>([]);
+  const [accountBalances, setAccountBalances] = useState<Record<number, number>>({});
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [prevTotal, setPrevTotal] = useState(0);
   const [paymentTotal, setPaymentTotal] = useState(0);
   const [recent, setRecent] = useState<Transaction[]>([]);
@@ -274,6 +278,8 @@ export default function SummaryScreen() {
         getCategorySummary(db, prevMonth).then((rows) => setPrevTotal(rows.reduce((sum, r) => sum + r.total, 0))),
         getPaymentTotal(db, month).then(setPaymentTotal),
         getTransactions(db, { start, end }).then((list) => setRecent(list.slice(0, 5))),
+        getAccounts(db).then(setAccounts),
+        getAccountBalances(db, end).then(setAccountBalances),
       ]).then(() => setLoading(false));
     }, [db, month])
   );
@@ -429,6 +435,8 @@ export default function SummaryScreen() {
           ) : (
             accountTotals.map((a) => {
               const share = total > 0 ? (a.total / total) * 100 : 0;
+              const account = accounts.find((acc) => acc.name === a.accountName);
+              const balance = account ? accountBalances[account.id] : undefined;
               const color = getAccountCardColor(a.accountName);
               const initials = a.accountName
                 .split(/\s+/)
@@ -457,8 +465,12 @@ export default function SummaryScreen() {
                       <Text style={styles.accountRowSub}>{share.toFixed(1)}% of spend</Text>
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
-                      <Text style={styles.accountRowAmount}>{formatMoney(a.total)}</Text>
-                      <Text style={styles.accountRowSub}>this month</Text>
+                      <Text style={styles.accountRowAmount}>
+                        {balance !== undefined ? formatMoney(balance) : formatMoney(a.total)}
+                      </Text>
+                      <Text style={styles.accountRowSub}>
+                        {balance !== undefined ? `balance as of ${month}` : "this month"}
+                      </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
                   </LinearGradient>
