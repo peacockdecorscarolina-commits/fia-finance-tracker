@@ -84,7 +84,7 @@ function findStatementPeriod(text: string): StatementPeriod | null {
   // year before. Without this, a Dec/Jan statement silently mislabels every
   // December transaction with the January statement's own year.
   const balanceMatch = text.match(
-    /Beginning balance on (\d{1,2})\/(\d{1,2}).*?Ending balance on (\d{1,2})\/(\d{1,2})/is
+    /Beginning\s+balance\s+on\s+(\d{1,2})\/(\d{1,2}).*?Ending\s+balance\s+on\s+(\d{1,2})\/(\d{1,2})/is
   );
   if (balanceMatch) {
     const startMonth = Number(balanceMatch[1]);
@@ -402,7 +402,7 @@ export function parseStatement(text: string): ExtractedTransaction[] {
 // balance tracking can't accumulate error over time the way a pure running
 // total would.
 export function findStatementEndingBalance(text: string): { balance: number; date: string } | null {
-  const match = text.match(/Ending balance on (\d{1,2})\/(\d{1,2})\s*\$?\s*([\d,]+\.\d{2})/i);
+  const match = text.match(/Ending\s+balance\s+on\s+(\d{1,2})\/(\d{1,2})\s*\$?\s*([\d,]+\.\d{2})/i);
   if (!match) return null;
   const month = Number(match[1]);
   const day = Number(match[2]);
