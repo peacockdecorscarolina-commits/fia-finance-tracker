@@ -26,7 +26,6 @@ import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 import type { Category, Transaction } from "../../lib/types";
 
 // Matches the rest of the app's redesigned screens -- theme-invariant.
-const ACCENT = "#4C1D95";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
 function formatMoney(value: number): string {

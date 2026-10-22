@@ -18,7 +18,7 @@ import {
   setTransactionIgnored,
   unlinkTransaction,
 } from "../lib/db";
-import { radius, spacing, tabBarClearance } from "../lib/theme";
+import { spacing, tabBarClearance } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 import type { Account, Category, Transaction } from "../lib/types";
 

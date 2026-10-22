@@ -10,8 +10,6 @@ import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 // Matches the rest of the app's redesigned screens.
-const ACCENT = "#4C1D95";
-const ACCENT_LIGHT = "#EDE9FE";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 const DANGER = "#DC2626";
 const DANGER_LIGHT = "#FEE2E2";

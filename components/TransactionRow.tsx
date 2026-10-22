@@ -10,7 +10,6 @@ import { AmountText } from "./AmountText";
 import { Chip } from "./Chip";
 
 // Matches the rest of the app's redesigned screens -- theme-invariant.
-const ACCENT = "#4C1D95";
 const DANGER = "#DC2626";
 const DANGER_LIGHT = "#FEE2E2";
 
