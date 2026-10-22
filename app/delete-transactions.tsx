@@ -53,7 +53,17 @@ export default function DeleteTransactionsScreen() {
   const normalizedEnd = normalizeDateInput(end);
   const isValidDateRange =
     /^\d{4}-\d{2}-\d{2}$/.test(normalizedStart) && /^\d{4}-\d{2}-\d{2}$/.test(normalizedEnd);
-  const showDateHint = (start.trim().length > 0 || end.trim().length > 0) && !isValidDateRange;
+  // A field under 8 characters is still being typed ("2026-9" isn't wrong
+  // yet, just unfinished) -- only treat a non-empty field as a genuine
+  // mistake once it's long enough to be a complete date attempt, so the
+  // hint doesn't flash on every keystroke of the field you haven't
+  // finished, or of the other one you haven't started.
+  const isIncomplete = (v: string) => v.trim().length > 0 && v.trim().length < 8;
+  const showDateHint =
+    !isValidDateRange &&
+    !isIncomplete(start) &&
+    !isIncomplete(end) &&
+    (start.trim().length > 0 || end.trim().length > 0);
 
   async function handlePreview() {
     if (accountId === null || !isValidDateRange) return;
@@ -144,6 +154,12 @@ export default function DeleteTransactionsScreen() {
                 placeholder="2025-12-10"
                 placeholderTextColor={colors.textSecondary}
                 style={[styles.inputText, { marginLeft: 6 }]}
+                autoComplete="off"
+                autoCorrect={false}
+                autoCapitalize="none"
+                spellCheck={false}
+                textContentType="none"
+                keyboardType="numbers-and-punctuation"
               />
             </View>
             <Text style={styles.toText}>to</Text>
@@ -159,6 +175,12 @@ export default function DeleteTransactionsScreen() {
                 placeholder="2026-01-09"
                 placeholderTextColor={colors.textSecondary}
                 style={[styles.inputText, { marginLeft: 6 }]}
+                autoComplete="off"
+                autoCorrect={false}
+                autoCapitalize="none"
+                spellCheck={false}
+                textContentType="none"
+                keyboardType="numbers-and-punctuation"
               />
             </View>
           </View>
