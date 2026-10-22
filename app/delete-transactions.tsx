@@ -15,7 +15,7 @@ const ACCENT_LIGHT = "#EDE9FE";
 const DANGER = "#DC2626";
 const DANGER_LIGHT = "#FEE2E2";
 
-type Status = { kind: "idle" } | { kind: "done"; count: number };
+type Status = { kind: "idle" } | { kind: "done"; count: number } | { kind: "error"; message: string };
 
 export default function DeleteTransactionsScreen() {
   const { colors } = useTheme();
@@ -42,15 +42,25 @@ export default function DeleteTransactionsScreen() {
 
   async function handlePreview() {
     if (accountId === null || !isValidDateRange) return;
-    const rows = await getTransactions(db, { accountId, start, end });
-    setPreviewCount(rows.length);
-    setConfirming(false);
     setStatus({ kind: "idle" });
+    try {
+      const rows = await getTransactions(db, { accountId, start, end });
+      setPreviewCount(rows.length);
+      setConfirming(false);
+    } catch (err) {
+      setStatus({ kind: "error", message: err instanceof Error ? err.message : "Failed to load a preview." });
+    }
   }
 
   async function handleDelete() {
     if (accountId === null || !isValidDateRange) return;
-    const count = await deleteTransactions(db, { accountId, start, end });
+    let count: number;
+    try {
+      count = await deleteTransactions(db, { accountId, start, end });
+    } catch (err) {
+      setStatus({ kind: "error", message: err instanceof Error ? err.message : "Delete failed." });
+      return;
+    }
     setPreviewCount(null);
     setConfirming(false);
     setStatus({ kind: "done", count });
@@ -178,6 +188,7 @@ export default function DeleteTransactionsScreen() {
           {status.kind === "done" && (
             <Text style={styles.successText}>Deleted {status.count} transactions.</Text>
           )}
+          {status.kind === "error" && <Text style={styles.confirmText}>{status.message}</Text>}
         </View>
       </ScrollView>
     </SafeAreaView>
