@@ -1059,13 +1059,6 @@ export async function getAccountSpendSummary(
   return { spent: Math.max(row?.spent ?? 0, 0), received: row?.received ?? 0 };
 }
 
-export async function getLatestTransactionMonth(db: SQLiteDatabase): Promise<string | null> {
-  const row = await db.getFirstAsync<{ maxDate: string | null }>(
-    "SELECT MAX(date) as maxDate FROM transactions"
-  );
-  return row?.maxDate ? row.maxDate.slice(0, 7) : null;
-}
-
 export type CategoryTotal = { categoryName: string; total: number };
 
 export async function getCategorySummary(

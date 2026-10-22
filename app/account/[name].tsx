@@ -23,11 +23,10 @@ import {
 } from "../../lib/db";
 import { currentMonth, monthRange, recentMonths, shiftMonth } from "../../lib/period";
 import { radius, spacing } from "../../lib/theme";
-import type { Account, Category, Transaction } from "../../lib/types";
+import type { Category, Transaction } from "../../lib/types";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 
 // Matches the rest of the app's redesigned screens.
-const ACCENT = "#4C1D95";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
 function formatMoney(value: number): string {
@@ -125,7 +124,6 @@ export default function AccountDrillDownScreen() {
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [account, setAccount] = useState<Account | null>(null);
   const [month, setMonth] = useState(monthParam || currentMonth());
   const [pickerOpen, setPickerOpen] = useState(false);
   const [monthlyTotals, setMonthlyTotals] = useState<{ month: string; total: number }[]>([]);
@@ -135,7 +133,6 @@ export default function AccountDrillDownScreen() {
   const load = useCallback(() => {
     getAccounts(db).then((accounts) => {
       const found = accounts.find((a) => a.name === name) ?? null;
-      setAccount(found);
       if (found) {
         const { start, end } = monthRange(month);
         getTransactions(db, { accountId: found.id, start, end }).then(setTransactions);
