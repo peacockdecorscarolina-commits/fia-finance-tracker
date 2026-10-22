@@ -17,6 +17,17 @@ const DANGER_LIGHT = "#FEE2E2";
 
 type Status = { kind: "idle" } | { kind: "done"; count: number } | { kind: "error"; message: string };
 
+// Forgives the easy ways to mistype a plain-text date -- a stray space, or
+// a single-digit month/day ("2026-1-5") -- instead of silently leaving the
+// Preview button disabled with no explanation, which is exactly what made
+// it look broken: nothing visibly happens when a disabled button is tapped.
+function normalizeDateInput(v: string): string {
+  const trimmed = v.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return trimmed;
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+}
+
 export default function DeleteTransactionsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -38,13 +49,17 @@ export default function DeleteTransactionsScreen() {
     }, [db])
   );
 
-  const isValidDateRange = /^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end);
+  const normalizedStart = normalizeDateInput(start);
+  const normalizedEnd = normalizeDateInput(end);
+  const isValidDateRange =
+    /^\d{4}-\d{2}-\d{2}$/.test(normalizedStart) && /^\d{4}-\d{2}-\d{2}$/.test(normalizedEnd);
+  const showDateHint = (start.trim().length > 0 || end.trim().length > 0) && !isValidDateRange;
 
   async function handlePreview() {
     if (accountId === null || !isValidDateRange) return;
     setStatus({ kind: "idle" });
     try {
-      const rows = await getTransactions(db, { accountId, start, end });
+      const rows = await getTransactions(db, { accountId, start: normalizedStart, end: normalizedEnd });
       setPreviewCount(rows.length);
       setConfirming(false);
     } catch (err) {
@@ -56,7 +71,7 @@ export default function DeleteTransactionsScreen() {
     if (accountId === null || !isValidDateRange) return;
     let count: number;
     try {
-      count = await deleteTransactions(db, { accountId, start, end });
+      count = await deleteTransactions(db, { accountId, start: normalizedStart, end: normalizedEnd });
     } catch (err) {
       setStatus({ kind: "error", message: err instanceof Error ? err.message : "Delete failed." });
       return;
@@ -147,6 +162,10 @@ export default function DeleteTransactionsScreen() {
               />
             </View>
           </View>
+
+          {showDateHint && (
+            <Text style={styles.dateHint}>Enter both dates as YYYY-MM-DD, e.g. 2026-01-05.</Text>
+          )}
 
           <Pressable
             onPress={handlePreview}
@@ -260,6 +279,7 @@ function makeStyles(colors: ThemeColors) {
   },
   inputText: { flex: 1, fontSize: 14, color: colors.textPrimary },
   toText: { color: colors.textSecondary, fontWeight: "600" },
+  dateHint: { fontSize: 12, color: DANGER, fontWeight: "600" },
   previewBtn: {
     alignSelf: "flex-start",
     paddingHorizontal: spacing.md,
