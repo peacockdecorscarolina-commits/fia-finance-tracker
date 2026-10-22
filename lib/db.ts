@@ -368,6 +368,51 @@ export async function getAccountBalances(
   return Object.fromEntries(rows.map((r) => [r.accountId, r.startingBalance + (r.delta ?? 0)]));
 }
 
+function dayBefore(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const date = new Date(y, m - 1, d - 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export type TransactionWithBalance = Transaction & { balanceAfter: number };
+
+// A per-transaction running balance for one account's checking-style
+// ledger view, scoped to a single month -- the balance at the moment just
+// before the month starts (via getAccountBalances, same anchor math used
+// everywhere else), then walked forward through that month's transactions
+// in chronological order, accumulating as it goes. Chronological is the
+// opposite of every other transaction list in the app (newest first), so
+// the result is reversed back to newest-first right before returning, with
+// each transaction keeping the balance it produced.
+export async function getAccountLedgerForMonth(
+  db: SQLiteDatabase,
+  accountId: number,
+  month: string
+): Promise<TransactionWithBalance[]> {
+  const [year, m] = month.split("-").map(Number);
+  const monthStart = `${year}-${String(m).padStart(2, "0")}-01`;
+  const monthEnd = `${year}-${String(m).padStart(2, "0")}-${String(new Date(year, m, 0).getDate()).padStart(2, "0")}`;
+
+  const balances = await getAccountBalances(db, dayBefore(monthStart));
+  let running = balances[accountId] ?? 0;
+
+  const rows = await db.getAllAsync<TransactionRow>(
+    `${TRANSACTION_SELECT} WHERE transactions.account_id = ? AND transactions.date >= ? AND transactions.date <= ?
+     ORDER BY transactions.date ASC, transactions.id ASC`,
+    accountId,
+    monthStart,
+    monthEnd
+  );
+
+  const withBalance: TransactionWithBalance[] = rows.map((row) => {
+    const transaction = toTransaction(row);
+    running += transaction.amount;
+    return { ...transaction, balanceAfter: running };
+  });
+
+  return withBalance.reverse();
+}
+
 export async function insertAsset(db: SQLiteDatabase, name: string, type: AssetType): Promise<number> {
   const result = await db.runAsync("INSERT INTO assets (name, type) VALUES (?, ?)", name, type);
   return result.lastInsertRowId;
