@@ -177,6 +177,53 @@ const TABLE_TOTAL = /^Total\b/i;
 const SECTION_CREDIT_HEADING = /^(?:Payments|Other Credits|Credits)\s*$/i;
 const SECTION_CHARGE_HEADING =
   /^(?:Purchases|Cash Advances|Fees Charged|Interest Charged|New Charges)\b/i;
+
+// A checking/savings statement's table (Wells Fargo, seen so far): unlike a
+// credit card's "Date Description Amount" header, this one's column labels
+// ("Deposits/", "Additions", "Withdrawals/", "Subtractions", "Ending daily",
+// "balance") each wrap across two lines inside a narrow column, so they
+// can't reliably be matched as one line the way TABLE_HEADER's patterns
+// are. "Transaction history" is the one line of this section's header that
+// always stays intact, so it's used as the open trigger instead -- closed
+// by the same TABLE_TOTAL "Totals ..." line a credit card table uses.
+const BANK_TABLE_HEADING = /^Transaction history$/i;
+
+// Checking/savings statements print two unsigned columns (deposit,
+// withdrawal) instead of a credit card's single signed one, with no section
+// heading to disambiguate them the way SECTION_CREDIT_HEADING does -- so
+// which column a given row's amount belongs to has to come from the
+// description's own wording instead. Checked in order: a credit keyword
+// wins over a debit one if (rare) a line somehow matched both.
+const BANK_CREDIT_KEYWORDS =
+  /\bzelle from\b|\bpayroll\b|\bcash deposit\b|\bdirect dep\b|\binterest payment\b|\brefund\b|\breversal\b/i;
+const BANK_DEBIT_KEYWORDS =
+  /\bzelle to\b|\bach pmt\b|\bcard pmt\b|\bcrcardpmt\b|\bext trnsfr\b|\bremittance\b|\bservice fee\b|\bcheck\b|\bpos purchase\b|\bdebit card\b|\bwithdrawal\b/i;
+
+function isBankCredit(merchant: string): boolean {
+  if (BANK_CREDIT_KEYWORDS.test(merchant)) return true;
+  if (BANK_DEBIT_KEYWORDS.test(merchant)) return false;
+  // No recognized keyword either way -- most unlabeled rows on a checking
+  // statement are everyday purchases/payments, so debit is the safer
+  // default (matches parseAmount's same default for credit card lines).
+  return false;
+}
+
+// A checking statement row can end in one or two trailing numbers: the
+// transaction amount, optionally followed by the running "Ending daily
+// balance" (only printed on the last row of a given date, since several
+// same-day transactions can share one balance). If two numbers are found,
+// the first is the amount and the second -- the balance -- is discarded;
+// if only one, it's the amount itself with no balance shown on this row.
+const TRAILING_AMOUNT_WITH_BALANCE = /(?:([\d,]+\.\d{2})\s+)?([\d,]+\.\d{2})\s*$/;
+
+function matchBankAmount(line: string): { leftover: string; digits: string } | null {
+  const match = line.match(TRAILING_AMOUNT_WITH_BALANCE);
+  if (!match || match.index === undefined || (!match[1] && !match[2])) return null;
+  return {
+    leftover: line.slice(0, match.index).trim(),
+    digits: match[1] ?? match[2],
+  };
+}
 // Safety valve: a real transaction's description never spans this many
 // lines. Without this, one misread date elsewhere in the statement could
 // swallow everything up to the next dollar amount, however far away. Some
@@ -201,16 +248,26 @@ function parseTransactions(
   let pending: { date: string; parts: string[] } | null = null;
   let inTable = false;
   let sectionIsCredit: boolean | null = null;
+  let isBankFormat = false;
 
-  function finalize(date: string, parts: string[], amount: ReturnType<typeof matchTrailingAmount>) {
+  type AmountInfo = { leftover: string; digits: string; sign?: string; hasCreditMarker?: boolean };
+
+  function matchAmount(line: string): AmountInfo | null {
+    return isBankFormat ? matchBankAmount(line) : matchTrailingAmount(line);
+  }
+
+  function finalize(date: string, parts: string[], amount: AmountInfo | null) {
     if (!amount) return;
     const withLeftover = amount.leftover ? [...parts, amount.leftover] : parts;
     const merchant = withLeftover.join(" ").replace(/\s+/g, " ").trim();
     if (!merchant) return;
+    const amountValue = isBankFormat
+      ? (isBankCredit(merchant) ? 1 : -1) * Number(amount.digits.replace(/,/g, ""))
+      : parseAmount(amount.sign ?? "", amount.digits, amount.hasCreditMarker ?? false, merchant, sectionIsCredit);
     transactions.push({
       date,
       merchant,
-      amount: parseAmount(amount.sign, amount.digits, amount.hasCreditMarker, merchant, sectionIsCredit),
+      amount: amountValue,
       // No AI guess available in the free/on-device path — everything new
       // starts as "Other" + needsReview, resolved once via the Review
       // screen's merchant memory, then automatic for that merchant forever.
@@ -225,12 +282,21 @@ function parseTransactions(
 
     if (TABLE_HEADER.test(line)) {
       inTable = true;
+      isBankFormat = false;
+      pending = null;
+      sectionIsCredit = null;
+      continue;
+    }
+    if (BANK_TABLE_HEADING.test(line)) {
+      inTable = true;
+      isBankFormat = true;
       pending = null;
       sectionIsCredit = null;
       continue;
     }
     if (TABLE_TOTAL.test(line)) {
       inTable = false;
+      isBankFormat = false;
       pending = null;
       sectionIsCredit = null;
       continue;
@@ -281,7 +347,7 @@ function parseTransactions(
         rest = postDateInfo.rest;
       }
 
-      const amount = rest ? matchTrailingAmount(rest) : null;
+      const amount = rest ? matchAmount(rest) : null;
       if (amount) {
         finalize(date, [], amount);
       } else {
@@ -291,7 +357,7 @@ function parseTransactions(
     }
 
     if (pending) {
-      const amount = matchTrailingAmount(line);
+      const amount = matchAmount(line);
       if (amount) {
         finalize(pending.date, pending.parts, amount);
         pending = null;
