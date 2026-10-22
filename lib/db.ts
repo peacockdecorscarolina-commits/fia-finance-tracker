@@ -21,13 +21,23 @@ export function normalizeMerchantKey(merchant: string): string {
   // misfiring on a real merchant name that happens to start with a number,
   // like "7-Eleven".
   const digitCount = (words[0].match(/\d/g) ?? []).length;
-  if (words.length > 1 && words[0].length >= 10 && digitCount >= 3 && /^\d/.test(words[0]) && /[A-Za-z]/.test(words[0])) {
-    words.shift();
+  let rest = words;
+  if (rest.length > 1 && rest[0].length >= 10 && digitCount >= 3 && /^\d/.test(rest[0]) && /[A-Za-z]/.test(rest[0])) {
+    rest = rest.slice(1);
   }
+  // Bank transfer descriptions (checking statements) often embed a
+  // per-transaction reference or an encoded date within the first few
+  // words, not only trailing -- e.g. "Jpmorgan Chase Ext Trnsfr 260924
+  // 30507479156 Talha Gill", where "260924" changes every month. Left in,
+  // the same recurring transfer would hash to a different key each time it
+  // posts and merchant memory could never learn it. A bare run of 5+ digits
+  // never belongs to a real merchant name, so it's dropped wherever it
+  // appears rather than only when leading.
+  rest = rest.filter((w) => !/^\d{5,}$/.test(w));
   // Keep matching stable even when trailing noise (an address, a ticket
   // number) couldn't be cleanly separated from the actual merchant name --
   // the first few words are consistently the real one.
-  return words.slice(0, 5).join(" ").toUpperCase();
+  return rest.slice(0, 5).join(" ").toUpperCase();
 }
 
 export async function initDatabase(db: SQLiteDatabase) {
