@@ -4,10 +4,10 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { WalletCardStack, type WalletCardItem } from "../components/WalletCardStack";
 import { getAccountCardColor } from "../lib/accountStyle";
+import { darken } from "../lib/color";
 import { deleteAccount, getAccounts, getAccountSpendSummary, insertAccount, renameAccount } from "../lib/db";
-import { getPeriodRange, currentMonth } from "../lib/period";
+import { getPeriodRange } from "../lib/period";
 import { radius, spacing } from "../lib/theme";
 import type { Account } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -52,27 +52,6 @@ export default function AccountsScreen() {
   }, [db]);
 
   useFocusEffect(load);
-
-  const cardItems: WalletCardItem[] = accounts.map((a) => {
-    const spend = spendByAccount[a.id] ?? 0;
-    return {
-      key: String(a.id),
-      name: a.name,
-      subtitle: a.type,
-      footerRight: spend > 0 ? `${formatMoney(spend)} this month` : undefined,
-      color: getAccountCardColor(a.name),
-    };
-  });
-
-  function handleCardPress(item: WalletCardItem) {
-    const account = accounts.find((a) => String(a.id) === item.key);
-    if (account) router.push({ pathname: "/account/[name]", params: { name: account.name, month: currentMonth() } });
-  }
-
-  function handleCardEdit(item: WalletCardItem) {
-    const account = accounts.find((a) => String(a.id) === item.key);
-    if (account) startEditing(account);
-  }
 
   async function handleAdd() {
     if (!name.trim()) return;
@@ -163,7 +142,7 @@ export default function AccountsScreen() {
         <View>
           <View style={styles.stackHeaderRow}>
             <Text style={styles.sectionTitle}>Your accounts</Text>
-            {accounts.length > 1 && <Text style={styles.stackHint}>Tap a card to bring it forward</Text>}
+            {accounts.length > 1 && <Text style={styles.stackHint}>Tap a card to edit or delete it</Text>}
           </View>
 
           {accounts.length === 0 ? (
@@ -171,7 +150,43 @@ export default function AccountsScreen() {
               <Text style={styles.empty}>No accounts yet — add one above to get started.</Text>
             </View>
           ) : (
-            <WalletCardStack items={cardItems} onPressFront={handleCardPress} onEdit={handleCardEdit} />
+            <View style={{ gap: spacing.sm }}>
+              {accounts.map((a) => {
+                const spend = spendByAccount[a.id] ?? 0;
+                const color = getAccountCardColor(a.name);
+                const initials = a.name
+                  .split(/\s+/)
+                  .map((w) => w[0])
+                  .join("")
+                  .slice(0, 3)
+                  .toUpperCase();
+                return (
+                  <Pressable key={a.id} onPress={() => startEditing(a)}>
+                    <LinearGradient
+                      colors={[color, darken(color, 40)]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.accountRow}
+                    >
+                      <View style={styles.accountBadge}>
+                        <Text style={styles.accountBadgeText}>{initials}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.accountRowName} numberOfLines={1}>
+                          {a.name}
+                        </Text>
+                        <Text style={styles.accountRowSub}>{a.type}</Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={styles.accountRowAmount}>{formatMoney(spend)}</Text>
+                        <Text style={styles.accountRowSub}>this month</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
+                    </LinearGradient>
+                  </Pressable>
+                );
+              })}
+            </View>
           )}
         </View>
 
@@ -335,6 +350,25 @@ function makeStyles(colors: ThemeColors) {
   },
   deleteBtnText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
   empty: { textAlign: "center", color: colors.textSecondary, paddingVertical: spacing.md },
+  accountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: radius.card,
+    padding: spacing.md,
+  },
+  accountBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  accountBadgeText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
+  accountRowName: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
+  accountRowSub: { color: "rgba(255,255,255,0.75)", fontSize: 11, marginTop: 2 },
+  accountRowAmount: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
   footerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   footerText: { fontSize: 12, color: colors.textSecondary },
   });
