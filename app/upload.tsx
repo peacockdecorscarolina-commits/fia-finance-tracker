@@ -9,7 +9,7 @@ import { formatAmount } from "../components/AmountText";
 import { PdfTextExtractor, type PdfTextExtractorHandle } from "../components/PdfTextExtractor";
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getAccounts, getDuplicateLookup, insertExtractedTransactions, setAccountStartingBalance } from "../lib/db";
+import { advanceAccountBalanceFromStatement, getAccounts, getDuplicateLookup, insertExtractedTransactions } from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { findStatementEndingBalance, parseStatement } from "../lib/parseStatement";
 import { radius, spacing } from "../lib/theme";
@@ -87,7 +87,7 @@ export default function UploadScreen() {
     if (!accountId) return;
     await insertExtractedTransactions(db, accountId, extracted);
     if (endingBalance) {
-      await setAccountStartingBalance(db, accountId, endingBalance.balance, endingBalance.date);
+      await advanceAccountBalanceFromStatement(db, accountId, endingBalance.balance, endingBalance.date);
     }
     setStatus("saved");
     setFileName(null);

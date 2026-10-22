@@ -277,6 +277,8 @@ export async function deleteAccount(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM accounts WHERE id = ?", id);
 }
 
+// Explicit, user-typed edit from the Accounts screen -- always applies,
+// since the user is looking right at the current value when they change it.
 export async function setAccountStartingBalance(
   db: SQLiteDatabase,
   id: number,
@@ -288,6 +290,30 @@ export async function setAccountStartingBalance(
     balance,
     asOfDate,
     id
+  );
+}
+
+// Automatic balance update from an uploaded statement's own printed ending
+// balance. Unlike the explicit edit above, this only moves the anchor
+// forward in time -- uploading statements out of order (an older one after
+// a newer one, or re-uploading the same statement twice) must never snap
+// the account back to an earlier, smaller balance, or every transaction
+// between that regressed anchor and today gets summed on top of a balance
+// that's already too low, which is exactly what produced deeply negative
+// "balance as of" figures for past months.
+export async function advanceAccountBalanceFromStatement(
+  db: SQLiteDatabase,
+  id: number,
+  balance: number,
+  asOfDate: string
+) {
+  await db.runAsync(
+    `UPDATE accounts SET starting_balance = ?, starting_balance_date = ?
+     WHERE id = ? AND (starting_balance_date IS NULL OR starting_balance_date < ?)`,
+    balance,
+    asOfDate,
+    id,
+    asOfDate
   );
 }
 
