@@ -373,3 +373,23 @@ function parseTransactions(
 export function parseStatement(text: string): ExtractedTransaction[] {
   return parseTransactions(text, findStatementPeriod(text), findStatementYear(text));
 }
+
+// Checking/savings statements (Wells Fargo, seen so far) print their own
+// true ending balance directly ("Ending balance on 10/7 $5,141.29") --
+// reading it straight from the statement instead of asking the user to type
+// it in once, or trying to derive it by summing transactions (which drifts
+// the moment a transaction is missing, duplicated, or misparsed). Each new
+// statement re-anchors the account to this figure as of this exact date, so
+// balance tracking can't accumulate error over time the way a pure running
+// total would.
+export function findStatementEndingBalance(text: string): { balance: number; date: string } | null {
+  const match = text.match(/Ending balance on (\d{1,2})\/(\d{1,2})\s*\$?\s*([\d,]+\.\d{2})/i);
+  if (!match) return null;
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const year = inferYearForMonth(month, findStatementPeriod(text), findStatementYear(text));
+  return {
+    balance: Number(match[3].replace(/,/g, "")),
+    date: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+  };
+}
