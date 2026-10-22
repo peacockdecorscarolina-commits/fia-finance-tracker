@@ -11,5 +11,6 @@ export const DEFAULT_CATEGORIES = [
   "Entertainment",
   "Health",
   "Income",
+  "Payment",
   "Other",
 ] as const;
