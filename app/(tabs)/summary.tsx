@@ -5,8 +5,8 @@ import { useCallback, useMemo, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EmptyState } from "../../components/EmptyState";
-import { WalletCardStack, type WalletCardItem } from "../../components/WalletCardStack";
 import { getAccountCardColor } from "../../lib/accountStyle";
+import { darken } from "../../lib/color";
 import { getCategoryStyle } from "../../lib/categoryStyle";
 import {
   getAccountSummary,
@@ -420,26 +420,51 @@ export default function SummaryScreen() {
           </View>
         )}
 
-        <View>
+        <View style={{ gap: spacing.sm }}>
           <Text style={styles.stackTitle}>By account</Text>
           {loading ? null : accountTotals.length === 0 ? (
             <View style={styles.sectionCard}>
               <EmptyState icon="📊" title="Nothing here yet" subtitle="No spending recorded on any card this month." />
             </View>
           ) : (
-            <WalletCardStack
-              items={accountTotals.map((a) => {
-                const share = total > 0 ? (a.total / total) * 100 : 0;
-                return {
-                  key: a.accountName,
-                  name: a.accountName,
-                  subtitle: `${share.toFixed(1)}% of spend`,
-                  footerRight: formatMoney(a.total),
-                  color: getAccountCardColor(a.accountName),
-                } satisfies WalletCardItem;
-              })}
-              onPressFront={(item) => router.push({ pathname: "/account/[name]", params: { name: item.name, month } })}
-            />
+            accountTotals.map((a) => {
+              const share = total > 0 ? (a.total / total) * 100 : 0;
+              const color = getAccountCardColor(a.accountName);
+              const initials = a.accountName
+                .split(/\s+/)
+                .map((w) => w[0])
+                .join("")
+                .slice(0, 3)
+                .toUpperCase();
+              return (
+                <Pressable
+                  key={a.accountName}
+                  onPress={() => router.push({ pathname: "/account/[name]", params: { name: a.accountName, month } })}
+                >
+                  <LinearGradient
+                    colors={[color, darken(color, 40)]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.accountRow}
+                  >
+                    <View style={styles.accountBadge}>
+                      <Text style={styles.accountBadgeText}>{initials}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.accountRowName} numberOfLines={1}>
+                        {a.accountName}
+                      </Text>
+                      <Text style={styles.accountRowSub}>{share.toFixed(1)}% of spend</Text>
+                    </View>
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={styles.accountRowAmount}>{formatMoney(a.total)}</Text>
+                      <Text style={styles.accountRowSub}>this month</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
+                  </LinearGradient>
+                </Pressable>
+              );
+            })
           )}
         </View>
 
@@ -632,6 +657,25 @@ function makeStyles(colors: ThemeColors) {
     letterSpacing: 0.6,
     marginBottom: spacing.sm,
   },
+  accountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: radius.card,
+    padding: spacing.md,
+  },
+  accountBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  accountBadgeText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
+  accountRowName: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
+  accountRowSub: { color: "rgba(255,255,255,0.75)", fontSize: 11, marginTop: 2 },
+  accountRowAmount: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
   categoryRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   legend: { flex: 1, gap: 6 },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 6 },
