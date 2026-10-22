@@ -291,16 +291,28 @@ export async function setAccountStartingBalance(
 // spend summaries, this deliberately does NOT filter out ignored
 // transactions: a linked transfer still really left the account, so it
 // still has to count here even though it's excluded from spend totals.
-export async function getAccountBalances(db: SQLiteDatabase): Promise<Record<number, number>> {
+// `asOfDate` caps which transactions count toward the balance -- omitted,
+// this is "right now"; passed a month's last day, it's "balance at the end
+// of that month" instead, for showing a historical figure next to whatever
+// month the user is currently viewing rather than only ever today's number.
+export async function getAccountBalances(
+  db: SQLiteDatabase,
+  asOfDate?: string
+): Promise<Record<number, number>> {
   const rows = await db.getAllAsync<{ accountId: number; startingBalance: number; delta: number | null }>(
     `SELECT
        accounts.id as accountId,
        accounts.starting_balance as startingBalance,
-       SUM(CASE WHEN transactions.date > accounts.starting_balance_date THEN transactions.amount ELSE 0 END) as delta
+       SUM(CASE
+         WHEN transactions.date > accounts.starting_balance_date
+           AND (? IS NULL OR transactions.date <= ?)
+         THEN transactions.amount ELSE 0 END) as delta
      FROM accounts
      LEFT JOIN transactions ON transactions.account_id = accounts.id
      WHERE accounts.starting_balance IS NOT NULL
-     GROUP BY accounts.id`
+     GROUP BY accounts.id`,
+    asOfDate ?? null,
+    asOfDate ?? null
   );
   return Object.fromEntries(rows.map((r) => [r.accountId, r.startingBalance + (r.delta ?? 0)]));
 }
