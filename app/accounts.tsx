@@ -6,7 +6,15 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 import { LinearGradient } from "expo-linear-gradient";
 import { getAccountCardColor } from "../lib/accountStyle";
 import { darken } from "../lib/color";
-import { deleteAccount, getAccounts, getAccountSpendSummary, insertAccount, renameAccount } from "../lib/db";
+import {
+  deleteAccount,
+  getAccountBalances,
+  getAccounts,
+  getAccountSpendSummary,
+  insertAccount,
+  renameAccount,
+  setAccountStartingBalance,
+} from "../lib/db";
 import { getPeriodRange } from "../lib/period";
 import { radius, spacing } from "../lib/theme";
 import type { Account } from "../lib/types";
@@ -34,11 +42,15 @@ export default function AccountsScreen() {
   const db = useSQLiteContext();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [spendByAccount, setSpendByAccount] = useState<Record<number, number>>({});
+  const [balanceByAccount, setBalanceByAccount] = useState<Record<number, number>>({});
   const [name, setName] = useState("");
   const [type, setType] = useState<(typeof ACCOUNT_TYPES)[number]["value"]>("Checking");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
+  const [editingBalance, setEditingBalance] = useState(false);
+  const [balanceInput, setBalanceInput] = useState("");
+  const [balanceDateInput, setBalanceDateInput] = useState("");
 
   const load = useCallback(() => {
     getAccounts(db).then(async (list) => {
@@ -48,6 +60,7 @@ export default function AccountsScreen() {
         list.map(async (a) => [a.id, (await getAccountSpendSummary(db, a.id, start, end)).spent] as const)
       );
       setSpendByAccount(Object.fromEntries(entries));
+      getAccountBalances(db).then(setBalanceByAccount);
     });
   }, [db]);
 
@@ -64,12 +77,25 @@ export default function AccountsScreen() {
     setEditingId(account.id);
     setEditingName(account.name);
     setConfirmingDeleteId(null);
+    setEditingBalance(false);
+    setBalanceInput(account.startingBalance !== null ? String(account.startingBalance) : "");
+    setBalanceDateInput(account.startingBalanceDate ?? new Date().toISOString().slice(0, 10));
   }
 
   async function saveEdit() {
     if (editingId === null || !editingName.trim()) return;
     await renameAccount(db, editingId, editingName.trim());
     setEditingId(null);
+    load();
+  }
+
+  const isBalanceInputValid =
+    Number.isFinite(Number(balanceInput)) && balanceInput.trim() !== "" && /^\d{4}-\d{2}-\d{2}$/.test(balanceDateInput);
+
+  async function saveBalance() {
+    if (editingId === null || !isBalanceInputValid) return;
+    await setAccountStartingBalance(db, editingId, Number(balanceInput), balanceDateInput);
+    setEditingBalance(false);
     load();
   }
 
@@ -153,6 +179,7 @@ export default function AccountsScreen() {
             <View style={{ gap: spacing.sm }}>
               {accounts.map((a) => {
                 const spend = spendByAccount[a.id] ?? 0;
+                const balance = balanceByAccount[a.id];
                 const color = getAccountCardColor(a.name);
                 const initials = a.name
                   .split(/\s+/)
@@ -178,8 +205,10 @@ export default function AccountsScreen() {
                         <Text style={styles.accountRowSub}>{a.type}</Text>
                       </View>
                       <View style={{ alignItems: "flex-end" }}>
-                        <Text style={styles.accountRowAmount}>{formatMoney(spend)}</Text>
-                        <Text style={styles.accountRowSub}>this month</Text>
+                        <Text style={styles.accountRowAmount}>
+                          {balance !== undefined ? formatMoney(balance) : formatMoney(spend)}
+                        </Text>
+                        <Text style={styles.accountRowSub}>{balance !== undefined ? "balance" : "this month"}</Text>
                       </View>
                       <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
                     </LinearGradient>
@@ -207,6 +236,55 @@ export default function AccountsScreen() {
               >
                 <Text style={styles.editSaveText}>Save</Text>
               </Pressable>
+            </View>
+
+            <View style={styles.balanceSection}>
+              {editingBalance ? (
+                <>
+                  <Text style={styles.fieldLabel}>Balance</Text>
+                  <View style={styles.inputRow}>
+                    <TextInput
+                      value={balanceInput}
+                      onChangeText={setBalanceInput}
+                      keyboardType="decimal-pad"
+                      placeholder="e.g. 5000"
+                      placeholderTextColor={colors.textSecondary}
+                      style={styles.inputText}
+                    />
+                  </View>
+                  <Text style={styles.fieldLabel}>As of (YYYY-MM-DD)</Text>
+                  <View style={styles.inputRow}>
+                    <TextInput
+                      value={balanceDateInput}
+                      onChangeText={setBalanceDateInput}
+                      placeholder="2026-10-22"
+                      placeholderTextColor={colors.textSecondary}
+                      style={styles.inputText}
+                    />
+                  </View>
+                  <View style={styles.editActions}>
+                    <Pressable onPress={() => setEditingBalance(false)} style={styles.editCancelBtn}>
+                      <Text style={styles.editCancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={saveBalance}
+                      disabled={!isBalanceInputValid}
+                      style={[styles.editSaveBtn, !isBalanceInputValid && { opacity: 0.5 }]}
+                    >
+                      <Text style={styles.editSaveText}>Save</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : (
+                <Pressable onPress={() => setEditingBalance(true)} style={styles.balanceLink}>
+                  <Ionicons name="wallet-outline" size={14} color={ACCENT} />
+                  <Text style={styles.balanceLinkText}>
+                    {editingAccount.startingBalance !== null
+                      ? `Balance: ${formatMoney(balanceByAccount[editingAccount.id] ?? editingAccount.startingBalance)} — edit`
+                      : "Set a starting balance to track this account's running balance"}
+                  </Text>
+                </Pressable>
+              )}
             </View>
 
             {confirmingDeleteId !== editingAccount.id ? (
@@ -330,6 +408,15 @@ function makeStyles(colors: ThemeColors) {
   editCancelText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
   editSaveBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: ACCENT },
   editSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+  balanceSection: {
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+    marginTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  balanceLink: { flexDirection: "row", alignItems: "center", gap: 6 },
+  balanceLinkText: { flex: 1, fontSize: 12, fontWeight: "600", color: ACCENT },
   deleteLink: {
     flexDirection: "row",
     alignItems: "center",

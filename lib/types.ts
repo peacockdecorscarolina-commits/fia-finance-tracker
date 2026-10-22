@@ -2,6 +2,8 @@ export type Account = {
   id: number;
   name: string;
   type: string;
+  startingBalance: number | null;
+  startingBalanceDate: string | null;
 };
 
 export type Category = {
