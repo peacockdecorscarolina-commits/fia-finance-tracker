@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -13,7 +13,9 @@ import {
   getCategories,
   getTransactions,
   getTransferCandidates,
+  INCOME_CATEGORY_NAME,
   linkTransactions,
+  PAYMENT_CATEGORY_NAME,
   setMerchantCategory,
   setTransactionIgnored,
   unlinkTransaction,
@@ -28,6 +30,12 @@ export default function AllTransactionsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
+  const { start, end, categoryName, mode } = useLocalSearchParams<{
+    start?: string;
+    end?: string;
+    categoryName?: string;
+    mode?: string;
+  }>();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -38,11 +46,17 @@ export default function AllTransactionsScreen() {
     const accountFilter = selectedAccountId === "all" ? undefined : selectedAccountId;
     getAccounts(db).then(setAccounts);
     getCategories(db).then(setCategories);
-    getTransactions(db, { accountId: accountFilter }).then((list) => {
+    getTransactions(db, {
+      accountId: accountFilter,
+      start,
+      end,
+      categoryName,
+      excludeCategoryNames: mode === "expenses" ? [INCOME_CATEGORY_NAME, PAYMENT_CATEGORY_NAME] : undefined,
+    }).then((list) => {
       setTransactions(list);
       setLoading(false);
     });
-  }, [db, selectedAccountId]);
+  }, [db, selectedAccountId, start, end, categoryName, mode]);
 
   useFocusEffect(load);
 
@@ -71,13 +85,15 @@ export default function AllTransactionsScreen() {
     load();
   }
 
+  const screenTitle = categoryName ?? (mode === "expenses" ? "Expenses" : "All Transactions");
+
   const listHeader = (
     <>
       <View style={styles.headerRow}>
         <Pressable onPress={() => router.back()} style={styles.headerBtn}>
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </Pressable>
-        <Text style={styles.headerTitle}>All Transactions</Text>
+        <Text style={styles.headerTitle}>{screenTitle}</Text>
         <View style={styles.headerBtn} />
       </View>
 
