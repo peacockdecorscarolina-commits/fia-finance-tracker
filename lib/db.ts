@@ -94,6 +94,19 @@ export async function initDatabase(db: SQLiteDatabase) {
     for (const name of DEFAULT_CATEGORIES) {
       await db.runAsync("INSERT INTO categories (name) VALUES (?)", name);
     }
+  } else {
+    // Targeted backfill for a database that already existed before
+    // "Payment" was added to DEFAULT_CATEGORIES above -- unlike that
+    // first-launch seed, this only adds the one category by name (case-
+    // insensitive) rather than re-running the whole list, so it can't
+    // resurrect some other default category the user deliberately deleted.
+    const hasPayment = await db.getFirstAsync<{ id: number }>(
+      "SELECT id FROM categories WHERE LOWER(name) = LOWER(?)",
+      "Payment"
+    );
+    if (!hasPayment) {
+      await db.runAsync("INSERT INTO categories (name) VALUES (?)", "Payment");
+    }
   }
 
   const emojiOverrides = await db.getAllAsync<{ name: string; emoji: string }>(
