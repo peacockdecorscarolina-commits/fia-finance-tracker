@@ -185,6 +185,12 @@ export default function UploadScreen() {
               <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
               <Text style={styles.savedText}>Saved! Check the Transactions tab.</Text>
             </View>
+            <Pressable onPress={() => router.push("/find-transfers")} style={styles.findTransfersLink}>
+              <Ionicons name="swap-horizontal-outline" size={14} color={ACCENT} />
+              <Text style={styles.findTransfersText}>
+                If this pays off a card on another account you track here, check Find Transfers to link it
+              </Text>
+            </Pressable>
           </View>
         )}
 
@@ -360,6 +366,16 @@ function makeStyles(colors: ThemeColors) {
   errorText: { color: "#DC2626", fontSize: 13, marginTop: spacing.sm },
   savedRow: { flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center" },
   savedText: { textAlign: "center", color: "#16A34A", fontWeight: "600" },
+  findTransfersLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  findTransfersText: { flex: 1, fontSize: 12, color: ACCENT, fontWeight: "600" },
   previewTitle: { fontWeight: "600", color: colors.textPrimary, marginBottom: spacing.xs, fontSize: 13 },
   dupBanner: {
     flexDirection: "row",
