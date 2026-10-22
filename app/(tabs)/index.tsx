@@ -294,7 +294,7 @@ export default function TransactionsScreen() {
       <SegmentedControl options={PERIODS} value={period} onChange={setPeriod} />
 
         <View style={styles.statRow}>
-          <View style={styles.statBox}>
+          <Pressable style={styles.statBox} onPress={() => router.push("/all-transactions")}>
             <View style={styles.statTopRow}>
               <Text style={styles.statLabel}>Expenses</Text>
               <View style={[styles.statIconWrap, { backgroundColor: "#EDE9FE" }]}>
@@ -309,8 +309,11 @@ export default function TransactionsScreen() {
                 <MiniSparkline points={monthlyTotals.slice(-6).map((m) => m.expenses)} color={colors.accent} />
               </>
             )}
-          </View>
-          <View style={styles.statBox}>
+          </Pressable>
+          <Pressable
+            style={styles.statBox}
+            onPress={() => router.push({ pathname: "/category/[name]", params: { name: "Income", month: selectedMonth ?? period } })}
+          >
             <View style={styles.statTopRow}>
               <Text style={styles.statLabel}>Income</Text>
               <View style={[styles.statIconWrap, { backgroundColor: "#DCFCE7" }]}>
@@ -325,8 +328,11 @@ export default function TransactionsScreen() {
                 <MiniSparkline points={monthlyTotals.slice(-6).map((m) => m.income)} color="#16A34A" />
               </>
             )}
-          </View>
-          <View style={styles.statBox}>
+          </Pressable>
+          <Pressable
+            style={styles.statBox}
+            onPress={() => router.push({ pathname: "/category/[name]", params: { name: "Payment", month: selectedMonth ?? period } })}
+          >
             <View style={styles.statTopRow}>
               <Text style={styles.statLabel}>Payments</Text>
               <View style={[styles.statIconWrap, { backgroundColor: "#FFEDD5" }]}>
@@ -334,7 +340,7 @@ export default function TransactionsScreen() {
               </View>
             </View>
             {loading ? <Shimmer width={90} height={20} /> : <AnimatedAmount value={totals.payments} style={styles.statValue} />}
-          </View>
+          </Pressable>
         </View>
 
         <View style={styles.panelCard}>
