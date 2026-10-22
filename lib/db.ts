@@ -317,33 +317,53 @@ export async function advanceAccountBalanceFromStatement(
   );
 }
 
-// Running balance per account for everyone who's set a starting balance --
-// the starting figure plus every transaction posted after that date. Unlike
-// spend summaries, this deliberately does NOT filter out ignored
+// Running balance per account for everyone who's set a starting balance.
+// Unlike spend summaries, this deliberately does NOT filter out ignored
 // transactions: a linked transfer still really left the account, so it
 // still has to count here even though it's excluded from spend totals.
-// `asOfDate` caps which transactions count toward the balance -- omitted,
-// this is "right now"; passed a month's last day, it's "balance at the end
-// of that month" instead, for showing a historical figure next to whatever
-// month the user is currently viewing rather than only ever today's number.
+//
+// `asOfDate` caps which date the balance is computed for -- omitted, this is
+// "right now". The anchor (starting_balance/starting_balance_date) is
+// always whatever the *most recent* uploaded statement said, so a date
+// before it has to be walked backward, not forward:
+//   - asOfDate at or after the anchor: add every transaction between the
+//     anchor (exclusive) and asOfDate (inclusive) -- money that arrived
+//     since the anchor.
+//   - asOfDate before the anchor: SUBTRACT every transaction between
+//     asOfDate (exclusive) and the anchor (inclusive) -- undoing the money
+//     that moved between that past date and the anchor, to recover what the
+//     balance must have been back then. Without this branch, every month
+//     before the anchor just silently returned today's balance relabeled
+//     with that month's name, which is what made past months look wrong
+//     (and, combined with the separate anchor-regression bug, deeply
+//     negative).
 export async function getAccountBalances(
   db: SQLiteDatabase,
   asOfDate?: string
 ): Promise<Record<number, number>> {
+  const param = asOfDate ?? null;
   const rows = await db.getAllAsync<{ accountId: number; startingBalance: number; delta: number | null }>(
     `SELECT
        accounts.id as accountId,
        accounts.starting_balance as startingBalance,
        SUM(CASE
-         WHEN transactions.date > accounts.starting_balance_date
-           AND (? IS NULL OR transactions.date <= ?)
-         THEN transactions.amount ELSE 0 END) as delta
+         WHEN ? IS NULL THEN
+           CASE WHEN transactions.date > accounts.starting_balance_date THEN transactions.amount ELSE 0 END
+         WHEN ? >= accounts.starting_balance_date THEN
+           CASE WHEN transactions.date > accounts.starting_balance_date AND transactions.date <= ?
+             THEN transactions.amount ELSE 0 END
+         ELSE
+           CASE WHEN transactions.date > ? AND transactions.date <= accounts.starting_balance_date
+             THEN -transactions.amount ELSE 0 END
+       END) as delta
      FROM accounts
      LEFT JOIN transactions ON transactions.account_id = accounts.id
      WHERE accounts.starting_balance IS NOT NULL
      GROUP BY accounts.id`,
-    asOfDate ?? null,
-    asOfDate ?? null
+    param,
+    param,
+    param,
+    param
   );
   return Object.fromEntries(rows.map((r) => [r.accountId, r.startingBalance + (r.delta ?? 0)]));
 }
