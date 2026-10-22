@@ -4,12 +4,16 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AmountText } from "../../components/AmountText";
 import { LineChart } from "../../components/LineChart";
 import { TransactionRow } from "../../components/TransactionRow";
 import { getAccountStyle } from "../../lib/accountStyle";
+import { getCategoryStyle } from "../../lib/categoryStyle";
+import { formatMerchantName } from "../../lib/formatMerchant";
 import {
   deleteTransaction,
   getAccountDailySpend,
+  getAccountLedgerForMonth,
   getAccountMonthlyTotals,
   getAccounts,
   getAccountSpendSummary,
@@ -20,6 +24,7 @@ import {
   setMerchantCategory,
   setTransactionIgnored,
   unlinkTransaction,
+  type TransactionWithBalance,
 } from "../../lib/db";
 import { currentMonth, monthRange, recentMonths, shiftMonth } from "../../lib/period";
 import { radius, spacing } from "../../lib/theme";
@@ -123,6 +128,9 @@ export default function AccountDrillDownScreen() {
   const { name, month: monthParam } = useLocalSearchParams<{ name: string; month: string }>();
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [ledger, setLedger] = useState<TransactionWithBalance[]>([]);
+  const [hasBalanceTracking, setHasBalanceTracking] = useState(false);
+  const [showLedger, setShowLedger] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [month, setMonth] = useState(monthParam || currentMonth());
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -139,6 +147,12 @@ export default function AccountDrillDownScreen() {
         getAccountMonthlyTotals(db, found.id, 24).then(setMonthlyTotals);
         getAccountSpendSummary(db, found.id, start, end).then(setSummary);
         getAccountDailySpend(db, found.id, start, end).then(setDailySpend);
+        setHasBalanceTracking(found.startingBalance !== null);
+        if (found.startingBalance !== null) {
+          getAccountLedgerForMonth(db, found.id, month).then(setLedger);
+        } else {
+          setLedger([]);
+        }
       }
     });
     getCategories(db).then(setCategories);
@@ -239,6 +253,24 @@ export default function AccountDrillDownScreen() {
           )}
         </View>
       </View>
+
+      {hasBalanceTracking && (
+        <View style={styles.ledgerToggleRow}>
+          <Pressable
+            onPress={() => setShowLedger(false)}
+            style={[styles.ledgerToggleBtn, !showLedger && styles.ledgerToggleBtnActive]}
+          >
+            <Text style={[styles.ledgerToggleText, !showLedger && styles.ledgerToggleTextActive]}>List</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setShowLedger(true)}
+            style={[styles.ledgerToggleBtn, showLedger && styles.ledgerToggleBtnActive]}
+          >
+            <Ionicons name="trending-up" size={13} color={showLedger ? "#FFFFFF" : colors.textSecondary} />
+            <Text style={[styles.ledgerToggleText, showLedger && styles.ledgerToggleTextActive]}>Balance</Text>
+          </Pressable>
+        </View>
+      )}
     </>
   );
 
@@ -284,6 +316,22 @@ export default function AccountDrillDownScreen() {
           <View style={styles.headerBtn} />
         </View>
 
+        {showLedger ? (
+          <FlatList
+            style={styles.mainList}
+            data={ledger}
+            keyExtractor={(item) => String(item.id)}
+            contentContainerStyle={styles.list}
+            ListHeaderComponent={listHeader}
+            ListHeaderComponentStyle={styles.listHeaderWrap}
+            ListEmptyComponent={
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyText}>No transactions on this card.</Text>
+              </View>
+            }
+            renderItem={({ item }) => <LedgerRow transaction={item} styles={styles} />}
+          />
+        ) : (
         <FlatList
           style={styles.mainList}
           data={transactions}
@@ -310,8 +358,36 @@ export default function AccountDrillDownScreen() {
             />
           )}
         />
+        )}
       </View>
     </SafeAreaView>
+  );
+}
+
+function LedgerRow({
+  transaction,
+  styles,
+}: {
+  transaction: TransactionWithBalance;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const categoryStyle = getCategoryStyle(transaction.categoryName);
+  return (
+    <View style={[styles.ledgerRow, transaction.ignored && styles.ledgerRowIgnored]}>
+      <View style={[styles.ledgerAvatar, { backgroundColor: `${categoryStyle.color}26` }]}>
+        <Text style={styles.ledgerAvatarEmoji}>{categoryStyle.emoji}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.ledgerMerchant} numberOfLines={1}>
+          {formatMerchantName(transaction.merchant)}
+        </Text>
+        <Text style={styles.ledgerMeta}>{transaction.date}</Text>
+      </View>
+      <View style={{ alignItems: "flex-end" }}>
+        <AmountText amount={transaction.amount} size="sm" />
+        <Text style={styles.ledgerBalance}>balance {formatMoney(transaction.balanceAfter)}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -346,6 +422,41 @@ function makeStyles(colors: ThemeColors) {
     paddingVertical: 8,
   },
   monthPillText: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
+  ledgerToggleRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    backgroundColor: colors.card,
+    borderRadius: radius.pill,
+    padding: 4,
+    marginBottom: spacing.sm,
+    alignSelf: "flex-start",
+  },
+  ledgerToggleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+  },
+  ledgerToggleBtnActive: { backgroundColor: "#4C1D95" },
+  ledgerToggleText: { fontSize: 12.5, fontWeight: "700", color: colors.textSecondary },
+  ledgerToggleTextActive: { color: "#FFFFFF" },
+  ledgerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.card,
+    borderRadius: radius.card,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  ledgerRowIgnored: { opacity: 0.55 },
+  ledgerAvatar: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  ledgerAvatarEmoji: { fontSize: 15 },
+  ledgerMerchant: { fontSize: 13.5, fontWeight: "600", color: colors.textPrimary },
+  ledgerMeta: { fontSize: 11, color: colors.textSecondary, marginTop: 1 },
+  ledgerBalance: { fontSize: 10.5, color: colors.textSecondary, marginTop: 2, fontVariant: ["tabular-nums"] },
   monthDropdown: {
     position: "absolute",
     top: 42,
