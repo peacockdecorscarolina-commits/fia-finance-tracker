@@ -326,17 +326,15 @@ export default function TransactionsScreen() {
               </>
             )}
           </View>
-          {!loading && totals.payments !== 0 && (
-            <View style={styles.statBox}>
-              <View style={styles.statTopRow}>
-                <Text style={styles.statLabel}>Payments</Text>
-                <View style={[styles.statIconWrap, { backgroundColor: "#FFEDD5" }]}>
-                  <Ionicons name="trending-up-outline" size={13} color="#F97316" />
-                </View>
+          <View style={styles.statBox}>
+            <View style={styles.statTopRow}>
+              <Text style={styles.statLabel}>Payments</Text>
+              <View style={[styles.statIconWrap, { backgroundColor: "#FFEDD5" }]}>
+                <Ionicons name="trending-up-outline" size={13} color="#F97316" />
               </View>
-              <AnimatedAmount value={totals.payments} style={styles.statValue} />
             </View>
-          )}
+            {loading ? <Shimmer width={90} height={20} /> : <AnimatedAmount value={totals.payments} style={styles.statValue} />}
+          </View>
         </View>
 
         <View style={styles.panelCard}>

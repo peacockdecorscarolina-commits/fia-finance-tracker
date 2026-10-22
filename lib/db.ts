@@ -56,6 +56,11 @@ export async function initDatabase(db: SQLiteDatabase) {
       merchant_key TEXT PRIMARY KEY NOT NULL,
       category_id INTEGER NOT NULL REFERENCES categories(id)
     );
+    CREATE TABLE IF NOT EXISTS dismissed_transfer_matches (
+      a_id INTEGER NOT NULL,
+      b_id INTEGER NOT NULL,
+      PRIMARY KEY (a_id, b_id)
+    );
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY NOT NULL,
       account_id INTEGER NOT NULL REFERENCES accounts(id),
@@ -629,6 +634,10 @@ export async function findTransferMatches(db: SQLiteDatabase): Promise<TransferM
        AND a.account_id != b.account_id
        AND ABS(a.amount + b.amount) < 0.01
        AND ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) <= 7
+       AND NOT EXISTS (
+         SELECT 1 FROM dismissed_transfer_matches
+         WHERE dismissed_transfer_matches.a_id = a.id AND dismissed_transfer_matches.b_id = b.id
+       )
      ORDER BY dayGap ASC
      LIMIT 50`
   );
@@ -647,6 +656,19 @@ export async function findTransferMatches(db: SQLiteDatabase): Promise<TransferM
       return a && b ? { a, b } : null;
     })
     .filter((m): m is TransferMatch => m !== null);
+}
+
+// "Not a match" needs to stick, or the exact same coincidental pair (e.g. an
+// unrelated cash deposit and card payment that happen to be the same
+// amount) just comes back the next time the screen loads -- findTransferMatches
+// excludes anything recorded here.
+export async function dismissTransferMatch(db: SQLiteDatabase, aId: number, bId: number) {
+  const [lo, hi] = aId < bId ? [aId, bId] : [bId, aId];
+  await db.runAsync(
+    "INSERT OR IGNORE INTO dismissed_transfer_matches (a_id, b_id) VALUES (?, ?)",
+    lo,
+    hi
+  );
 }
 
 // Links two transactions as the two sides of one real transfer. Rather than

@@ -6,7 +6,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { formatAmount } from "../components/AmountText";
 import { formatMerchantName } from "../lib/formatMerchant";
-import { findTransferMatches, linkTransactions, type TransferMatch } from "../lib/db";
+import { dismissTransferMatch, findTransferMatches, linkTransactions, type TransferMatch } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
@@ -18,7 +18,6 @@ export default function FindTransfersScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [matches, setMatches] = useState<TransferMatch[]>([]);
-  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [linkedCount, setLinkedCount] = useState(0);
 
@@ -38,11 +37,10 @@ export default function FindTransfersScreen() {
     load();
   }
 
-  function handleDismiss(match: TransferMatch) {
-    setDismissedKeys((prev) => new Set(prev).add(`${match.a.id}-${match.b.id}`));
+  async function handleDismiss(match: TransferMatch) {
+    await dismissTransferMatch(db, match.a.id, match.b.id);
+    load();
   }
-
-  const visible = matches.filter((m) => !dismissedKeys.has(`${m.a.id}-${m.b.id}`));
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -75,17 +73,16 @@ export default function FindTransfersScreen() {
           </View>
         )}
 
-        {!loading && visible.length === 0 && (
+        {!loading && matches.length === 0 && (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>
-              {matches.length > 0
-                ? "No more suggestions — dismissed ones stay hidden until you come back to this screen."
-                : "No likely transfer pairs found right now. Upload both sides of a transfer (e.g. your checking and credit card statements) and check back here."}
+              No likely transfer pairs found right now. Upload both sides of a transfer (e.g. your checking and
+              credit card statements) and check back here.
             </Text>
           </View>
         )}
 
-        {visible.map((match) => (
+        {matches.map((match) => (
           <View key={`${match.a.id}-${match.b.id}`} style={styles.matchCard}>
             <View style={styles.matchSide}>
               <Text style={styles.matchMerchant} numberOfLines={1}>
