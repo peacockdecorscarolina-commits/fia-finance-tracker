@@ -74,6 +74,25 @@ function findStatementPeriod(text: string): StatementPeriod | null {
       };
     }
   }
+  // Wells Fargo checking statements print neither of the above -- only
+  // "Beginning balance on 12/6" / "Ending balance on 1/8", with no year on
+  // either. The statement's own header date always matches the ending
+  // balance's date (confirmed against real statements), so that's the end
+  // year; the start year is the same UNLESS the start month is actually
+  // later in the calendar than the end month, which only happens when the
+  // period crosses a year boundary (Dec -> Jan), in which case it's the
+  // year before. Without this, a Dec/Jan statement silently mislabels every
+  // December transaction with the January statement's own year.
+  const balanceMatch = text.match(
+    /Beginning balance on (\d{1,2})\/(\d{1,2}).*?Ending balance on (\d{1,2})\/(\d{1,2})/is
+  );
+  if (balanceMatch) {
+    const startMonth = Number(balanceMatch[1]);
+    const endMonth = Number(balanceMatch[3]);
+    const endYear = findStatementYear(text);
+    const startYear = startMonth > endMonth ? endYear - 1 : endYear;
+    return { startMonth, startYear, endMonth, endYear };
+  }
   return null;
 }
 
@@ -195,7 +214,7 @@ const BANK_TABLE_HEADING = /^Transaction history$/i;
 // description's own wording instead. Checked in order: a credit keyword
 // wins over a debit one if (rare) a line somehow matched both.
 const BANK_CREDIT_KEYWORDS =
-  /\bzelle from\b|\bpayroll\b|\bcash deposit\b|\bdirect dep\b|\binterest payment\b|\brefund\b|\breversal\b/i;
+  /\bzelle from\b|\bpayroll\b|\bcash deposit\b|\bdirect dep\b|\binterest payment\b|\brefund\b|\breversal\b|\binstant pmt from\b/i;
 const BANK_DEBIT_KEYWORDS =
   /\bzelle to\b|\bach pmt\b|\bcard pmt\b|\bcrcardpmt\b|\bext trnsfr\b|\bremittance\b|\bservice fee\b|\bcheck\b|\bpos purchase\b|\bdebit card\b|\bwithdrawal\b/i;
 
