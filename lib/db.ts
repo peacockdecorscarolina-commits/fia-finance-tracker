@@ -74,6 +74,15 @@ export async function initDatabase(db: SQLiteDatabase) {
   if (!columns.some((c) => c.name === "ignored")) {
     await db.execAsync("ALTER TABLE transactions ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0");
   }
+  // Migration for databases created before transfer linking existed (e.g.
+  // the $800 withdrawal on a checking statement that pays off a credit
+  // card, paired with that same $800 showing as a payment credit on the
+  // card's own statement -- two transactions, one real transfer).
+  if (!columns.some((c) => c.name === "linked_transaction_id")) {
+    await db.execAsync(
+      "ALTER TABLE transactions ADD COLUMN linked_transaction_id INTEGER REFERENCES transactions(id)"
+    );
+  }
 
   // Migration for databases created before the `loan_amount` column existed.
   const categoryColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(categories)");
@@ -474,10 +483,17 @@ const TRANSACTION_SELECT = `
     transactions.category_id as categoryId,
     categories.name as categoryName,
     transactions.needs_review as needsReview,
-    transactions.ignored as ignored
+    transactions.ignored as ignored,
+    transactions.linked_transaction_id as linkedTransactionId,
+    linked_tx.merchant as linkedMerchant,
+    linked_tx.amount as linkedAmount,
+    linked_tx.date as linkedDate,
+    linked_account.name as linkedAccountName
   FROM transactions
   JOIN accounts ON accounts.id = transactions.account_id
   JOIN categories ON categories.id = transactions.category_id
+  LEFT JOIN transactions AS linked_tx ON linked_tx.id = transactions.linked_transaction_id
+  LEFT JOIN accounts AS linked_account ON linked_account.id = linked_tx.account_id
 `;
 
 type TransactionRow = Omit<Transaction, "needsReview" | "ignored"> & {
@@ -491,6 +507,66 @@ function toTransaction(row: TransactionRow): Transaction {
 
 export async function setTransactionIgnored(db: SQLiteDatabase, id: number, ignored: boolean) {
   await db.runAsync("UPDATE transactions SET ignored = ? WHERE id = ?", ignored ? 1 : 0, id);
+}
+
+// Likely transfer matches for a transaction -- the other side of the same
+// real money movement, e.g. a checking withdrawal that pays off a credit
+// card and that card's own "payment received" credit. A real match always
+// has the opposite sign (money leaving one account, arriving in another)
+// and the same magnitude; it's also always on a *different* account than
+// the transaction itself, and, loosely, posted within about a week of it
+// (statements don't always post both sides same-day). Already-linked
+// transactions are excluded since they're already accounted for.
+export async function getTransferCandidates(db: SQLiteDatabase, transaction: Transaction): Promise<Transaction[]> {
+  const rows = await db.getAllAsync<TransactionRow>(
+    `${TRANSACTION_SELECT}
+     WHERE transactions.id != ?
+       AND transactions.account_id != ?
+       AND transactions.linked_transaction_id IS NULL
+       AND ABS(transactions.amount + ?) < 0.01
+       AND ABS(JULIANDAY(transactions.date) - JULIANDAY(?)) <= 7
+     ORDER BY ABS(JULIANDAY(transactions.date) - JULIANDAY(?)) ASC
+     LIMIT 10`,
+    transaction.id,
+    transaction.accountId,
+    transaction.amount,
+    transaction.date,
+    transaction.date
+  );
+  return rows.map(toTransaction);
+}
+
+// Links two transactions as the two sides of one real transfer. Rather than
+// a separate "is this a transfer" flag, linking also decides which side
+// counts toward spend totals: the incoming (positive-amount) side keeps
+// its category and stays counted, while the outgoing (negative) side is
+// marked ignored -- otherwise the same money would show up twice, once as
+// an expense leaving one account and again as a payment on the other.
+// Overwrites whatever `ignored` was previously set to on both sides.
+export async function linkTransactions(db: SQLiteDatabase, idA: number, idB: number) {
+  const rows = await db.getAllAsync<{ id: number; amount: number }>(
+    "SELECT id, amount FROM transactions WHERE id IN (?, ?)",
+    idA,
+    idB
+  );
+  if (rows.length !== 2) return;
+  const [a, b] = rows;
+  await db.runAsync("UPDATE transactions SET linked_transaction_id = ?, ignored = ? WHERE id = ?", b.id, a.amount < 0 ? 1 : 0, a.id);
+  await db.runAsync("UPDATE transactions SET linked_transaction_id = ?, ignored = ? WHERE id = ?", a.id, b.amount < 0 ? 1 : 0, b.id);
+}
+
+// Undoes a link. Leaves `ignored` as linking last set it on both sides --
+// the user can toggle it back with setTransactionIgnored if that's not
+// what they want once unlinked.
+export async function unlinkTransaction(db: SQLiteDatabase, id: number) {
+  const row = await db.getFirstAsync<{ linkedId: number | null }>(
+    "SELECT linked_transaction_id as linkedId FROM transactions WHERE id = ?",
+    id
+  );
+  await db.runAsync("UPDATE transactions SET linked_transaction_id = NULL WHERE id = ?", id);
+  if (row?.linkedId) {
+    await db.runAsync("UPDATE transactions SET linked_transaction_id = NULL WHERE id = ?", row.linkedId);
+  }
 }
 
 export async function getTransactions(

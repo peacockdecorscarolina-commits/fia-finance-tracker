@@ -28,18 +28,37 @@ export function TransactionRow({
   categories,
   onChangeCategory,
   onDelete,
+  onFindTransferCandidates,
+  onLinkTransfer,
+  onUnlinkTransfer,
 }: {
   transaction: Transaction;
   onToggleIgnored?: (transaction: Transaction) => void;
   categories?: Category[];
   onChangeCategory?: (transaction: Transaction, categoryId: number) => void;
   onDelete?: (transaction: Transaction) => void;
+  onFindTransferCandidates?: (transaction: Transaction) => Promise<Transaction[]>;
+  onLinkTransfer?: (transaction: Transaction, candidateId: number) => void;
+  onUnlinkTransfer?: (transaction: Transaction) => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [pickingCategory, setPickingCategory] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [pickingLink, setPickingLink] = useState(false);
+  const [linkCandidates, setLinkCandidates] = useState<Transaction[] | null>(null);
   const categoryStyle = getCategoryStyle(transaction.categoryName);
+
+  async function togglePickingLink() {
+    if (pickingLink) {
+      setPickingLink(false);
+      return;
+    }
+    setPickingLink(true);
+    setLinkCandidates(null);
+    const candidates = (await onFindTransferCandidates?.(transaction)) ?? [];
+    setLinkCandidates(candidates);
+  }
 
   return (
     <View style={[styles.card, transaction.ignored && styles.ignoredCard]}>
@@ -63,10 +82,21 @@ export function TransactionRow({
             </View>
             {transaction.needsReview && <Chip label="review" tone="warning" />}
             {transaction.ignored && <Chip label="ignored" />}
+            {transaction.linkedTransactionId && <Chip label="transfer" tone="warning" />}
           </View>
         </View>
         <AmountText amount={transaction.amount} />
       </View>
+
+      {transaction.linkedTransactionId && (
+        <Pressable onPress={() => onUnlinkTransfer?.(transaction)} style={styles.linkedRow}>
+          <Ionicons name="swap-horizontal" size={13} color={colors.accent} />
+          <Text style={styles.linkedText} numberOfLines={1}>
+            Linked to {formatMerchantName(transaction.linkedMerchant ?? "")} ({transaction.linkedAccountName}) on{" "}
+            {transaction.linkedDate} — tap to unlink
+          </Text>
+        </Pressable>
+      )}
 
       <View style={styles.actionsRow}>
         {categories && onChangeCategory && (
@@ -85,6 +115,12 @@ export function TransactionRow({
             <Text style={styles.actionLinkText}>{transaction.ignored ? "Include" : "Ignore"}</Text>
           </Pressable>
         )}
+        {onFindTransferCandidates && onLinkTransfer && !transaction.linkedTransactionId && (
+          <Pressable onPress={togglePickingLink} style={styles.actionBtn}>
+            <Ionicons name="swap-horizontal-outline" size={13} color={colors.accent} />
+            <Text style={styles.actionLinkText}>{pickingLink ? "Cancel" : "Link transfer"}</Text>
+          </Pressable>
+        )}
         {onDelete && (
           <Pressable onPress={() => setConfirmingDelete((v) => !v)} style={styles.actionBtn}>
             <Ionicons name="trash-outline" size={13} color={DANGER} />
@@ -92,6 +128,31 @@ export function TransactionRow({
           </Pressable>
         )}
       </View>
+
+      {pickingLink && (
+        <View style={styles.categoryRow}>
+          {linkCandidates === null && <Text style={styles.meta}>Looking for matches…</Text>}
+          {linkCandidates !== null && linkCandidates.length === 0 && (
+            <Text style={styles.meta}>
+              No matching transaction found within a week with the opposite amount on another account.
+            </Text>
+          )}
+          {linkCandidates?.map((c) => (
+            <Pressable
+              key={c.id}
+              style={styles.categoryOption}
+              onPress={() => {
+                onLinkTransfer?.(transaction, c.id);
+                setPickingLink(false);
+              }}
+            >
+              <Text style={styles.categoryOptionText}>
+                {formatMerchantName(c.merchant)} · {c.accountName} · {c.date}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       {confirmingDelete && onDelete && (
         <View style={styles.confirmRow}>
@@ -155,6 +216,8 @@ function makeStyles(colors: ThemeColors) {
     },
     categoryChipEmoji: { fontSize: 12 },
     categoryChipLabel: { fontSize: 12, fontWeight: "600" },
+    linkedRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: spacing.xs },
+    linkedText: { flex: 1, fontSize: 11, color: colors.accent, fontWeight: "600" },
     actionsRow: {
       flexDirection: "row",
       gap: spacing.md,

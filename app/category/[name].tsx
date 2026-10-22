@@ -13,9 +13,12 @@ import {
   getCategoryMonthlyTotals,
   getLoanBalanceHistory,
   getTransactions,
+  getTransferCandidates,
+  linkTransactions,
   setCategoryLoanAmount,
   setMerchantCategory,
   setTransactionIgnored,
+  unlinkTransaction,
 } from "../../lib/db";
 import { monthRange } from "../../lib/period";
 import { radius, spacing } from "../../lib/theme";
@@ -103,6 +106,16 @@ export default function CategoryDrillDownScreen() {
 
   async function handleDelete(transaction: Transaction) {
     await deleteTransaction(db, transaction.id);
+    load();
+  }
+
+  async function handleLinkTransfer(transaction: Transaction, candidateId: number) {
+    await linkTransactions(db, transaction.id, candidateId);
+    load();
+  }
+
+  async function handleUnlinkTransfer(transaction: Transaction) {
+    await unlinkTransaction(db, transaction.id);
     load();
   }
 
@@ -259,6 +272,9 @@ export default function CategoryDrillDownScreen() {
               categories={categories}
               onChangeCategory={handleChangeCategory}
               onDelete={handleDelete}
+              onFindTransferCandidates={(t) => getTransferCandidates(db, t)}
+              onLinkTransfer={handleLinkTransfer}
+              onUnlinkTransfer={handleUnlinkTransfer}
             />
           )}
         />
