@@ -15,8 +15,11 @@ import {
   getAccountSpendSummary,
   getCategories,
   getTransactions,
+  getTransferCandidates,
+  linkTransactions,
   setMerchantCategory,
   setTransactionIgnored,
+  unlinkTransaction,
 } from "../../lib/db";
 import { currentMonth, monthRange, recentMonths, shiftMonth } from "../../lib/period";
 import { radius, spacing } from "../../lib/theme";
@@ -161,6 +164,16 @@ export default function AccountDrillDownScreen() {
     load();
   }
 
+  async function handleLinkTransfer(transaction: Transaction, candidateId: number) {
+    await linkTransactions(db, transaction.id, candidateId);
+    load();
+  }
+
+  async function handleUnlinkTransfer(transaction: Transaction) {
+    await unlinkTransaction(db, transaction.id);
+    load();
+  }
+
   const style = getAccountStyle(name ?? "");
   const trend = monthlyTotals.filter((m) => m.month <= month).slice(-TREND_MONTHS);
   const prevMonthKey = shiftMonth(month, -1);
@@ -294,6 +307,9 @@ export default function AccountDrillDownScreen() {
               categories={categories}
               onChangeCategory={handleChangeCategory}
               onDelete={handleDelete}
+              onFindTransferCandidates={(t) => getTransferCandidates(db, t)}
+              onLinkTransfer={handleLinkTransfer}
+              onUnlinkTransfer={handleUnlinkTransfer}
             />
           )}
         />

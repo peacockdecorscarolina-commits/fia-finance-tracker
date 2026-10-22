@@ -25,8 +25,11 @@ import {
   getMonthlyTotals,
   getNeedsReviewCount,
   getTransactions,
+  getTransferCandidates,
+  linkTransactions,
   setMerchantCategory,
   setTransactionIgnored,
+  unlinkTransaction,
   type MonthlyTotal,
 } from "../../lib/db";
 import { downloadCsv, transactionsToCsv } from "../../lib/exportCsv";
@@ -219,6 +222,16 @@ export default function TransactionsScreen() {
 
   async function handleDelete(transaction: Transaction) {
     await deleteTransaction(db, transaction.id);
+    load();
+  }
+
+  async function handleLinkTransfer(transaction: Transaction, candidateId: number) {
+    await linkTransactions(db, transaction.id, candidateId);
+    load();
+  }
+
+  async function handleUnlinkTransfer(transaction: Transaction) {
+    await unlinkTransaction(db, transaction.id);
     load();
   }
 
@@ -506,6 +519,9 @@ export default function TransactionsScreen() {
               categories={categories}
               onChangeCategory={handleChangeCategory}
               onDelete={handleDelete}
+              onFindTransferCandidates={(t) => getTransferCandidates(db, t)}
+              onLinkTransfer={handleLinkTransfer}
+              onUnlinkTransfer={handleUnlinkTransfer}
             />
           )}
         />

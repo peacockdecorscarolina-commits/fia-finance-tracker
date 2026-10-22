@@ -23,6 +23,13 @@ export type Transaction = {
   categoryName: string;
   needsReview: boolean;
   ignored: boolean;
+  linkedTransactionId: number | null;
+  // The paired transaction's own display fields, pre-joined so showing
+  // "linked to X" doesn't need a second query per row.
+  linkedMerchant: string | null;
+  linkedAmount: number | null;
+  linkedDate: string | null;
+  linkedAccountName: string | null;
 };
 
 // Shape returned by the extraction step (currently on-device, rule-based —

@@ -12,8 +12,11 @@ import {
   getAccounts,
   getCategories,
   getTransactions,
+  getTransferCandidates,
+  linkTransactions,
   setMerchantCategory,
   setTransactionIgnored,
+  unlinkTransaction,
 } from "../lib/db";
 import { radius, spacing, tabBarClearance } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -55,6 +58,16 @@ export default function AllTransactionsScreen() {
 
   async function handleDelete(transaction: Transaction) {
     await deleteTransaction(db, transaction.id);
+    load();
+  }
+
+  async function handleLinkTransfer(transaction: Transaction, candidateId: number) {
+    await linkTransactions(db, transaction.id, candidateId);
+    load();
+  }
+
+  async function handleUnlinkTransfer(transaction: Transaction) {
+    await unlinkTransaction(db, transaction.id);
     load();
   }
 
@@ -120,6 +133,9 @@ export default function AllTransactionsScreen() {
             categories={categories}
             onChangeCategory={handleChangeCategory}
             onDelete={handleDelete}
+            onFindTransferCandidates={(t) => getTransferCandidates(db, t)}
+            onLinkTransfer={handleLinkTransfer}
+            onUnlinkTransfer={handleUnlinkTransfer}
           />
         )}
       />
