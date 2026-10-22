@@ -106,6 +106,16 @@ export async function initDatabase(db: SQLiteDatabase) {
     await db.execAsync("ALTER TABLE categories ADD COLUMN emoji TEXT");
   }
 
+  // Migration for databases created before per-account balance tracking
+  // existed.
+  const accountColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(accounts)");
+  if (!accountColumns.some((c) => c.name === "starting_balance")) {
+    await db.execAsync("ALTER TABLE accounts ADD COLUMN starting_balance REAL");
+  }
+  if (!accountColumns.some((c) => c.name === "starting_balance_date")) {
+    await db.execAsync("ALTER TABLE accounts ADD COLUMN starting_balance_date TEXT");
+  }
+
   const existing = await db.getFirstAsync<{ count: number }>(
     "SELECT COUNT(*) as count FROM categories"
   );
@@ -245,7 +255,12 @@ export async function insertAccount(
 }
 
 export async function getAccounts(db: SQLiteDatabase): Promise<Account[]> {
-  return db.getAllAsync<Account>("SELECT id, name, type FROM accounts ORDER BY name");
+  return db.getAllAsync<Account>(
+    `SELECT id, name, type,
+       starting_balance as startingBalance,
+       starting_balance_date as startingBalanceDate
+     FROM accounts ORDER BY name`
+  );
 }
 
 export async function renameAccount(db: SQLiteDatabase, id: number, name: string) {
@@ -255,6 +270,39 @@ export async function renameAccount(db: SQLiteDatabase, id: number, name: string
 export async function deleteAccount(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM transactions WHERE account_id = ?", id);
   await db.runAsync("DELETE FROM accounts WHERE id = ?", id);
+}
+
+export async function setAccountStartingBalance(
+  db: SQLiteDatabase,
+  id: number,
+  balance: number,
+  asOfDate: string
+) {
+  await db.runAsync(
+    "UPDATE accounts SET starting_balance = ?, starting_balance_date = ? WHERE id = ?",
+    balance,
+    asOfDate,
+    id
+  );
+}
+
+// Running balance per account for everyone who's set a starting balance --
+// the starting figure plus every transaction posted after that date. Unlike
+// spend summaries, this deliberately does NOT filter out ignored
+// transactions: a linked transfer still really left the account, so it
+// still has to count here even though it's excluded from spend totals.
+export async function getAccountBalances(db: SQLiteDatabase): Promise<Record<number, number>> {
+  const rows = await db.getAllAsync<{ accountId: number; startingBalance: number; delta: number | null }>(
+    `SELECT
+       accounts.id as accountId,
+       accounts.starting_balance as startingBalance,
+       SUM(CASE WHEN transactions.date > accounts.starting_balance_date THEN transactions.amount ELSE 0 END) as delta
+     FROM accounts
+     LEFT JOIN transactions ON transactions.account_id = accounts.id
+     WHERE accounts.starting_balance IS NOT NULL
+     GROUP BY accounts.id`
+  );
+  return Object.fromEntries(rows.map((r) => [r.accountId, r.startingBalance + (r.delta ?? 0)]));
 }
 
 export async function insertAsset(db: SQLiteDatabase, name: string, type: AssetType): Promise<number> {
