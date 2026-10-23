@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EmptyState } from "../../components/EmptyState";
@@ -18,6 +18,7 @@ import {
   getCategorySummary,
   getNeedsReviewCount,
   getPaymentTotal,
+  getTransactionMonthBounds,
   getTransactions,
   type AccountTotal,
   type CategoryTotal,
@@ -57,13 +58,11 @@ function formatMonthLabel(month: string): string {
   return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
-function recentMonths(from: string, count: number): string[] {
+// Every month from `newest` back to `oldest`, inclusive -- gaps included, so a
+// month with no statement yet is still reachable.
+function monthsBetween(newest: string, oldest: string): string[] {
   const list: string[] = [];
-  let m = from;
-  for (let i = 0; i < count; i++) {
-    list.push(m);
-    m = shiftMonth(m, -1);
-  }
+  for (let m = newest; m >= oldest; m = shiftMonth(m, -1)) list.push(m);
   return list;
 }
 
@@ -243,6 +242,8 @@ export default function SummaryScreen() {
   const db = useSQLiteContext();
   const [month, setMonth] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [monthBounds, setMonthBounds] = useState<{ first: string; last: string } | null>(null);
+  const pickerScrollRef = useRef<ScrollView>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [categoryTotals, setCategoryTotals] = useState<CategoryTotal[]>([]);
@@ -262,6 +263,7 @@ export default function SummaryScreen() {
   useFocusEffect(
     useCallback(() => {
       getNeedsReviewCount(db).then(setReviewCount);
+      getTransactionMonthBounds(db).then(setMonthBounds);
       getAssetSummaries(db).then(setAssets);
       Promise.all(ASSET_TYPES.map((type) => getAssetTypeHistory(db, type).then((history) => [type, history] as const))).then(
         (entries) => setAssetHistories(Object.fromEntries(entries) as Record<AssetType, { date: string; total: number }[]>)
@@ -292,6 +294,11 @@ export default function SummaryScreen() {
   const total = categoryTotals.reduce((sum, c) => sum + c.total, 0);
   const pctChange = prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : 0;
   const remaining = Math.max(total - paymentTotal, 0);
+
+  // The current month is always offered, even before any statement covers it,
+  // and so is the selected one. String compare works since months are "YYYY-MM".
+  const pickerEdges = [currentMonth(), month, ...(monthBounds ? [monthBounds.first, monthBounds.last] : [])].sort();
+  const pickerMonths = monthsBetween(pickerEdges[pickerEdges.length - 1], pickerEdges[0]);
 
   const moreItems: MoreItem[] = [
     { icon: "search-outline", label: "Search", onPress: () => router.push({ pathname: "/all-transactions", params: { search: "1" } }) },
@@ -352,20 +359,33 @@ export default function SummaryScreen() {
         </Pressable>
 
         {pickerOpen && (
-          <ScrollView style={styles.monthDropdown} nestedScrollEnabled>
-            {recentMonths(currentMonth(), 12).map((m) => (
-              <Pressable
+          <ScrollView ref={pickerScrollRef} style={styles.monthDropdown} nestedScrollEnabled>
+            {pickerMonths.map((m, i) => (
+              <View
                 key={m}
-                style={[styles.monthOption, m === month && styles.monthOptionActive]}
-                onPress={() => {
-                  setMonth(m);
-                  setPickerOpen(false);
-                }}
+                // Opens scrolled to the month being viewed, with a little of
+                // the months around it showing.
+                onLayout={
+                  m === month
+                    ? (e) => pickerScrollRef.current?.scrollTo({ y: Math.max(e.nativeEvent.layout.y - 80, 0), animated: false })
+                    : undefined
+                }
               >
-                <Text style={[styles.monthOptionText, m === month && styles.monthOptionTextActive]}>
-                  {formatMonthLabel(m)}
-                </Text>
-              </Pressable>
+                {(i === 0 || pickerMonths[i - 1].slice(0, 4) !== m.slice(0, 4)) && (
+                  <Text style={styles.monthYearHeader}>{m.slice(0, 4)}</Text>
+                )}
+                <Pressable
+                  style={[styles.monthOption, m === month && styles.monthOptionActive]}
+                  onPress={() => {
+                    setMonth(m);
+                    setPickerOpen(false);
+                  }}
+                >
+                  <Text style={[styles.monthOptionText, m === month && styles.monthOptionTextActive]}>
+                    {formatMonthLabel(m)}
+                  </Text>
+                </Pressable>
+              </View>
             ))}
           </ScrollView>
         )}
@@ -618,6 +638,14 @@ function makeStyles(colors: ThemeColors) {
   },
   monthOption: { paddingHorizontal: spacing.md, paddingVertical: 10, borderRadius: radius.chip },
   monthOptionActive: { backgroundColor: colors.background },
+  monthYearHeader: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textSecondary,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: 4,
+  },
   monthOptionText: { fontSize: 14, color: colors.textPrimary, fontWeight: "500" },
   monthOptionTextActive: { fontWeight: "700" },
   hero: { borderRadius: radius.card, padding: spacing.md, gap: spacing.md },
