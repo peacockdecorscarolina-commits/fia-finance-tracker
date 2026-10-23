@@ -61,6 +61,12 @@ export async function initDatabase(db: SQLiteDatabase) {
       b_id INTEGER NOT NULL,
       PRIMARY KEY (a_id, b_id)
     );
+    CREATE TABLE IF NOT EXISTS balance_checkpoints (
+      account_id INTEGER NOT NULL REFERENCES accounts(id),
+      date TEXT NOT NULL,
+      balance REAL NOT NULL,
+      PRIMARY KEY (account_id, date)
+    );
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY NOT NULL,
       account_id INTEGER NOT NULL REFERENCES accounts(id),
@@ -120,6 +126,17 @@ export async function initDatabase(db: SQLiteDatabase) {
   if (!accountColumns.some((c) => c.name === "starting_balance_date")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN starting_balance_date TEXT");
   }
+
+  // Migration for databases created before balance tracking moved from a
+  // single anchor per account to a checkpoint per uploaded statement (see
+  // getAccountBalanceAsOf) -- carries over whatever anchor was already set
+  // as that account's first checkpoint, so existing balance tracking isn't
+  // lost, rather than silently resetting to nothing.
+  await db.execAsync(`
+    INSERT OR IGNORE INTO balance_checkpoints (account_id, date, balance)
+    SELECT id, starting_balance_date, starting_balance FROM accounts
+    WHERE starting_balance IS NOT NULL AND starting_balance_date IS NOT NULL
+  `);
 
   const existing = await db.getFirstAsync<{ count: number }>(
     "SELECT COUNT(*) as count FROM categories"
@@ -259,12 +276,22 @@ export async function insertAccount(
   return result.lastInsertRowId;
 }
 
+// startingBalance/startingBalanceDate reflect the single most recent
+// checkpoint (see balance_checkpoints / getAccountBalanceAsOf below) --
+// enough for the Accounts screen's edit panel to show/prefill "the"
+// balance, even though the real calculation can draw on any checkpoint,
+// not just this latest one.
 export async function getAccounts(db: SQLiteDatabase): Promise<Account[]> {
   return db.getAllAsync<Account>(
-    `SELECT id, name, type,
-       starting_balance as startingBalance,
-       starting_balance_date as startingBalanceDate
-     FROM accounts ORDER BY name`
+    `SELECT accounts.id, accounts.name, accounts.type,
+       latest.balance as startingBalance,
+       latest.date as startingBalanceDate
+     FROM accounts
+     LEFT JOIN balance_checkpoints latest ON latest.account_id = accounts.id
+       AND latest.date = (
+         SELECT MAX(date) FROM balance_checkpoints WHERE account_id = accounts.id
+       )
+     ORDER BY accounts.name`
   );
 }
 
@@ -274,98 +301,106 @@ export async function renameAccount(db: SQLiteDatabase, id: number, name: string
 
 export async function deleteAccount(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM transactions WHERE account_id = ?", id);
+  await db.runAsync("DELETE FROM balance_checkpoints WHERE account_id = ?", id);
   await db.runAsync("DELETE FROM accounts WHERE id = ?", id);
 }
 
-// Explicit, user-typed edit from the Accounts screen -- always applies,
-// since the user is looking right at the current value when they change it.
-export async function setAccountStartingBalance(
+// Records a balance checkpoint for this account as of this date -- used
+// both for the user's explicit manual edit on the Accounts screen and for
+// an uploaded statement's own printed ending balance (see
+// findStatementEndingBalance). Every statement you ever upload gets its own
+// checkpoint rather than one being overwritten by the next: computing a
+// balance for any given date (getAccountBalanceAsOf) uses whichever
+// checkpoint is *nearest* to that date, so a months-old upload still
+// anchors that month directly instead of the number having to be derived
+// by walking the full transaction history all the way from today's
+// checkpoint, where any gap or duplicate in between compounds into error.
+export async function setAccountBalanceCheckpoint(
   db: SQLiteDatabase,
-  id: number,
+  accountId: number,
   balance: number,
   asOfDate: string
 ) {
   await db.runAsync(
-    "UPDATE accounts SET starting_balance = ?, starting_balance_date = ? WHERE id = ?",
-    balance,
+    "INSERT INTO balance_checkpoints (account_id, date, balance) VALUES (?, ?, ?) " +
+      "ON CONFLICT (account_id, date) DO UPDATE SET balance = excluded.balance",
+    accountId,
     asOfDate,
-    id
+    balance
   );
 }
 
-// Automatic balance update from an uploaded statement's own printed ending
-// balance. Unlike the explicit edit above, this only moves the anchor
-// forward in time -- uploading statements out of order (an older one after
-// a newer one, or re-uploading the same statement twice) must never snap
-// the account back to an earlier, smaller balance, or every transaction
-// between that regressed anchor and today gets summed on top of a balance
-// that's already too low, which is exactly what produced deeply negative
-// "balance as of" figures for past months.
-export async function advanceAccountBalanceFromStatement(
-  db: SQLiteDatabase,
-  id: number,
-  balance: number,
-  asOfDate: string
-) {
-  await db.runAsync(
-    `UPDATE accounts SET starting_balance = ?, starting_balance_date = ?
-     WHERE id = ? AND (starting_balance_date IS NULL OR starting_balance_date < ?)`,
-    balance,
-    asOfDate,
-    id,
-    asOfDate
-  );
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// Running balance per account for everyone who's set a starting balance.
+// Balance for one account as of a given date (defaults to today), computed
+// from whichever checkpoint is *nearest* to that date -- not always the
+// single most recent upload -- then walking forward or backward through
+// just the transactions between that checkpoint and the target date.
 // Unlike spend summaries, this deliberately does NOT filter out ignored
 // transactions: a linked transfer still really left the account, so it
 // still has to count here even though it's excluded from spend totals.
+// Returns null if the account has no checkpoint at all yet.
 //
-// `asOfDate` caps which date the balance is computed for -- omitted, this is
-// "right now". The anchor (starting_balance/starting_balance_date) is
-// always whatever the *most recent* uploaded statement said, so a date
-// before it has to be walked backward, not forward:
-//   - asOfDate at or after the anchor: add every transaction between the
-//     anchor (exclusive) and asOfDate (inclusive) -- money that arrived
-//     since the anchor.
-//   - asOfDate before the anchor: SUBTRACT every transaction between
-//     asOfDate (exclusive) and the anchor (inclusive) -- undoing the money
-//     that moved between that past date and the anchor, to recover what the
-//     balance must have been back then. Without this branch, every month
-//     before the anchor just silently returned today's balance relabeled
-//     with that month's name, which is what made past months look wrong
-//     (and, combined with the separate anchor-regression bug, deeply
-//     negative).
+// Using the nearest checkpoint instead of always the latest one matters:
+// every statement you upload already has its own verified printed ending
+// balance, so a January statement should anchor January directly, not
+// force deriving January's balance by walking backward through everything
+// that happened between January and whatever the most recent upload was
+// (October, say) -- any gap or duplicate transaction in that stretch would
+// throw the derived figure off, even though a perfectly good, directly
+// verified answer already existed much closer by.
+export async function getAccountBalanceAsOf(
+  db: SQLiteDatabase,
+  accountId: number,
+  asOfDate?: string
+): Promise<number | null> {
+  const target = asOfDate ?? todayISO();
+  const checkpoint = await db.getFirstAsync<{ date: string; balance: number }>(
+    `SELECT date, balance FROM balance_checkpoints
+     WHERE account_id = ?
+     ORDER BY ABS(JULIANDAY(date) - JULIANDAY(?)) ASC
+     LIMIT 1`,
+    accountId,
+    target
+  );
+  if (!checkpoint) return null;
+  const row = await db.getFirstAsync<{ delta: number | null }>(
+    `SELECT SUM(CASE
+        WHEN ? >= ? THEN CASE WHEN transactions.date > ? AND transactions.date <= ? THEN transactions.amount ELSE 0 END
+        ELSE CASE WHEN transactions.date > ? AND transactions.date <= ? THEN -transactions.amount ELSE 0 END
+      END) as delta
+     FROM transactions
+     WHERE account_id = ?`,
+    target,
+    checkpoint.date,
+    checkpoint.date,
+    target,
+    target,
+    checkpoint.date,
+    accountId
+  );
+  return checkpoint.balance + (row?.delta ?? 0);
+}
+
+// Same as getAccountBalanceAsOf, batched for every account that has at
+// least one checkpoint -- used by screens showing several accounts at once
+// (Accounts, Summary's By account).
 export async function getAccountBalances(
   db: SQLiteDatabase,
   asOfDate?: string
 ): Promise<Record<number, number>> {
-  const param = asOfDate ?? null;
-  const rows = await db.getAllAsync<{ accountId: number; startingBalance: number; delta: number | null }>(
-    `SELECT
-       accounts.id as accountId,
-       accounts.starting_balance as startingBalance,
-       SUM(CASE
-         WHEN ? IS NULL THEN
-           CASE WHEN transactions.date > accounts.starting_balance_date THEN transactions.amount ELSE 0 END
-         WHEN ? >= accounts.starting_balance_date THEN
-           CASE WHEN transactions.date > accounts.starting_balance_date AND transactions.date <= ?
-             THEN transactions.amount ELSE 0 END
-         ELSE
-           CASE WHEN transactions.date > ? AND transactions.date <= accounts.starting_balance_date
-             THEN -transactions.amount ELSE 0 END
-       END) as delta
-     FROM accounts
-     LEFT JOIN transactions ON transactions.account_id = accounts.id
-     WHERE accounts.starting_balance IS NOT NULL
-     GROUP BY accounts.id`,
-    param,
-    param,
-    param,
-    param
+  const accountIds = await db.getAllAsync<{ accountId: number }>(
+    "SELECT DISTINCT account_id as accountId FROM balance_checkpoints"
   );
-  return Object.fromEntries(rows.map((r) => [r.accountId, r.startingBalance + (r.delta ?? 0)]));
+  const result: Record<number, number> = {};
+  for (const { accountId } of accountIds) {
+    const balance = await getAccountBalanceAsOf(db, accountId, asOfDate);
+    if (balance !== null) result[accountId] = balance;
+  }
+  return result;
 }
 
 function dayBefore(isoDate: string): string {
@@ -393,8 +428,7 @@ export async function getAccountLedgerForMonth(
   const monthStart = `${year}-${String(m).padStart(2, "0")}-01`;
   const monthEnd = `${year}-${String(m).padStart(2, "0")}-${String(new Date(year, m, 0).getDate()).padStart(2, "0")}`;
 
-  const balances = await getAccountBalances(db, dayBefore(monthStart));
-  let running = balances[accountId] ?? 0;
+  let running = (await getAccountBalanceAsOf(db, accountId, dayBefore(monthStart))) ?? 0;
 
   const rows = await db.getAllAsync<TransactionRow>(
     `${TRANSACTION_SELECT} WHERE transactions.account_id = ? AND transactions.date >= ? AND transactions.date <= ?

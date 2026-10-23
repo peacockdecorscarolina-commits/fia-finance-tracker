@@ -13,7 +13,7 @@ import {
   getAccountSpendSummary,
   insertAccount,
   renameAccount,
-  setAccountStartingBalance,
+  setAccountBalanceCheckpoint,
 } from "../lib/db";
 import { getPeriodRange } from "../lib/period";
 import { radius, spacing } from "../lib/theme";
@@ -94,7 +94,7 @@ export default function AccountsScreen() {
 
   async function saveBalance() {
     if (editingId === null || !isBalanceInputValid) return;
-    await setAccountStartingBalance(db, editingId, Number(balanceInput), balanceDateInput);
+    await setAccountBalanceCheckpoint(db, editingId, Number(balanceInput), balanceDateInput);
     setEditingBalance(false);
     load();
   }
