@@ -97,6 +97,7 @@ const KNOWN_MERCHANTS: { match: string; display: string }[] = [
   { match: "7-ELEVEN", display: "7-Eleven" },
   { match: "7 ELEVEN", display: "7-Eleven" },
   { match: "SOUTHWEST", display: "Southwest Airlines" },
+  { match: "SOUTHWES", display: "Southwest Airlines" }, // card statements often truncate to 8 chars, dropping the final "T"
   { match: "AMERICAN AIRL", display: "American Airlines" }, // statements often truncate to "AIRLI" mid-column
   { match: "UNITED AIRLINES", display: "United Airlines" },
   { match: "DELTA AIR", display: "Delta Air Lines" },
@@ -104,7 +105,68 @@ const KNOWN_MERCHANTS: { match: string; display: string }[] = [
   { match: "H-E-B", display: "H-E-B" },
   { match: "WM SUPERCENTER", display: "Walmart" },
   { match: "REMITLY", display: "Remitly" },
+  { match: "TRADINGVIEW", display: "TradingView" },
+  { match: "DUNKIN", display: "Dunkin'" },
+  { match: "VENTRA", display: "Ventra" },
+  { match: "AVIATIONPARKINGONLINE", display: "Airport Parking" },
+  { match: "AVIATION PARKING", display: "Airport Parking" },
+  { match: "SC FARM BUREAU", display: "SC Farm Bureau" },
+  { match: "DOMENERGYSC", display: "Dominion Energy" },
+  { match: "TESLA SUPERCHARGER", display: "Tesla Supercharger" },
+  { match: "BOOKING.COM", display: "Booking.com" },
+  { match: "AL-FATAH", display: "Al-Fatah" },
+  { match: "AL FATAH", display: "Al-Fatah" },
+  { match: "LIMELIGHT", display: "Limelight" },
+  { match: "LULUSAR", display: "Lulusar" },
+  { match: "GRUBHUB", display: "Grubhub" },
+  { match: "FOOD PANDA", display: "Foodpanda" },
+  { match: "FOODPANDA", display: "Foodpanda" },
+  { match: "CHEEZIOUS", display: "Cheezious" },
+  { match: "TAPTAP SEND", display: "Taptap Send" },
 ];
+
+// Wells Fargo debit-card statements prefix every line with a transaction
+// reference code (e.g. "7446539E00XSLHRV1") that carries no merchant info --
+// always a digit-first alphanumeric run with no spaces, distinct from any
+// real merchant name.
+const WF_REFERENCE_CODE = /^[0-9A-Z]{10,}$/;
+
+// Wells Fargo checking statements describe Zelle/ACH/transfer activity with
+// a fixed boilerplate phrase plus embedded reference codes, dates, and
+// account numbers -- none of which the generic trailing-noise trim below can
+// remove, since the noise isn't confined to the end of the string. Matched
+// against the raw (un-normalized) text so capitalization and punctuation in
+// a captured name survive untouched.
+const WF_CHECKING_PATTERNS: { pattern: RegExp; display: string | ((m: RegExpMatchArray) => string) }[] = [
+  // Stops the name capture at whichever comes first: " on <date>", " ref"/"ref#", or end of string -- real statement text doesn't always include the date segment.
+  { pattern: /^zelle (from|to) (.+?)(?:\s+on\s+\d|\s*ref\s*#|$)/i, display: (m) => `Zelle ${/from/i.test(m[1]) ? "From" : "To"} ${m[2].trim()}` },
+  { pattern: /^jpmorgan chase ext trnsfr/i, display: "Jpmorgan Chase" },
+  { pattern: /^(amex epayment ach pmt|american express ach pmt)/i, display: "Amex Payment" },
+  { pattern: /^capital one (mobile pmt|crcardpmt)/i, display: "Capital One Payment" },
+  { pattern: /^chase credit crd (epay|autopay)/i, display: "Chase Card Payment" },
+  { pattern: /^wf credit card auto pay/i, display: "WF Card Payment" },
+  { pattern: /^continental casu payroll/i, display: "Continental Payroll" },
+  { pattern: /^bilt card pmt/i, display: "Bilt Card Payment" },
+  { pattern: /^bilt card housing/i, display: "Bilt Housing" },
+  { pattern: /^instant pmt from/i, display: "Instant Payment" },
+  { pattern: /^tjx rewards payment/i, display: "TJX Rewards" },
+  { pattern: /^atm cash deposit/i, display: "ATM Deposit" },
+  { pattern: /^atm withdrawal/i, display: "ATM Withdrawal" },
+  { pattern: /^apple cash bank xfer/i, display: "Apple Cash Transfer" },
+  { pattern: /^money transfer authorized.*taptap send/i, display: "Taptap Send" },
+  { pattern: /^money transfer authorized.*apple cash/i, display: "Apple Cash Transfer" },
+  { pattern: /^online transfer ref.*to (.+?) (card )?xxxxxxxxxxxx\d+/i, display: (m) => `Transfer to ${m[1].trim()}` },
+  { pattern: /^online transfer ref/i, display: "Online Transfer" },
+  { pattern: /^jpms llc receipt/i, display: "Jpms LLC" },
+];
+
+function matchWfCheckingPattern(raw: string): string | null {
+  for (const { pattern, display } of WF_CHECKING_PATTERNS) {
+    const m = raw.match(pattern);
+    if (m) return typeof display === "function" ? display(m) : display;
+  }
+  return null;
+}
 
 function normalizeForMatch(s: string): string {
   return s.toUpperCase().replace(/[^A-Z0-9']+/g, " ").replace(/\s+/g, " ").trim();
@@ -139,11 +201,15 @@ function titleCase(s: string): string {
 }
 
 export function formatMerchantName(raw: string): string {
+  const wfChecking = matchWfCheckingPattern(raw.trim());
+  if (wfChecking) return wfChecking;
+
   const known = matchKnownMerchant(raw);
   if (known) return known;
 
   let tokens = raw.trim().split(/\s+/);
   if (tokens[0]?.toLowerCase() === "aplpay") tokens = tokens.slice(1);
+  if (tokens[0] && WF_REFERENCE_CODE.test(tokens[0]) && /[A-Z]/.test(tokens[0]) && /\d/.test(tokens[0])) tokens = tokens.slice(1);
 
   // "PRICELN*AMERICAN" -> keep only what's after the last "*": the
   // aggregator/platform name before it is noise, not the actual merchant.
