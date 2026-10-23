@@ -492,7 +492,7 @@ export default function SummaryScreen() {
               const share = total > 0 ? (a.total / total) * 100 : 0;
               const account = accounts.find((acc) => acc.name === a.accountName);
               const balance = account ? accountBalances[account.id] : undefined;
-              const color = getAccountCardColor(a.accountName);
+              const color = getAccountCardColor(a.accountName, accounts);
               const initials = a.accountName
                 .split(/\s+/)
                 .map((w) => w[0])
