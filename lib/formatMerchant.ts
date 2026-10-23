@@ -103,6 +103,7 @@ const KNOWN_MERCHANTS: { match: string; display: string }[] = [
   { match: "TRACTOR SUPPLY", display: "Tractor Supply" },
   { match: "H-E-B", display: "H-E-B" },
   { match: "WM SUPERCENTER", display: "Walmart" },
+  { match: "REMITLY", display: "Remitly" },
 ];
 
 function normalizeForMatch(s: string): string {
