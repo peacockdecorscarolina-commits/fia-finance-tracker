@@ -1171,6 +1171,17 @@ export async function getAccountSpendSummary(
   return { spent: Math.max(row?.spent ?? 0, 0), received: row?.received ?? 0 };
 }
 
+// First and last "YYYY-MM" with any transaction, so month pickers can offer
+// every month the data covers instead of a fixed recent window.
+export async function getTransactionMonthBounds(
+  db: SQLiteDatabase
+): Promise<{ first: string; last: string } | null> {
+  const row = await db.getFirstAsync<{ first: string | null; last: string | null }>(
+    `SELECT substr(MIN(date), 1, 7) as first, substr(MAX(date), 1, 7) as last FROM transactions`
+  );
+  return row?.first && row.last ? { first: row.first, last: row.last } : null;
+}
+
 export type CategoryTotal = { categoryName: string; total: number };
 
 export async function getCategorySummary(
