@@ -180,7 +180,7 @@ export default function AccountsScreen() {
               {accounts.map((a) => {
                 const spend = spendByAccount[a.id] ?? 0;
                 const balance = balanceByAccount[a.id];
-                const color = getAccountCardColor(a.name);
+                const color = getAccountCardColor(a.name, accounts);
                 const initials = a.name
                   .split(/\s+/)
                   .map((w) => w[0])
