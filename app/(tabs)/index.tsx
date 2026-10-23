@@ -342,7 +342,7 @@ export default function TransactionsScreen() {
             style={styles.statBox}
             onPress={() => {
               const { start, end } = getPeriodRange(period);
-              router.push({ pathname: "/all-transactions", params: { start, end, categoryName: "Payment" } });
+              router.push({ pathname: "/all-transactions", params: { start, end, mode: "payments" } });
             }}
           >
             <View style={styles.statTopRow}>
