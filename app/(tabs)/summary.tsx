@@ -6,6 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EmptyState } from "../../components/EmptyState";
 import { SegmentedControl } from "../../components/SegmentedControl";
+import { SyncButton } from "../../components/SyncButton";
 import { getAccountCardColor } from "../../lib/accountStyle";
 import { darken } from "../../lib/color";
 import { getCategoryStyle } from "../../lib/categoryStyle";
@@ -355,6 +356,7 @@ export default function SummaryScreen() {
             <Pressable onPress={toggleTheme} style={styles.headerIconBtn}>
               <Ionicons name={mode === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.textPrimary} />
             </Pressable>
+            <SyncButton style={styles.headerIconBtn} />
             <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
               <Ionicons name="ellipsis-horizontal" size={20} color={colors.textPrimary} />
             </Pressable>
