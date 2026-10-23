@@ -52,6 +52,7 @@ export default function AllTransactionsScreen() {
       end,
       categoryName,
       excludeCategoryNames: mode === "expenses" ? [INCOME_CATEGORY_NAME, PAYMENT_CATEGORY_NAME] : undefined,
+      paymentCategoriesOnly: mode === "payments",
     }).then((list) => {
       setTransactions(list);
       setLoading(false);
@@ -85,7 +86,9 @@ export default function AllTransactionsScreen() {
     load();
   }
 
-  const screenTitle = categoryName ?? (mode === "expenses" ? "Expenses" : "All Transactions");
+  const screenTitle =
+    categoryName ??
+    (mode === "expenses" ? "Expenses" : mode === "payments" ? "Payments" : "All Transactions");
 
   const listHeader = (
     <>

@@ -812,6 +812,12 @@ export async function getTransactions(
     end?: string;
     categoryName?: string;
     excludeCategoryNames?: string[];
+    // The Payment category, plus any category with loan-payoff tracking
+    // turned on (see setCategoryLoanAmount) -- paying down a tracked loan
+    // is the same kind of debt transfer as a card Payment. Mirrors the
+    // "payments" aggregation in getIncomeExpenseTotals/getPaymentTotal, so
+    // the drill-down list matches what those totals actually added up.
+    paymentCategoriesOnly?: boolean;
   }
 ): Promise<Transaction[]> {
   const clauses: string[] = [];
@@ -834,8 +840,12 @@ export async function getTransactions(
   }
   if (filters?.excludeCategoryNames?.length) {
     const placeholders = filters.excludeCategoryNames.map(() => "LOWER(?)").join(", ");
-    clauses.push(`LOWER(categories.name) NOT IN (${placeholders})`);
+    clauses.push(`LOWER(categories.name) NOT IN (${placeholders}) AND categories.loan_amount IS NULL`);
     params.push(...filters.excludeCategoryNames);
+  }
+  if (filters?.paymentCategoriesOnly) {
+    clauses.push("(LOWER(categories.name) = LOWER(?) OR categories.loan_amount IS NOT NULL)");
+    params.push(PAYMENT_CATEGORY_NAME);
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const rows = await db.getAllAsync<TransactionRow>(
@@ -972,8 +982,11 @@ export async function getIncomeExpenseTotals(
   }>(
     `SELECT
        SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as income,
-       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as expenses,
-       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN ABS(transactions.amount) ELSE 0 END) as payments
+       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+             AND categories.loan_amount IS NULL
+           THEN -transactions.amount ELSE 0 END) as expenses,
+       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) OR categories.loan_amount IS NOT NULL
+           THEN ABS(transactions.amount) ELSE 0 END) as payments
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE ${clauses.join(" AND ")}`,
@@ -998,7 +1011,9 @@ export async function getMonthlyTotals(
     `SELECT
        substr(transactions.date, 1, 7) as month,
        SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as income,
-       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as expenses
+       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+             AND categories.loan_amount IS NULL
+           THEN -transactions.amount ELSE 0 END) as expenses
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0
@@ -1046,7 +1061,9 @@ export async function getAccountMonthlyTotals(
   const rows = await db.getAllAsync<{ month: string; total: number }>(
     `SELECT
        substr(transactions.date, 1, 7) as month,
-       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as total
+       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+             AND categories.loan_amount IS NULL
+           THEN -transactions.amount ELSE 0 END) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.account_id = ? AND transactions.ignored = 0
@@ -1073,7 +1090,9 @@ export async function getAccountDailySpend(
   return db.getAllAsync<{ date: string; total: number }>(
     `SELECT
        transactions.date as date,
-       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as total
+       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+             AND categories.loan_amount IS NULL
+           THEN -transactions.amount ELSE 0 END) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.account_id = ? AND transactions.ignored = 0
@@ -1099,8 +1118,11 @@ export async function getAccountSpendSummary(
 ): Promise<{ spent: number; received: number }> {
   const row = await db.getFirstAsync<{ spent: number | null; received: number | null }>(
     `SELECT
-       SUM(CASE WHEN LOWER(categories.name) NOT IN (LOWER(?), LOWER(?)) THEN -transactions.amount ELSE 0 END) as spent,
-       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as received
+       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+             AND categories.loan_amount IS NULL
+           THEN -transactions.amount ELSE 0 END) as spent,
+       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) OR categories.loan_amount IS NOT NULL
+           THEN ABS(transactions.amount) ELSE 0 END) as received
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.account_id = ? AND transactions.ignored = 0
@@ -1125,7 +1147,9 @@ export async function getCategorySummary(
     `SELECT categories.name as categoryName, SUM(-transactions.amount) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND LOWER(categories.name) NOT IN (LOWER(?), LOWER(?))
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0
+       AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       AND categories.loan_amount IS NULL
      GROUP BY categories.name
      ORDER BY total DESC`,
     `${month}%`,
@@ -1134,9 +1158,12 @@ export async function getCategorySummary(
   );
 }
 
-// Total paid toward cards/debt (the Payment category) for a given month --
-// shown as its own figure since Payment is excluded from both Income and
-// Expenses (see getIncomeExpenseTotals).
+// Total paid toward cards/debt for a given month -- the Payment category,
+// plus any category with loan-payoff tracking turned on (a car loan, etc.
+// -- see setCategoryLoanAmount), since paying down a tracked loan is the
+// same kind of debt-service transfer as a card Payment, not real spending
+// or income. Shown as its own figure since both are excluded from Income
+// and Expenses (see getIncomeExpenseTotals).
 export async function getPaymentTotal(db: SQLiteDatabase, month: string): Promise<number> {
   const row = await db.getFirstAsync<{ total: number | null }>(
     // ABS() because a payment can be recorded as a positive credit (the
@@ -1148,7 +1175,8 @@ export async function getPaymentTotal(db: SQLiteDatabase, month: string): Promis
     `SELECT SUM(ABS(transactions.amount)) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND LOWER(categories.name) = LOWER(?)`,
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0
+       AND (LOWER(categories.name) = LOWER(?) OR categories.loan_amount IS NOT NULL)`,
     `${month}%`,
     PAYMENT_CATEGORY_NAME
   );
@@ -1321,7 +1349,9 @@ export async function getAccountSummary(
      FROM transactions
      JOIN accounts ON accounts.id = transactions.account_id
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND LOWER(categories.name) NOT IN (LOWER(?), LOWER(?))
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0
+       AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       AND categories.loan_amount IS NULL
      GROUP BY accounts.name
      ORDER BY total DESC`,
     `${month}%`,
