@@ -241,6 +241,7 @@ export default function TransactionsScreen() {
   }
 
   const moreItems: MoreItem[] = [
+    { icon: "search-outline", label: "Search", onPress: () => router.push({ pathname: "/all-transactions", params: { search: "1" } }) },
     { icon: "card-outline", label: "Accounts", onPress: () => router.push("/accounts") },
     { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
     { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },

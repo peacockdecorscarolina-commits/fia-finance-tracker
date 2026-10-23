@@ -3,7 +3,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
-import { FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { formatAmount } from "../components/AmountText";
 import { EmptyState } from "../components/EmptyState";
 import { PressScale } from "../components/PressScale";
 import { TransactionRow } from "../components/TransactionRow";
@@ -20,27 +21,39 @@ import {
   setTransactionIgnored,
   unlinkTransaction,
 } from "../lib/db";
-import { spacing, tabBarClearance } from "../lib/theme";
+import { formatMerchantName } from "../lib/formatMerchant";
+import { radius, spacing, tabBarClearance } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 import type { Account, Category, Transaction } from "../lib/types";
 
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
+// Empty or non-numeric input means "no limit" on that side of the range.
+function parseAmountInput(value: string): number | null {
+  const n = parseFloat(value.replace(/[$,\s]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function AllTransactionsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
-  const { start, end, categoryName, mode } = useLocalSearchParams<{
+  const { start, end, categoryName, mode, search } = useLocalSearchParams<{
     start?: string;
     end?: string;
     categoryName?: string;
     mode?: string;
+    // "1" when opened from the More menu's Search item -- focuses the search box.
+    search?: string;
   }>();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | "all">("all");
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
 
   const load = useCallback(() => {
     const accountFilter = selectedAccountId === "all" ? undefined : selectedAccountId;
@@ -60,6 +73,33 @@ export default function AllTransactionsScreen() {
   }, [db, selectedAccountId, start, end, categoryName, mode]);
 
   useFocusEffect(load);
+
+  // Filtered in memory rather than in SQL: the list is already loaded, so
+  // typing doesn't need a query per keystroke. Matches both the raw statement
+  // text and the cleaned-up display name, so "starb" finds "SQ *STARBUCKS #12".
+  // The amount range compares the size of the amount, ignoring sign, so
+  // "20 to 50" catches purchases and refunds alike.
+  const min = parseAmountInput(minAmount);
+  const max = parseAmountInput(maxAmount);
+  const needle = query.trim().toLowerCase();
+  const isFiltering = needle !== "" || min !== null || max !== null;
+  const visibleTransactions = useMemo(() => {
+    if (!isFiltering) return transactions;
+    return transactions.filter((t) => {
+      if (
+        needle &&
+        !t.merchant.toLowerCase().includes(needle) &&
+        !formatMerchantName(t.merchant).toLowerCase().includes(needle)
+      ) {
+        return false;
+      }
+      const size = Math.abs(t.amount);
+      if (min !== null && size < min) return false;
+      if (max !== null && size > max) return false;
+      return true;
+    });
+  }, [transactions, isFiltering, needle, min, max]);
+  const visibleTotal = visibleTransactions.reduce((sum, t) => sum + t.amount, 0);
 
   async function handleToggleIgnored(transaction: Transaction) {
     await setTransactionIgnored(db, transaction.id, !transaction.ignored);
@@ -88,7 +128,13 @@ export default function AllTransactionsScreen() {
 
   const screenTitle =
     categoryName ??
-    (mode === "expenses" ? "Expenses" : mode === "payments" ? "Payments" : "All Transactions");
+    (mode === "expenses"
+      ? "Expenses"
+      : mode === "payments"
+        ? "Payments"
+        : search === "1"
+          ? "Search"
+          : "All Transactions");
 
   const listHeader = (
     <>
@@ -98,6 +144,52 @@ export default function AllTransactionsScreen() {
         </Pressable>
         <Text style={styles.headerTitle}>{screenTitle}</Text>
         <View style={styles.headerBtn} />
+      </View>
+
+      <View style={styles.searchSection}>
+        <View style={styles.inputRow}>
+          <Ionicons name="search" size={16} color={colors.textSecondary} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search vendor"
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.inputText, { marginLeft: 6 }]}
+            autoFocus={search === "1"}
+            autoComplete="off"
+            autoCorrect={false}
+            autoCapitalize="none"
+            spellCheck={false}
+            textContentType="none"
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+          />
+        </View>
+        <View style={styles.amountRow}>
+          <View style={[styles.inputRow, { flex: 1 }]}>
+            <Text style={styles.dollarSign}>$</Text>
+            <TextInput
+              value={minAmount}
+              onChangeText={setMinAmount}
+              placeholder="Min"
+              placeholderTextColor={colors.textSecondary}
+              style={[styles.inputText, { marginLeft: 4 }]}
+              keyboardType="decimal-pad"
+            />
+          </View>
+          <Text style={styles.toText}>to</Text>
+          <View style={[styles.inputRow, { flex: 1 }]}>
+            <Text style={styles.dollarSign}>$</Text>
+            <TextInput
+              value={maxAmount}
+              onChangeText={setMaxAmount}
+              placeholder="Max"
+              placeholderTextColor={colors.textSecondary}
+              style={[styles.inputText, { marginLeft: 4 }]}
+              keyboardType="decimal-pad"
+            />
+          </View>
+        </View>
       </View>
 
       <ScrollView
@@ -129,7 +221,8 @@ export default function AllTransactionsScreen() {
 
       {!loading && (
         <Text style={styles.countText}>
-          {transactions.length} transaction{transactions.length === 1 ? "" : "s"}
+          {visibleTransactions.length} transaction{visibleTransactions.length === 1 ? "" : "s"}
+          {isFiltering && ` · ${formatAmount(visibleTotal)} total`}
         </Text>
       )}
     </>
@@ -138,12 +231,17 @@ export default function AllTransactionsScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <FlatList
-        data={transactions}
+        data={visibleTransactions}
+        keyboardShouldPersistTaps="handled"
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.list}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
-          loading ? null : <EmptyState icon="🧾" title="No transactions here" subtitle="Nothing to show yet." />
+          loading ? null : isFiltering ? (
+            <EmptyState icon="🔍" title="No matches" subtitle="Try a different vendor or amount range." />
+          ) : (
+            <EmptyState icon="🧾" title="No transactions here" subtitle="Nothing to show yet." />
+          )
         }
         renderItem={({ item }) => (
           <TransactionRow
@@ -182,6 +280,21 @@ function makeStyles(colors: ThemeColors) {
       justifyContent: "center",
     },
     headerTitle: { fontSize: 17, fontWeight: "700", color: colors.textPrimary },
+    searchSection: { gap: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.md },
+    inputRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.card,
+      borderRadius: radius.chip,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 12,
+    },
+    inputText: { flex: 1, fontSize: 14, color: colors.textPrimary },
+    amountRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    dollarSign: { fontSize: 14, color: colors.textSecondary, fontWeight: "600" },
+    toText: { color: colors.textSecondary, fontWeight: "600" },
     filterScroll: { flexGrow: 0, marginBottom: spacing.sm },
     filterRow: { gap: spacing.sm, paddingHorizontal: spacing.md },
     filterChip: {
