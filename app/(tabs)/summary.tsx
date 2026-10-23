@@ -5,6 +5,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EmptyState } from "../../components/EmptyState";
+import { SegmentedControl } from "../../components/SegmentedControl";
 import { getAccountCardColor } from "../../lib/accountStyle";
 import { darken } from "../../lib/color";
 import { getCategoryStyle } from "../../lib/categoryStyle";
@@ -23,7 +24,7 @@ import {
   type AccountTotal,
   type CategoryTotal,
 } from "../../lib/db";
-import { monthRange } from "../../lib/period";
+import { periodRange } from "../../lib/period";
 import { radius, spacing, tabBarClearance } from "../../lib/theme";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 import { ASSET_TYPES, type Account, type AssetType, type Transaction } from "../../lib/types";
@@ -37,6 +38,9 @@ const NET_WORTH_TINT: Record<AssetType, string> = {
 };
 
 const HERO_GRADIENT = ["#4C1D95", "#312E81"] as const;
+
+const VIEWS = ["Month", "Year"] as const;
+type SummaryView = (typeof VIEWS)[number];
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -241,6 +245,9 @@ export default function SummaryScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [month, setMonth] = useState<string | null>(null);
+  // Year view reuses `month` -- it shows that month's whole year, so flipping
+  // back to Month lands where you were.
+  const [view, setView] = useState<SummaryView>("Month");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [monthBounds, setMonthBounds] = useState<{ first: string; last: string } | null>(null);
   const pickerScrollRef = useRef<ScrollView>(null);
@@ -273,18 +280,20 @@ export default function SummaryScreen() {
         return;
       }
       setLoading(true);
-      const prevMonth = shiftMonth(month, -1);
-      const { start, end } = monthRange(month);
+      // The summary queries match dates by prefix, so a bare "YYYY" covers the whole year.
+      const key = view === "Year" ? month.slice(0, 4) : month;
+      const prevKey = view === "Year" ? String(Number(key) - 1) : shiftMonth(month, -1);
+      const { start, end } = periodRange(key);
       Promise.all([
-        getCategorySummary(db, month).then(setCategoryTotals),
-        getAccountSummary(db, month).then(setAccountTotals),
-        getCategorySummary(db, prevMonth).then((rows) => setPrevTotal(rows.reduce((sum, r) => sum + r.total, 0))),
-        getPaymentTotal(db, month).then(setPaymentTotal),
+        getCategorySummary(db, key).then(setCategoryTotals),
+        getAccountSummary(db, key).then(setAccountTotals),
+        getCategorySummary(db, prevKey).then((rows) => setPrevTotal(rows.reduce((sum, r) => sum + r.total, 0))),
+        getPaymentTotal(db, key).then(setPaymentTotal),
         getTransactions(db, { start, end }).then((list) => setRecent(list.slice(0, 5))),
         getAccounts(db).then(setAccounts),
         getAccountBalances(db, end).then(setAccountBalances),
       ]).then(() => setLoading(false));
-    }, [db, month])
+    }, [db, month, view])
   );
 
   if (month === null) {
@@ -293,12 +302,19 @@ export default function SummaryScreen() {
 
   const total = categoryTotals.reduce((sum, c) => sum + c.total, 0);
   const pctChange = prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : 0;
+  const year = month.slice(0, 4);
+  const periodKey = view === "Year" ? year : month;
+  const periodWord = view === "Year" ? "this year" : "this month";
+  // A year still in progress against a full previous year would always read
+  // as a big drop, so the change is only shown once the year is over.
+  const showDelta = prevTotal > 0 && (view === "Month" || year < currentMonth().slice(0, 4));
   const remaining = Math.max(total - paymentTotal, 0);
 
   // The current month is always offered, even before any statement covers it,
   // and so is the selected one. String compare works since months are "YYYY-MM".
   const pickerEdges = [currentMonth(), month, ...(monthBounds ? [monthBounds.first, monthBounds.last] : [])].sort();
   const pickerMonths = monthsBetween(pickerEdges[pickerEdges.length - 1], pickerEdges[0]);
+  const pickerYears = [...new Set(pickerMonths.map((m) => m.slice(0, 4)))];
 
   const moreItems: MoreItem[] = [
     { icon: "search-outline", label: "Search", onPress: () => router.push({ pathname: "/all-transactions", params: { search: "1" } }) },
@@ -353,40 +369,57 @@ export default function SummaryScreen() {
           </View>
         </View>
 
+        <SegmentedControl options={VIEWS} value={view} onChange={setView} />
+
         <Pressable onPress={() => setPickerOpen((v) => !v)} style={styles.monthPill}>
-          <Text style={styles.monthPillText}>📅 {formatMonthLabel(month)}</Text>
+          <Text style={styles.monthPillText}>📅 {view === "Year" ? year : formatMonthLabel(month)}</Text>
           <Text style={styles.monthPillChevron}>{pickerOpen ? "▲" : "▼"}</Text>
         </Pressable>
 
         {pickerOpen && (
           <ScrollView ref={pickerScrollRef} style={styles.monthDropdown} nestedScrollEnabled>
-            {pickerMonths.map((m, i) => (
-              <View
-                key={m}
-                // Opens scrolled to the month being viewed, with a little of
-                // the months around it showing.
-                onLayout={
-                  m === month
-                    ? (e) => pickerScrollRef.current?.scrollTo({ y: Math.max(e.nativeEvent.layout.y - 80, 0), animated: false })
-                    : undefined
-                }
-              >
-                {(i === 0 || pickerMonths[i - 1].slice(0, 4) !== m.slice(0, 4)) && (
-                  <Text style={styles.monthYearHeader}>{m.slice(0, 4)}</Text>
-                )}
-                <Pressable
-                  style={[styles.monthOption, m === month && styles.monthOptionActive]}
-                  onPress={() => {
-                    setMonth(m);
-                    setPickerOpen(false);
-                  }}
-                >
-                  <Text style={[styles.monthOptionText, m === month && styles.monthOptionTextActive]}>
-                    {formatMonthLabel(m)}
-                  </Text>
-                </Pressable>
-              </View>
-            ))}
+            {view === "Year"
+              ? pickerYears.map((y) => (
+                  <Pressable
+                    key={y}
+                    style={[styles.monthOption, y === year && styles.monthOptionActive]}
+                    onPress={() => {
+                      // Same month-of-year in the picked year, capped at the newest month offered.
+                      const target = `${y}-${month.slice(5)}`;
+                      setMonth(target > pickerMonths[0] ? pickerMonths[0] : target);
+                      setPickerOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.monthOptionText, y === year && styles.monthOptionTextActive]}>{y}</Text>
+                  </Pressable>
+                ))
+              : pickerMonths.map((m, i) => (
+                  <View
+                    key={m}
+                    // Opens scrolled to the month being viewed, with a little of
+                    // the months around it showing.
+                    onLayout={
+                      m === month
+                        ? (e) => pickerScrollRef.current?.scrollTo({ y: Math.max(e.nativeEvent.layout.y - 80, 0), animated: false })
+                        : undefined
+                    }
+                  >
+                    {(i === 0 || pickerMonths[i - 1].slice(0, 4) !== m.slice(0, 4)) && (
+                      <Text style={styles.monthYearHeader}>{m.slice(0, 4)}</Text>
+                    )}
+                    <Pressable
+                      style={[styles.monthOption, m === month && styles.monthOptionActive]}
+                      onPress={() => {
+                        setMonth(m);
+                        setPickerOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.monthOptionText, m === month && styles.monthOptionTextActive]}>
+                        {formatMonthLabel(m)}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ))}
           </ScrollView>
         )}
 
@@ -395,9 +428,9 @@ export default function SummaryScreen() {
             <View>
               <Text style={styles.heroLabel}>Total spent</Text>
               <Text style={styles.heroValue}>{formatMoney(total)}</Text>
-              {prevTotal > 0 && (
+              {showDelta && (
                 <Text style={[styles.heroDelta, { color: pctChange <= 0 ? "#86EFAC" : "#FCA5A5" }]}>
-                  {pctChange <= 0 ? "▼" : "▲"} {Math.abs(pctChange).toFixed(1)}% from last month
+                  {pctChange <= 0 ? "▼" : "▲"} {Math.abs(pctChange).toFixed(1)}% from last {view === "Year" ? "year" : "month"}
                 </Text>
               )}
             </View>
@@ -452,7 +485,7 @@ export default function SummaryScreen() {
           <Text style={styles.stackTitle}>By account</Text>
           {loading ? null : accountTotals.length === 0 ? (
             <View style={styles.sectionCard}>
-              <EmptyState icon="📊" title="Nothing here yet" subtitle="No spending recorded on any card this month." />
+              <EmptyState icon="📊" title="Nothing here yet" subtitle={`No spending recorded on any card ${periodWord}.`} />
             </View>
           ) : (
             accountTotals.map((a) => {
@@ -491,7 +524,7 @@ export default function SummaryScreen() {
                         {balance !== undefined ? formatMoney(balance) : formatMoney(a.total)}
                       </Text>
                       <Text style={styles.accountRowSub}>
-                        {balance !== undefined ? `balance as of ${month}` : "this month"}
+                        {balance !== undefined ? `balance as of ${periodKey}` : periodWord}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
@@ -506,7 +539,7 @@ export default function SummaryScreen() {
           <Text style={styles.stackTitle}>By category</Text>
           <View style={styles.sectionCard}>
             {loading ? null : categoryTotals.length === 0 ? (
-              <EmptyState icon="📊" title="Nothing here yet" subtitle="No spending recorded for this month." />
+              <EmptyState icon="📊" title="Nothing here yet" subtitle={`No spending recorded ${periodWord}.`} />
             ) : (
               <View style={styles.categoryRow}>
                 <Donut
@@ -526,7 +559,7 @@ export default function SummaryScreen() {
                         key={c.categoryName}
                         style={styles.legendRow}
                         onPress={() =>
-                          router.push({ pathname: "/category/[name]", params: { name: c.categoryName, month } })
+                          router.push({ pathname: "/category/[name]", params: { name: c.categoryName, month: periodKey } })
                         }
                       >
                         <View style={[styles.legendDot, { backgroundColor: style.color }]} />
@@ -547,7 +580,7 @@ export default function SummaryScreen() {
           <Text style={styles.stackTitle}>Last transactions</Text>
           <View style={styles.sectionCard}>
             {loading ? null : recent.length === 0 ? (
-              <EmptyState icon="🧾" title="Nothing here yet" subtitle="No transactions recorded for this month." />
+              <EmptyState icon="🧾" title="Nothing here yet" subtitle={`No transactions recorded ${periodWord}.`} />
             ) : (
               recent.map((t) => {
                 const style = getCategoryStyle(t.categoryName);

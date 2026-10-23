@@ -20,7 +20,7 @@ import {
   setTransactionIgnored,
   unlinkTransaction,
 } from "../../lib/db";
-import { monthRange } from "../../lib/period";
+import { periodRange } from "../../lib/period";
 import { radius, spacing } from "../../lib/theme";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 import type { Category, Transaction } from "../../lib/types";
@@ -69,7 +69,8 @@ export default function CategoryDrillDownScreen() {
     : 0;
 
   const load = useCallback(() => {
-    const { start, end } = monthRange(month);
+    // `month` is "YYYY" when opened from Summary's Year view.
+    const { start, end } = periodRange(month);
     getTransactions(db, { categoryName: name, start, end }).then(setTransactions);
     getTransactions(db, { categoryName: name }).then(setAllTransactions);
     getCategories(db).then(setCategories);

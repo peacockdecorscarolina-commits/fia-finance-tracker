@@ -30,6 +30,13 @@ export function monthRange(month: string): { start: string; end: string } {
   return { start: toISODate(start), end: toISODate(end) };
 }
 
+// Like monthRange, but also takes a bare "YYYY" for the whole year, e.g.
+// "2026" -> { start: "2026-01-01", end: "2026-12-31" }.
+export function periodRange(key: string): { start: string; end: string } {
+  if (/^\d{4}$/.test(key)) return { start: `${key}-01-01`, end: `${key}-12-31` };
+  return monthRange(key);
+}
+
 export function currentMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
