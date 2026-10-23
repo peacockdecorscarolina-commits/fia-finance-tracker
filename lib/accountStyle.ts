@@ -16,6 +16,7 @@ const CARD_COLORS = ["#1E3A8A", "#065F46", "#9A3412", "#9F1239", "#0E7490", "#85
 // Hand-picked colors for specific cards, keyed by lowercased account name.
 // Kept mid-tone rather than pastel so the card's white text stays readable.
 const CARD_COLOR_OVERRIDES: Record<string, string> = {
+  "amex blue": "#2C5F9E", // medium-dark blue
   "amex green": "#55A072", // soft sage green
   bilt: "#2E2E33", // charcoal
   "capital one": "#9F1239", // crimson
