@@ -43,7 +43,8 @@ export default function AllTransactionsScreen() {
     end?: string;
     categoryName?: string;
     mode?: string;
-    // "1" when opened from the More menu's Search item -- focuses the search box.
+    // "1" when opened from the More menu's Search item -- starts with the
+    // search panel open and focused.
     search?: string;
   }>();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -51,6 +52,7 @@ export default function AllTransactionsScreen() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | "all">("all");
   const [loading, setLoading] = useState(true);
+  const [searchOpen, setSearchOpen] = useState(search === "1");
   const [query, setQuery] = useState("");
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
@@ -101,6 +103,16 @@ export default function AllTransactionsScreen() {
   }, [transactions, isFiltering, needle, min, max]);
   const visibleTotal = visibleTransactions.reduce((sum, t) => sum + t.amount, 0);
 
+  // Closing the panel clears it, so no filter keeps applying out of sight.
+  function toggleSearch() {
+    if (searchOpen) {
+      setQuery("");
+      setMinAmount("");
+      setMaxAmount("");
+    }
+    setSearchOpen(!searchOpen);
+  }
+
   async function handleToggleIgnored(transaction: Transaction) {
     await setTransactionIgnored(db, transaction.id, !transaction.ignored);
     load();
@@ -143,54 +155,58 @@ export default function AllTransactionsScreen() {
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </Pressable>
         <Text style={styles.headerTitle}>{screenTitle}</Text>
-        <View style={styles.headerBtn} />
+        <Pressable onPress={toggleSearch} style={styles.headerBtn}>
+          <Ionicons name={searchOpen ? "close" : "search"} size={20} color={colors.textPrimary} />
+        </Pressable>
       </View>
 
-      <View style={styles.searchSection}>
-        <View style={styles.inputRow}>
-          <Ionicons name="search" size={16} color={colors.textSecondary} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search vendor"
-            placeholderTextColor={colors.textSecondary}
-            style={[styles.inputText, { marginLeft: 6 }]}
-            autoFocus={search === "1"}
-            autoComplete="off"
-            autoCorrect={false}
-            autoCapitalize="none"
-            spellCheck={false}
-            textContentType="none"
-            returnKeyType="search"
-            clearButtonMode="while-editing"
-          />
-        </View>
-        <View style={styles.amountRow}>
-          <View style={[styles.inputRow, { flex: 1 }]}>
-            <Text style={styles.dollarSign}>$</Text>
+      {searchOpen && (
+        <View style={styles.searchSection}>
+          <View style={styles.inputRow}>
+            <Ionicons name="search" size={16} color={colors.textSecondary} />
             <TextInput
-              value={minAmount}
-              onChangeText={setMinAmount}
-              placeholder="Min"
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search vendor"
               placeholderTextColor={colors.textSecondary}
-              style={[styles.inputText, { marginLeft: 4 }]}
-              keyboardType="decimal-pad"
+              style={[styles.inputText, { marginLeft: 6 }]}
+              autoFocus
+              autoComplete="off"
+              autoCorrect={false}
+              autoCapitalize="none"
+              spellCheck={false}
+              textContentType="none"
+              returnKeyType="search"
+              clearButtonMode="while-editing"
             />
           </View>
-          <Text style={styles.toText}>to</Text>
-          <View style={[styles.inputRow, { flex: 1 }]}>
-            <Text style={styles.dollarSign}>$</Text>
-            <TextInput
-              value={maxAmount}
-              onChangeText={setMaxAmount}
-              placeholder="Max"
-              placeholderTextColor={colors.textSecondary}
-              style={[styles.inputText, { marginLeft: 4 }]}
-              keyboardType="decimal-pad"
-            />
+          <View style={styles.amountRow}>
+            <View style={[styles.inputRow, { flex: 1 }]}>
+              <Text style={styles.dollarSign}>$</Text>
+              <TextInput
+                value={minAmount}
+                onChangeText={setMinAmount}
+                placeholder="Min"
+                placeholderTextColor={colors.textSecondary}
+                style={[styles.inputText, { marginLeft: 4 }]}
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <Text style={styles.toText}>to</Text>
+            <View style={[styles.inputRow, { flex: 1 }]}>
+              <Text style={styles.dollarSign}>$</Text>
+              <TextInput
+                value={maxAmount}
+                onChangeText={setMaxAmount}
+                placeholder="Max"
+                placeholderTextColor={colors.textSecondary}
+                style={[styles.inputText, { marginLeft: 4 }]}
+                keyboardType="decimal-pad"
+              />
+            </View>
           </View>
         </View>
-      </View>
+      )}
 
       <ScrollView
         horizontal
