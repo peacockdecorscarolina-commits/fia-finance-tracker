@@ -8,6 +8,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { getAccountCardColor } from "../../lib/accountStyle";
 import { darken } from "../../lib/color";
 import { getCategoryStyle } from "../../lib/categoryStyle";
+import { formatMerchantName } from "../../lib/formatMerchant";
 import {
   getAccountBalances,
   getAccounts,
@@ -535,7 +536,7 @@ export default function SummaryScreen() {
                       <Text style={{ fontSize: 16 }}>{style.emoji}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.txName}>{t.merchant}</Text>
+                      <Text style={styles.txName}>{formatMerchantName(t.merchant)}</Text>
                       <Text style={styles.txMeta}>{t.date}</Text>
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
