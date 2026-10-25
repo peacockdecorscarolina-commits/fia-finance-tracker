@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from "expo-sqlite";
+import { simulateLoan, type LoanStatus } from "./loan";
 import { DEFAULT_CATEGORIES } from "./categories";
 import type { Account, Asset, AssetBalanceEntry, AssetType, Category, ExtractedTransaction, Transaction } from "./types";
 import { loadCategoryEmojiOverrides, setCategoryEmojiOverride } from "./categoryStyle";
@@ -116,6 +117,9 @@ export async function initDatabase(db: SQLiteDatabase) {
   if (!categoryColumns.some((c) => c.name === "loan_as_of_date")) {
     await db.execAsync("ALTER TABLE categories ADD COLUMN loan_as_of_date TEXT");
   }
+  if (!categoryColumns.some((c) => c.name === "loan_interest_rate")) {
+    await db.execAsync("ALTER TABLE categories ADD COLUMN loan_interest_rate REAL");
+  }
   if (!categoryColumns.some((c) => c.name === "emoji")) {
     await db.execAsync("ALTER TABLE categories ADD COLUMN emoji TEXT");
   }
@@ -198,13 +202,15 @@ export async function getCategories(db: SQLiteDatabase): Promise<Category[]> {
     name: string;
     loan_amount: number | null;
     loan_as_of_date: string | null;
+    loan_interest_rate: number | null;
     emoji: string | null;
-  }>("SELECT id, name, loan_amount, loan_as_of_date, emoji FROM categories ORDER BY name");
+  }>("SELECT id, name, loan_amount, loan_as_of_date, loan_interest_rate, emoji FROM categories ORDER BY name");
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
     loanAmount: r.loan_amount,
     loanAsOfDate: r.loan_as_of_date,
+    loanInterestRate: r.loan_interest_rate,
     emoji: r.emoji,
   }));
 }
@@ -213,12 +219,14 @@ export async function setCategoryLoanAmount(
   db: SQLiteDatabase,
   id: number,
   loanAmount: number | null,
-  loanAsOfDate: string | null
+  loanAsOfDate: string | null,
+  loanInterestRate: number | null = null
 ) {
   await db.runAsync(
-    "UPDATE categories SET loan_amount = ?, loan_as_of_date = ? WHERE id = ?",
+    "UPDATE categories SET loan_amount = ?, loan_as_of_date = ?, loan_interest_rate = ? WHERE id = ?",
     loanAmount,
     loanAsOfDate,
+    loanInterestRate,
     id
   );
 }
@@ -565,23 +573,42 @@ export async function getAllAssetsHistory(db: SQLiteDatabase): Promise<{ date: s
 // Remaining balance for every category tracked as a loan -- mirrors the
 // per-category math on the category detail page (only payments dated after
 // loan_as_of_date count against the loan amount).
-export async function getLoanSummaries(
-  db: SQLiteDatabase
-): Promise<{ id: number; name: string; loanAmount: number; loanAsOfDate: string; remaining: number }[]> {
+// Balance, interest so far and monthly history for one tracked loan, from
+// its known balance plus every (non-ignored) payment since -- see simulateLoan.
+export async function getLoanStatus(
+  db: SQLiteDatabase,
+  categoryName: string,
+  loanAmount: number,
+  loanAsOfDate: string,
+  loanInterestRate: number | null
+): Promise<LoanStatus> {
+  const txs = await getTransactions(db, { categoryName });
+  const payments = txs.filter((t) => !t.ignored).map((t) => ({ date: t.date, amount: t.amount }));
+  return simulateLoan(loanAmount, loanAsOfDate, loanInterestRate, payments);
+}
+
+export async function getLoanSummaries(db: SQLiteDatabase): Promise<
+  {
+    id: number;
+    name: string;
+    loanAmount: number;
+    loanAsOfDate: string;
+    loanInterestRate: number | null;
+    remaining: number;
+  }[]
+> {
   const categories = await getCategories(db);
   const results = [];
   for (const c of categories) {
     if (!c.loanAmount || !c.loanAsOfDate) continue;
-    const txs = await getTransactions(db, { categoryName: c.name });
-    const paid = Math.abs(
-      txs.filter((t) => !t.ignored && t.date > c.loanAsOfDate!).reduce((sum, t) => sum + t.amount, 0)
-    );
+    const status = await getLoanStatus(db, c.name, c.loanAmount, c.loanAsOfDate, c.loanInterestRate);
     results.push({
       id: c.id,
       name: c.name,
       loanAmount: c.loanAmount,
       loanAsOfDate: c.loanAsOfDate,
-      remaining: Math.max(c.loanAmount - paid, 0),
+      loanInterestRate: c.loanInterestRate,
+      remaining: status.remaining,
     });
   }
   return results;
@@ -594,35 +621,10 @@ export async function getLoanBalanceHistory(
   db: SQLiteDatabase,
   categoryName: string,
   loanAmount: number,
-  loanAsOfDate: string
+  loanAsOfDate: string,
+  loanInterestRate: number | null = null
 ): Promise<{ month: string; remaining: number }[]> {
-  const txs = await getTransactions(db, { categoryName });
-  const payments = txs
-    .filter((t) => !t.ignored && t.date > loanAsOfDate)
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  const months: string[] = [];
-  let [y, m] = loanAsOfDate.slice(0, 7).split("-").map(Number);
-  const [endY, endM] = new Date().toISOString().slice(0, 7).split("-").map(Number);
-  while (y < endY || (y === endY && m <= endM)) {
-    months.push(`${y}-${String(m).padStart(2, "0")}`);
-    m++;
-    if (m > 12) {
-      m = 1;
-      y++;
-    }
-  }
-
-  let paidSoFar = 0;
-  let paymentIndex = 0;
-  return months.map((month) => {
-    const monthEnd = `${month}-31`;
-    while (paymentIndex < payments.length && payments[paymentIndex].date <= monthEnd) {
-      paidSoFar += Math.abs(payments[paymentIndex].amount);
-      paymentIndex++;
-    }
-    return { month, remaining: Math.max(loanAmount - paidSoFar, 0) };
-  });
+  return (await getLoanStatus(db, categoryName, loanAmount, loanAsOfDate, loanInterestRate)).history;
 }
 
 export async function deleteAssetBalance(db: SQLiteDatabase, id: number) {
@@ -1247,7 +1249,8 @@ export type DataSnapshot = {
   version: 1;
   exportedAt: string;
   accounts: { name: string; type: string }[];
-  categories: { name: string; loanAmount: number | null; loanAsOfDate: string | null }[];
+  // loanInterestRate is optional so backups from before it existed still restore.
+  categories: { name: string; loanAmount: number | null; loanAsOfDate: string | null; loanInterestRate?: number | null }[];
   merchantCategoryMap: { merchantKey: string; categoryName: string }[];
   transactions: {
     accountName: string;
@@ -1268,8 +1271,13 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
   const accounts = await db.getAllAsync<{ name: string; type: string }>(
     "SELECT name, type FROM accounts ORDER BY id"
   );
-  const categories = await db.getAllAsync<{ name: string; loanAmount: number | null; loanAsOfDate: string | null }>(
-    "SELECT name, loan_amount as loanAmount, loan_as_of_date as loanAsOfDate FROM categories ORDER BY id"
+  const categories = await db.getAllAsync<{
+    name: string;
+    loanAmount: number | null;
+    loanAsOfDate: string | null;
+    loanInterestRate: number | null;
+  }>(
+    "SELECT name, loan_amount as loanAmount, loan_as_of_date as loanAsOfDate, loan_interest_rate as loanInterestRate FROM categories ORDER BY id"
   );
   const assets = await db.getAllAsync<{ name: string; type: AssetType }>(
     "SELECT name, type FROM assets ORDER BY id"
@@ -1336,10 +1344,11 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
   const categoryIds = new Map<string, number>();
   for (const category of snapshot.categories) {
     const result = await db.runAsync(
-      "INSERT INTO categories (name, loan_amount, loan_as_of_date) VALUES (?, ?, ?)",
+      "INSERT INTO categories (name, loan_amount, loan_as_of_date, loan_interest_rate) VALUES (?, ?, ?, ?)",
       category.name,
       category.loanAmount ?? null,
-      category.loanAsOfDate ?? null
+      category.loanAsOfDate ?? null,
+      category.loanInterestRate ?? null
     );
     categoryIds.set(category.name, result.lastInsertRowId);
   }

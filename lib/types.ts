@@ -11,6 +11,8 @@ export type Category = {
   name: string;
   loanAmount: number | null;
   loanAsOfDate: string | null;
+  // Annual percentage rate, e.g. 6.5 for 6.5% -- null for no interest.
+  loanInterestRate: number | null;
   emoji: string | null;
 };
 
