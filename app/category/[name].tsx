@@ -15,12 +15,12 @@ import {
   getTransactions,
   getTransferCandidates,
   linkTransactions,
-  setCategoryLoanAmount,
+  setCategoryLoan,
   setMerchantCategory,
   setTransactionIgnored,
   unlinkTransaction,
 } from "../../lib/db";
-import type { LoanStatus } from "../../lib/loan";
+import { LOAN_KIND_ICON, LOAN_KINDS, type LoanKind, type LoanStatus } from "../../lib/loan";
 import { periodRange } from "../../lib/period";
 import { radius, spacing } from "../../lib/theme";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
@@ -63,6 +63,8 @@ export default function CategoryDrillDownScreen() {
   const [loanInput, setLoanInput] = useState("");
   const [loanDateInput, setLoanDateInput] = useState("");
   const [loanRateInput, setLoanRateInput] = useState("");
+  const [loanKindInput, setLoanKindInput] = useState<LoanKind>("Car");
+  const [loanEscrowInput, setLoanEscrowInput] = useState("");
   const [monthlyTrend, setMonthlyTrend] = useState<{ month: string; total: number }[]>([]);
   const [loanStatus, setLoanStatus] = useState<LoanStatus | null>(null);
 
@@ -70,11 +72,15 @@ export default function CategoryDrillDownScreen() {
   // Interest rate is optional: blank means no interest.
   const loanRate = loanRateInput.trim() === "" ? null : Number(loanRateInput);
   const isLoanRateValid = loanRate === null || (Number.isFinite(loanRate) && loanRate >= 0 && loanRate < 100);
+  // Escrow only applies to house loans; blank means the whole payment goes to the loan.
+  const loanEscrow = loanKindInput !== "House" || loanEscrowInput.trim() === "" ? null : Number(loanEscrowInput);
+  const isLoanEscrowValid = loanEscrow === null || (Number.isFinite(loanEscrow) && loanEscrow >= 0);
   const isLoanInputValid =
     Number.isFinite(Number(loanInput)) &&
     Number(loanInput) > 0 &&
     /^\d{4}-\d{2}-\d{2}$/.test(loanDateInput) &&
-    isLoanRateValid;
+    isLoanRateValid &&
+    isLoanEscrowValid;
   const loanHistory = loanStatus?.history ?? [];
   // Progress is how far the balance has come down, so interest added along
   // the way counts against it.
@@ -96,14 +102,32 @@ export default function CategoryDrillDownScreen() {
       setLoanStatus(null);
       return;
     }
-    getLoanStatus(db, name, category.loanAmount, category.loanAsOfDate, category.loanInterestRate).then(
-      setLoanStatus
-    );
-  }, [db, name, category?.loanAmount, category?.loanAsOfDate, category?.loanInterestRate, allTransactions]);
+    getLoanStatus(db, {
+      name,
+      loanAmount: category.loanAmount,
+      loanAsOfDate: category.loanAsOfDate,
+      loanInterestRate: category.loanInterestRate,
+      loanEscrow: category.loanEscrow,
+    }).then(setLoanStatus);
+  }, [
+    db,
+    name,
+    category?.loanAmount,
+    category?.loanAsOfDate,
+    category?.loanInterestRate,
+    category?.loanEscrow,
+    allTransactions,
+  ]);
 
   async function saveLoanAmount() {
     if (!category || !isLoanInputValid) return;
-    await setCategoryLoanAmount(db, category.id, Number(loanInput), loanDateInput, loanRate);
+    await setCategoryLoan(db, category.id, {
+      amount: Number(loanInput),
+      asOfDate: loanDateInput,
+      interestRate: loanRate,
+      kind: loanKindInput,
+      escrow: loanEscrow,
+    });
     setEditingLoan(false);
     load();
   }
@@ -152,6 +176,23 @@ export default function CategoryDrillDownScreen() {
         <View style={styles.sectionCard}>
           {editingLoan ? (
             <View style={styles.loanEditForm}>
+              <Text style={styles.loanLabel}>Type</Text>
+              <View style={styles.kindRow}>
+                {LOAN_KINDS.map((kind) => {
+                  const active = kind === loanKindInput;
+                  return (
+                    <Pressable
+                      key={kind}
+                      onPress={() => setLoanKindInput(kind)}
+                      style={[styles.kindChip, active && styles.kindChipActive]}
+                    >
+                      <Text style={[styles.kindChipText, active && styles.kindChipTextActive]}>
+                        {LOAN_KIND_ICON[kind]} {kind}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
               <Text style={styles.loanLabel}>Current balance</Text>
               <View style={styles.inputRow}>
                 <Text style={styles.dollarSign}>$</Text>
@@ -189,8 +230,28 @@ export default function CategoryDrillDownScreen() {
                 <Text style={styles.dollarSign}>%</Text>
               </View>
               <Text style={styles.loanHint}>
-                Find it on your loan statement. Leave blank to count every payment fully against the balance.
+                Find it on your loan statement. Leave blank if the loan has no interest.
               </Text>
+              {loanKindInput === "House" && (
+                <>
+                  <Text style={styles.loanLabel}>Escrow in each payment — optional</Text>
+                  <View style={styles.inputRow}>
+                    <Text style={styles.dollarSign}>$</Text>
+                    <TextInput
+                      style={[styles.inputText, { marginLeft: 4 }]}
+                      value={loanEscrowInput}
+                      onChangeText={setLoanEscrowInput}
+                      keyboardType="decimal-pad"
+                      placeholder="e.g. 450"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <Text style={styles.loanHint}>
+                    The property tax and insurance part of your monthly mortgage payment, shown on your mortgage
+                    statement. It's taken off each payment, since it doesn't pay down the loan.
+                  </Text>
+                </>
+              )}
               <View style={styles.loanEditActions}>
                 <Pressable onPress={() => setEditingLoan(false)} style={styles.cancelBtn}>
                   <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -209,12 +270,16 @@ export default function CategoryDrillDownScreen() {
           ) : category.loanAmount ? (
             <>
               <View style={styles.loanHeaderRow}>
-                <Text style={styles.loanLabel}>Remaining balance</Text>
+                <Text style={styles.loanLabel}>
+                  {LOAN_KIND_ICON[category.loanKind ?? "Car"]} Remaining balance
+                </Text>
                 <Pressable
                   onPress={() => {
                     setLoanInput(String(category.loanAmount));
                     setLoanDateInput(category.loanAsOfDate ?? todayISO());
                     setLoanRateInput(category.loanInterestRate != null ? String(category.loanInterestRate) : "");
+                    setLoanKindInput(category.loanKind ?? "Car");
+                    setLoanEscrowInput(category.loanEscrow != null ? String(category.loanEscrow) : "");
                     setEditingLoan(true);
                   }}
                 >
@@ -240,6 +305,11 @@ export default function CategoryDrillDownScreen() {
                 {Math.round(Math.min(100, Math.max(0, (paidDown / category.loanAmount) * 100)))}% paid off
                 {category.loanAsOfDate ? ` · as of ${category.loanAsOfDate}` : ""}
               </Text>
+              {category.loanEscrow ? (
+                <Text style={styles.pctLabel}>
+                  {formatMoney(category.loanEscrow)} escrow taken off each payment
+                </Text>
+              ) : null}
               {category.loanInterestRate ? (
                 <Text style={styles.pctLabel}>
                   {category.loanInterestRate}% APR · {formatMoney(loanStatus?.interestSoFar ?? 0)} interest since{" "}
@@ -266,11 +336,13 @@ export default function CategoryDrillDownScreen() {
                 setLoanInput("");
                 setLoanDateInput(todayISO());
                 setLoanRateInput("");
+                setLoanKindInput("Car");
+                setLoanEscrowInput("");
                 setEditingLoan(true);
               }}
               style={styles.trackLoanBtn}
             >
-              <Ionicons name="car-outline" size={16} color={colors.accent} />
+              <Ionicons name="cash-outline" size={16} color={colors.accent} />
               <Text style={styles.loanEditLink}>Track as a loan</Text>
             </Pressable>
           )}
@@ -359,6 +431,18 @@ function makeStyles(colors: ThemeColors) {
     loanHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
     loanLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
     loanHint: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
+    kindRow: { flexDirection: "row", gap: spacing.sm },
+    kindChip: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: 8,
+      borderRadius: 999,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+    },
+    kindChipActive: { borderColor: "#4C1D95", backgroundColor: "#EDE9FE" },
+    kindChipText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
+    kindChipTextActive: { color: "#4C1D95" },
     loanEditLink: { fontSize: 13, color: colors.accent, fontWeight: "600" },
     loanRemaining: { fontSize: 22, fontWeight: "700", color: colors.textPrimary },
     loanOfTotal: { fontSize: 14, fontWeight: "500", color: colors.textSecondary },

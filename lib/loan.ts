@@ -3,8 +3,24 @@
 // principal only -- never on unpaid interest -- and each payment covers the
 // interest owed so far before the rest comes off the principal. With no
 // rate this is just "balance minus payments", the original behavior.
+//
+// Mortgage payments usually bundle in escrow (property tax, home insurance)
+// that never touches the loan, so a fixed escrow amount is taken off each
+// payment before it's applied.
 
 export type LoanPayment = { date: string; amount: number };
+
+export const LOAN_KINDS = ["Car", "House", "Other"] as const;
+export type LoanKind = (typeof LOAN_KINDS)[number];
+export const LOAN_KIND_ICON: Record<LoanKind, string> = { Car: "🚗", House: "🏠", Other: "💳" };
+
+export type TrackedLoan = {
+  name: string;
+  loanAmount: number;
+  loanAsOfDate: string;
+  loanInterestRate: number | null;
+  loanEscrow: number | null;
+};
 
 export type LoanStatus = {
   remaining: number;
@@ -35,14 +51,10 @@ function nextMonth(month: string): string {
   return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
 }
 
-export function simulateLoan(
-  startingBalance: number,
-  asOfDate: string,
-  annualRatePercent: number | null,
-  payments: LoanPayment[],
-  today: string = localToday()
-): LoanStatus {
-  const dailyRate = annualRatePercent ? annualRatePercent / 100 / 365 : 0;
+export function simulateLoan(loan: TrackedLoan, payments: LoanPayment[], today: string = localToday()): LoanStatus {
+  const { loanAmount: startingBalance, loanAsOfDate: asOfDate, loanInterestRate, loanEscrow } = loan;
+  const dailyRate = loanInterestRate ? loanInterestRate / 100 / 365 : 0;
+  const escrow = loanEscrow ?? 0;
   const due = payments
     .filter((p) => p.date > asOfDate && p.date <= today)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -76,7 +88,7 @@ export function simulateLoan(
     const monthEnd = lastDayOfMonth(month) < today ? lastDayOfMonth(month) : today;
     while (next < due.length && due[next].date <= monthEnd) {
       accrueTo(due[next].date);
-      pay(Math.abs(due[next].amount));
+      pay(Math.max(Math.abs(due[next].amount) - escrow, 0));
       next++;
     }
     accrueTo(monthEnd);

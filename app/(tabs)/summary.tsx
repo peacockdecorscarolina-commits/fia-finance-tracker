@@ -31,12 +31,13 @@ import { radius, spacing, tabBarClearance } from "../../lib/theme";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 import { ASSET_TYPES, type Account, type AssetType, type Transaction } from "../../lib/types";
 
-const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
+const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
 const NET_WORTH_TINT: Record<AssetType, string> = {
   Savings: "#EDE9FE",
   Investment: "#DCFCE7",
   "401k": "#DBEAFE",
   Cash: "#FEF3C7",
+  Home: "#FFEDD5",
 };
 
 const HERO_GRADIENT = ["#4C1D95", "#312E81"] as const;

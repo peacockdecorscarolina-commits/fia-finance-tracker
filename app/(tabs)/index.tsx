@@ -33,10 +33,12 @@ import {
   setMerchantCategory,
   setTransactionIgnored,
   unlinkTransaction,
+  type LoanSummary,
   type MonthlyTotal,
 } from "../../lib/db";
 import { autoBackupIfStale } from "../../lib/autoBackup";
 import { downloadCsv, transactionsToCsv } from "../../lib/exportCsv";
+import { LOAN_KIND_ICON } from "../../lib/loan";
 import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/period";
 import { radius, spacing, tabBarClearance } from "../../lib/theme";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
@@ -46,7 +48,7 @@ import { ASSET_TYPES, type Account, type AssetType, type Category, type Transact
 const ACCENT = "#4C1D95";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
-const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
+const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
 const PANEL_ORDER: AssetType[] = ["Investment", "401k", "Savings", "Cash"];
 const PANEL_WIDTH = Math.min(Dimensions.get("window").width - spacing.md * 2, 420);
 
@@ -161,9 +163,7 @@ export default function TransactionsScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loans, setLoans] = useState<
-    { id: number; name: string; loanAmount: number; loanAsOfDate: string; remaining: number }[]
-  >([]);
+  const [loans, setLoans] = useState<LoanSummary[]>([]);
   const [loanHistories, setLoanHistories] = useState<Record<number, { month: string; remaining: number }[]>>({});
   const [assets, setAssets] = useState<{ id: number; name: string; type: AssetType; balance: number }[]>([]);
   const [assetHistories, setAssetHistories] = useState<Record<AssetType, { date: string; total: number }[]>>(
@@ -186,7 +186,7 @@ export default function TransactionsScreen() {
     getLoanSummaries(db).then(async (loanList) => {
       setLoans(loanList);
       const histories = await Promise.all(
-        loanList.map((l) => getLoanBalanceHistory(db, l.name, l.loanAmount, l.loanAsOfDate, l.loanInterestRate))
+        loanList.map((l) => getLoanBalanceHistory(db, l))
       );
       setLoanHistories(Object.fromEntries(loanList.map((l, i) => [l.id, histories[i]])));
     });
@@ -437,7 +437,9 @@ export default function TransactionsScreen() {
                   }
                 >
                   <View style={styles.assetPanel}>
-                    <Text style={styles.panelTitle}>🚗 {loan.name}</Text>
+                    <Text style={styles.panelTitle}>
+                      {LOAN_KIND_ICON[loan.loanKind ?? "Car"]} {loan.name}
+                    </Text>
                     <Text style={[styles.panelValue, { color: "#DC2626" }]}>{formatMoney(loan.remaining)}</Text>
                     <Text style={styles.panelDelta}>owed</Text>
                     <View style={styles.progressTrack}>

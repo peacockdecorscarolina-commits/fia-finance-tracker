@@ -3,10 +3,19 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { AnimatedAmount } from "../components/AnimatedAmount";
 import { LineChart } from "../components/LineChart";
-import { addAssetBalance, getAllAssetsHistory, getAssetBalances, getAssets, insertAsset } from "../lib/db";
+import {
+  addAssetBalance,
+  getAllAssetsHistory,
+  getAssetBalances,
+  getAssets,
+  getLoanSummaries,
+  getSetting,
+  insertAsset,
+  setSetting,
+} from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 import { ASSET_TYPES, type Asset, type AssetType } from "../lib/types";
@@ -26,12 +35,15 @@ function formatChartDate(date: string): string {
   return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
 }
 
-const TYPE_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
+const INCLUDE_HOME_EQUITY_KEY = "include_home_equity";
+
+const TYPE_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
 const TYPE_TINT: Record<AssetType, string> = {
   Savings: "#EDE9FE",
   Investment: "#DCFCE7",
   "401k": "#DBEAFE",
   Cash: "#FEF3C7",
+  Home: "#FFEDD5",
 };
 
 type AssetWithHistory = Asset & { balance: number; history: number[] };
@@ -70,6 +82,10 @@ export default function AssetsScreen() {
   const [newType, setNewType] = useState<AssetType>("Savings");
   const [newBalance, setNewBalance] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [houseLoansOwed, setHouseLoansOwed] = useState(0);
+  // Off by default: a house isn't money you can spend, so it only joins the
+  // total when the user asks for it.
+  const [includeHomeEquity, setIncludeHomeEquity] = useState(false);
 
   const load = useCallback(() => {
     getAssets(db).then(async (list) => {
@@ -83,8 +99,17 @@ export default function AssetsScreen() {
       setAssets(withHistory);
       setLoading(false);
     });
-    getAllAssetsHistory(db).then(setTotalHistory);
+    getAllAssetsHistory(db, ["Home"]).then(setTotalHistory);
+    getLoanSummaries(db).then((loans) =>
+      setHouseLoansOwed(loans.filter((l) => l.loanKind === "House").reduce((sum, l) => sum + l.remaining, 0))
+    );
+    getSetting(db, INCLUDE_HOME_EQUITY_KEY).then((v) => setIncludeHomeEquity(v === "1"));
   }, [db]);
+
+  async function toggleHomeEquity(value: boolean) {
+    setIncludeHomeEquity(value);
+    await setSetting(db, INCLUDE_HOME_EQUITY_KEY, value ? "1" : "0");
+  }
 
   useFocusEffect(load);
 
@@ -134,9 +159,16 @@ export default function AssetsScreen() {
     );
   }
 
-  const total = assets.reduce((sum, a) => sum + a.balance, 0);
-  const totalFirst = assets.reduce((sum, a) => sum + (a.history[0] ?? a.balance), 0);
-  const totalDelta = total - totalFirst;
+  const savings = assets.filter((a) => a.type !== "Home");
+  const savingsTotal = savings.reduce((sum, a) => sum + a.balance, 0);
+  const homeValue = assets.filter((a) => a.type === "Home").reduce((sum, a) => sum + a.balance, 0);
+  const hasHome = assets.some((a) => a.type === "Home");
+  const homeEquity = homeValue - houseLoansOwed;
+  const equityIncluded = hasHome && includeHomeEquity;
+  const total = savingsTotal + (equityIncluded ? homeEquity : 0);
+  // "Since first entry" stays about savings -- a home's value isn't growth you saved.
+  const totalFirst = savings.reduce((sum, a) => sum + (a.history[0] ?? a.balance), 0);
+  const totalDelta = savingsTotal - totalFirst;
   const totalPct = totalFirst !== 0 ? (totalDelta / totalFirst) * 100 : 0;
 
   const groups = ASSET_TYPES.map((type) => ({
@@ -157,8 +189,15 @@ export default function AssetsScreen() {
 
         {!loading && assets.length > 0 && (
           <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-            <Text style={styles.heroLabel}>Total savings & investments</Text>
+            <Text style={styles.heroLabel}>
+              {equityIncluded ? "Total incl. home equity" : "Total savings & investments"}
+            </Text>
             <AnimatedAmount value={total} style={styles.heroValue} prefix="$" />
+            {equityIncluded && (
+              <Text style={styles.heroDeltaSub}>
+                {formatMoney(savingsTotal)} savings & investments + {formatMoney(homeEquity)} home equity
+              </Text>
+            )}
             {totalFirst > 0 && (
               <View style={styles.heroDeltaPill}>
                 <Text style={[styles.heroDeltaText, { color: totalDelta >= 0 ? "#86EFAC" : "#FCA5A5" }]}>
@@ -190,7 +229,7 @@ export default function AssetsScreen() {
                 style={styles.inputText}
                 value={newName}
                 onChangeText={setNewName}
-                placeholder="e.g. Ally Savings"
+                placeholder={newType === "Home" ? "e.g. Our house" : "e.g. Ally Savings"}
                 placeholderTextColor={colors.textSecondary}
                 autoFocus
               />
@@ -211,7 +250,7 @@ export default function AssetsScreen() {
                 );
               })}
             </View>
-            <Text style={styles.fieldLabel}>Current balance</Text>
+            <Text style={styles.fieldLabel}>{newType === "Home" ? "Estimated value" : "Current balance"}</Text>
             <View style={styles.inputRow}>
               <Text style={styles.dollarSign}>$</Text>
               <TextInput
@@ -276,6 +315,36 @@ export default function AssetsScreen() {
                     />
                   </Pressable>
                   {!isCollapsed && group.items.map((a) => <AssetRow key={a.id} asset={a} />)}
+                  {group.type === "Home" && (
+                    <View style={styles.equityBox}>
+                      <View style={styles.equityRow}>
+                        <Text style={styles.equityLabel}>Home value</Text>
+                        <Text style={styles.equityValue}>{formatMoney(homeValue)}</Text>
+                      </View>
+                      <View style={styles.equityRow}>
+                        <Text style={styles.equityLabel}>Owed on house loans</Text>
+                        <Text style={[styles.equityValue, { color: "#DC2626" }]}>−{formatMoney(houseLoansOwed)}</Text>
+                      </View>
+                      <View style={[styles.equityRow, styles.equityTotalRow]}>
+                        <Text style={styles.equityTotalLabel}>Equity</Text>
+                        <Text style={styles.equityTotalValue}>{formatMoney(homeEquity)}</Text>
+                      </View>
+                      <View style={styles.equityRow}>
+                        <Text style={[styles.equityLabel, { flex: 1 }]}>Include home equity in total</Text>
+                        <Switch
+                          value={includeHomeEquity}
+                          onValueChange={toggleHomeEquity}
+                          trackColor={{ true: ACCENT, false: colors.border }}
+                          thumbColor="#FFFFFF"
+                        />
+                      </View>
+                      {houseLoansOwed === 0 && (
+                        <Text style={styles.equityHint}>
+                          {"Track your mortgage as a 🏠 House loan (on its category's page) and it's subtracted here."}
+                        </Text>
+                      )}
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -357,7 +426,7 @@ function makeStyles(colors: ThemeColors) {
     typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
     typeTile: {
       flexGrow: 1,
-      flexBasis: "22%",
+      flexBasis: "30%",
       alignItems: "center",
       gap: 4,
       backgroundColor: colors.card,
@@ -396,6 +465,14 @@ function makeStyles(colors: ThemeColors) {
     emptyTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary, textAlign: "center" },
     emptySubtitle: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
     groupHeaderRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    equityBox: { gap: spacing.xs, backgroundColor: colors.background, borderRadius: radius.chip, padding: spacing.sm },
+    equityRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+    equityTotalRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
+    equityLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: "600" },
+    equityValue: { fontSize: 13, color: colors.textPrimary, fontWeight: "700" },
+    equityTotalLabel: { fontSize: 14, color: colors.textPrimary, fontWeight: "700" },
+    equityTotalValue: { fontSize: 14, color: colors.textPrimary, fontWeight: "800" },
+    equityHint: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
     groupIcon: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
     groupHeader: { flex: 1, fontSize: 14, fontWeight: "700", color: colors.textPrimary },
     groupSubtotal: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
