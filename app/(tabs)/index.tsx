@@ -48,7 +48,7 @@ import { ASSET_TYPES, type Account, type AssetType, type Category, type Transact
 const ACCENT = "#4C1D95";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
-const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵" };
+const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
 const PANEL_ORDER: AssetType[] = ["Investment", "401k", "Savings", "Cash"];
 const PANEL_WIDTH = Math.min(Dimensions.get("window").width - spacing.md * 2, 420);
 

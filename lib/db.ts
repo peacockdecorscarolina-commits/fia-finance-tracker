@@ -568,8 +568,11 @@ export async function getAssetTypeHistory(
 
 // Combined balance-over-time across every asset regardless of type -- powers
 // the total savings & investments trend chart.
-export async function getAllAssetsHistory(db: SQLiteDatabase): Promise<{ date: string; total: number }[]> {
-  const assets = await getAssets(db);
+export async function getAllAssetsHistory(
+  db: SQLiteDatabase,
+  excludeTypes: AssetType[] = []
+): Promise<{ date: string; total: number }[]> {
+  const assets = (await getAssets(db)).filter((a) => !excludeTypes.includes(a.type));
   if (assets.length === 0) return [];
 
   const latestPerAsset = new Map<number, number>();

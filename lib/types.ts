@@ -52,7 +52,9 @@ export type ExtractedTransaction = {
   needsReview: boolean;
 };
 
-export const ASSET_TYPES = ["Savings", "Investment", "401k", "Cash"] as const;
+// "Home" is a property's estimated value -- kept out of the savings totals,
+// optionally counted as equity (value minus house loans) on Savings & Investments.
+export const ASSET_TYPES = ["Savings", "Investment", "401k", "Cash", "Home"] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 
 export type Asset = {
