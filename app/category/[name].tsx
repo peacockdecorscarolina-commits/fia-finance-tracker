@@ -46,7 +46,14 @@ const TREND_MONTHS = 6;
 export default function CategoryDrillDownScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { name, month } = useLocalSearchParams<{ name: string; month: string }>();
+  // Either `month` ("YYYY-MM", or "YYYY" from Summary's Year view) or an
+  // explicit start/end (Home's Week/Month/Year periods). Neither = all time.
+  const { name, month, start: startParam, end: endParam } = useLocalSearchParams<{
+    name: string;
+    month?: string;
+    start?: string;
+    end?: string;
+  }>();
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -69,13 +76,13 @@ export default function CategoryDrillDownScreen() {
     : 0;
 
   const load = useCallback(() => {
-    // `month` is "YYYY" when opened from Summary's Year view.
-    const { start, end } = periodRange(month);
+    const { start, end } =
+      startParam && endParam ? { start: startParam, end: endParam } : month ? periodRange(month) : {};
     getTransactions(db, { categoryName: name, start, end }).then(setTransactions);
     getTransactions(db, { categoryName: name }).then(setAllTransactions);
     getCategories(db).then(setCategories);
     if (name) getCategoryMonthlyTotals(db, name, TREND_MONTHS).then(setMonthlyTrend);
-  }, [db, name, month]);
+  }, [db, name, month, startParam, endParam]);
 
   useFocusEffect(load);
 

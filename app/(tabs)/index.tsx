@@ -5,6 +5,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Dimensions, FlatList, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
+import { DataSafetyBanner } from "../../components/DataSafetyBanner";
 import { EmptyState } from "../../components/EmptyState";
 import { Greeting } from "../../components/Greeting";
 import { LineChart } from "../../components/LineChart";
@@ -34,6 +35,7 @@ import {
   unlinkTransaction,
   type MonthlyTotal,
 } from "../../lib/db";
+import { autoBackupIfStale } from "../../lib/autoBackup";
 import { downloadCsv, transactionsToCsv } from "../../lib/exportCsv";
 import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/period";
 import { radius, spacing, tabBarClearance } from "../../lib/theme";
@@ -180,6 +182,7 @@ export default function TransactionsScreen() {
 
     getAccounts(db).then(setAccounts);
     getCategories(db).then(setCategories);
+    autoBackupIfStale(db);
     getLoanSummaries(db).then(async (loanList) => {
       setLoans(loanList);
       const histories = await Promise.all(
@@ -284,6 +287,8 @@ export default function TransactionsScreen() {
           </Pressable>
         </View>
       </View>
+
+      <DataSafetyBanner />
 
       {/* New users start with no accounts -- point them at the first step. */}
       {!loading && accounts.length === 0 && (
@@ -423,7 +428,12 @@ export default function TransactionsScreen() {
                   key={`loan-${loan.id}`}
                   style={{ width: PANEL_WIDTH }}
                   onPress={() =>
-                    router.push({ pathname: "/category/[name]", params: { name: loan.name, month: selectedMonth ?? period } })
+                    router.push({
+                      pathname: "/category/[name]",
+                      params: selectedMonth
+                        ? { name: loan.name, month: selectedMonth }
+                        : { name: loan.name, ...getPeriodRange(period) },
+                    })
                   }
                 >
                   <View style={styles.assetPanel}>

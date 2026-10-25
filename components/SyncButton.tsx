@@ -3,8 +3,8 @@ import { router } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, type StyleProp, type ViewStyle } from "react-native";
+import { backupNow } from "../lib/autoBackup";
 import { isSignedIn } from "../lib/googleAuth";
-import { backupToDrive } from "../lib/googleDrive";
 import { useTheme } from "../lib/ThemeContext";
 
 const SUCCESS = "#16A34A";
@@ -44,7 +44,7 @@ export function SyncButton({ style }: { style?: StyleProp<ViewStyle> }) {
     }
     setState("busy");
     try {
-      await backupToDrive(db);
+      await backupNow(db);
       showResult("done");
     } catch (err) {
       showResult("error");

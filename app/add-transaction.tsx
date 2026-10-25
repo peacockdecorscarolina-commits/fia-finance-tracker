@@ -8,6 +8,7 @@ import { formatAmount } from "../components/AmountText";
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import { formatMerchantName } from "../lib/formatMerchant";
+import { autoBackup } from "../lib/autoBackup";
 import { getAccounts, getCategories, getDuplicateLookup, insertCategory, insertManualTransaction } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Account, Category, Transaction } from "../lib/types";
@@ -94,6 +95,7 @@ export default function AddTransactionScreen() {
       amount: isExpense ? -amount : amount,
       categoryId,
     });
+    autoBackup(db);
     setSaved(true);
     setAmountText("");
     getDuplicateLookup(db, accountId).then(setDuplicateLookup);

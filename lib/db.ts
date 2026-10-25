@@ -171,20 +171,25 @@ export async function initDatabase(db: SQLiteDatabase) {
   // cards, rather than inheriting a hard-coded list.
 }
 
+// Small key/value store for per-device preferences. null = never set.
+export async function getSetting(db: SQLiteDatabase, key: string): Promise<string | null> {
+  const row = await db.getFirstAsync<{ value: string | null }>("SELECT value FROM settings WHERE key = ?", key);
+  return row ? (row.value ?? "") : null;
+}
+
+export async function setSetting(db: SQLiteDatabase, key: string, value: string) {
+  await db.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, value);
+}
+
 const USER_NAME_KEY = "user_name";
 
 // null = never asked (show the welcome prompt); "" = they chose to skip it.
 export async function getUserName(db: SQLiteDatabase): Promise<string | null> {
-  const row = await db.getFirstAsync<{ value: string | null }>("SELECT value FROM settings WHERE key = ?", USER_NAME_KEY);
-  return row ? (row.value ?? "") : null;
+  return getSetting(db, USER_NAME_KEY);
 }
 
 export async function setUserName(db: SQLiteDatabase, name: string) {
-  await db.runAsync(
-    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-    USER_NAME_KEY,
-    name.trim()
-  );
+  await setSetting(db, USER_NAME_KEY, name.trim());
 }
 
 export async function getCategories(db: SQLiteDatabase): Promise<Category[]> {
