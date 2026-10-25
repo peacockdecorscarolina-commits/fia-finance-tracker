@@ -6,6 +6,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Dimensions, FlatList, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { EmptyState } from "../../components/EmptyState";
+import { Greeting } from "../../components/Greeting";
 import { LineChart } from "../../components/LineChart";
 import { MiniSparkline } from "../../components/MiniSparkline";
 import { MonthlyBarChart } from "../../components/MonthlyBarChart";
@@ -61,13 +62,6 @@ function formatMonthLabel(month: string): string {
 function formatChartMonth(date: string): string {
   const [year, m] = date.split("-").map(Number);
   return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
-}
-
-function greeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
 }
 
 type MoreItem = { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void };
@@ -271,10 +265,7 @@ export default function TransactionsScreen() {
   const listHeader = (
     <>
       <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.greetingSmall}>{greeting()},</Text>
-          <Text style={styles.greetingName}>Zaighum 👋</Text>
-        </View>
+        <Greeting />
         <View style={styles.headerIcons}>
           <Pressable onPress={toggleTheme} style={styles.headerIconBtn}>
             <Ionicons name={mode === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.textPrimary} />
@@ -293,6 +284,24 @@ export default function TransactionsScreen() {
           </Pressable>
         </View>
       </View>
+
+      {/* New users start with no accounts -- point them at the first step. */}
+      {!loading && accounts.length === 0 && (
+        <PressScale onPress={() => router.push("/accounts")}>
+          <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.getStarted}>
+            <View style={styles.getStartedIcon}>
+              <Ionicons name="card-outline" size={20} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.getStartedTitle}>Add your first card</Text>
+              <Text style={styles.getStartedText}>
+                Add the cards and bank accounts you want to track, then upload a statement for each.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#FFFFFFCC" />
+          </LinearGradient>
+        </PressScale>
+      )}
 
       <SegmentedControl options={PERIODS} value={period} onChange={setPeriod} />
 
@@ -566,8 +575,6 @@ function makeStyles(colors: ThemeColors) {
     alignItems: "flex-start",
     marginBottom: spacing.md,
   },
-  greetingSmall: { fontSize: 14, color: colors.textSecondary },
-  greetingName: { fontSize: 22, fontWeight: "700", color: colors.textPrimary },
   headerIcons: { flexDirection: "row", gap: spacing.sm },
   headerIconBtn: {
     width: 40,
@@ -599,6 +606,24 @@ function makeStyles(colors: ThemeColors) {
     borderRadius: radius.card,
   },
   statRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+  getStarted: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: radius.card,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  getStartedIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF26",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  getStartedTitle: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
+  getStartedText: { fontSize: 12, color: "#FFFFFFCC", marginTop: 2, lineHeight: 17 },
   statBox: {
     flex: 1,
     backgroundColor: colors.card,

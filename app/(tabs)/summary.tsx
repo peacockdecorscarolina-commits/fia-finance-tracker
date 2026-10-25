@@ -5,6 +5,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EmptyState } from "../../components/EmptyState";
+import { Greeting } from "../../components/Greeting";
 import { SegmentedControl } from "../../components/SegmentedControl";
 import { SyncButton } from "../../components/SyncButton";
 import { getAccountCardColor } from "../../lib/accountStyle";
@@ -69,13 +70,6 @@ function monthsBetween(newest: string, oldest: string): string[] {
   const list: string[] = [];
   for (let m = newest; m >= oldest; m = shiftMonth(m, -1)) list.push(m);
   return list;
-}
-
-function greeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
 }
 
 const DONUT_SIZE = 140;
@@ -348,10 +342,7 @@ export default function SummaryScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.greetingSmall}>{greeting()},</Text>
-            <Text style={styles.greetingName}>Zaighum 👋</Text>
-          </View>
+          <Greeting />
           <View style={styles.headerIcons}>
             <Pressable onPress={toggleTheme} style={styles.headerIconBtn}>
               <Ionicons name={mode === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.textPrimary} />
@@ -627,8 +618,6 @@ function makeStyles(colors: ThemeColors) {
     paddingBottom: tabBarClearance,
   },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  greetingSmall: { fontSize: 14, color: colors.textSecondary },
-  greetingName: { fontSize: 22, fontWeight: "700", color: colors.textPrimary },
   headerIcons: { flexDirection: "row", gap: spacing.sm },
   headerIconBtn: {
     width: 40,
