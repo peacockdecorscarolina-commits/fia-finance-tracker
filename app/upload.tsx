@@ -4,13 +4,15 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { formatAmount } from "../components/AmountText";
 import { PdfTextExtractor, type PdfTextExtractorHandle } from "../components/PdfTextExtractor";
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
+import { autoBackup } from "../lib/autoBackup";
 import { getAccounts, getDuplicateLookup, insertExtractedTransactions, setAccountBalanceCheckpoint } from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
+import { csvLooksReversed, parseCsv } from "../lib/parseCsv";
 import { findStatementEndingBalance, parseStatement } from "../lib/parseStatement";
 import { radius, spacing } from "../lib/theme";
 import type { Account, ExtractedTransaction, Transaction } from "../lib/types";
@@ -26,6 +28,13 @@ const GRADIENT = ["#4C1D95", "#312E81"] as const;
 // a statement older than that is unlikely to be uploaded.
 const THIS_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = ["Auto", THIS_YEAR, THIS_YEAR - 1, THIS_YEAR - 2] as const;
+
+// Where "Report this bank" emails go. Empty hides the link.
+const SUPPORT_EMAIL = "";
+
+function negateAll(rows: ExtractedTransaction[]): ExtractedTransaction[] {
+  return rows.map((t) => ({ ...t, amount: -t.amount }));
+}
 
 export default function UploadScreen() {
   const { colors } = useTheme();
@@ -46,6 +55,10 @@ export default function UploadScreen() {
   // Kept so changing the year on the preview re-reads the dates without
   // extracting the PDF again.
   const statementTextRef = useRef<string | null>(null);
+  // A CSV export from the bank instead of a PDF statement -- the fallback
+  // for banks the PDF reader doesn't understand yet.
+  const [isCsv, setIsCsv] = useState(false);
+  const [signsFlipped, setSignsFlipped] = useState(false);
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null;
 
@@ -59,9 +72,13 @@ export default function UploadScreen() {
   );
 
   async function pickFile() {
-    const result = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
+    const result = await DocumentPicker.getDocumentAsync({
+      // Windows reports .csv files as application/vnd.ms-excel.
+      type: ["application/pdf", "text/csv", "text/comma-separated-values", "application/vnd.ms-excel"],
+    });
     if (result.canceled) return;
     const file = result.assets[0];
+    setIsCsv(/\.csv$/i.test(file.name) || /csv/i.test(file.mimeType ?? ""));
     setFileName(file.name);
     setFileUri(file.uri);
     setStatus("idle");
@@ -72,6 +89,19 @@ export default function UploadScreen() {
     setStatus("processing");
     setError(null);
     try {
+      if (isCsv) {
+        const csvText = await (await fetch(fileUri)).text();
+        const parsed = parseCsv(csvText);
+        // Stored as purchase = negative; flip files that write purchases as +.
+        const reversed = csvLooksReversed(parsed);
+        statementTextRef.current = null;
+        setSignsFlipped(reversed);
+        setExtracted(reversed ? negateAll(parsed) : parsed);
+        setDuplicateLookup(await getDuplicateLookup(db, accountId));
+        setEndingBalance(null);
+        setStatus("preview");
+        return;
+      }
       const text = await extractorRef.current.extractText(fileUri);
       statementTextRef.current = text;
       const year = statementYear === "Auto" ? undefined : statementYear;
@@ -84,7 +114,7 @@ export default function UploadScreen() {
       setEndingBalance(findStatementEndingBalance(text, year));
       setStatus("preview");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to read that PDF.");
+      setError(err instanceof Error ? err.message : "Failed to read that file.");
       setStatus("idle");
     }
   }
@@ -96,6 +126,11 @@ export default function UploadScreen() {
     const year = option === "Auto" ? undefined : option;
     setExtracted(parseStatement(text, year));
     setEndingBalance(findStatementEndingBalance(text, year));
+  }
+
+  function flipSigns() {
+    setExtracted(negateAll(extracted));
+    setSignsFlipped(!signsFlipped);
   }
 
   function getDuplicateMatch(t: ExtractedTransaction): Transaction | undefined {
@@ -110,6 +145,7 @@ export default function UploadScreen() {
     if (endingBalance) {
       await setAccountBalanceCheckpoint(db, accountId, endingBalance.balance, endingBalance.date);
     }
+    autoBackup(db);
     setStatus("saved");
     setFileName(null);
     setFileUri(null);
@@ -125,6 +161,8 @@ export default function UploadScreen() {
     setDuplicateLookup(new Map());
     setEndingBalance(null);
     statementTextRef.current = null;
+    setIsCsv(false);
+    setSignsFlipped(false);
     setConfirmingSave(false);
   }
 
@@ -182,30 +220,37 @@ export default function UploadScreen() {
             })}
           </View>
 
-          <Text style={styles.sectionTitle}>Statement year</Text>
-          <View style={styles.chipRow}>
-            {YEAR_OPTIONS.map((option) => {
-              const active = option === statementYear;
-              return (
-                <Pressable
-                  key={option}
-                  onPress={() => changeStatementYear(option)}
-                  style={[styles.accountChip, active && styles.accountChipActive]}
-                >
-                  <Text style={[styles.accountChipText, active && styles.accountChipTextActive]}>{option}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={styles.yearHint}>
-            For statements that don't print the year. A January statement's December dates go to the year before.
-          </Text>
+          {!isCsv && (
+            <>
+              <Text style={styles.sectionTitle}>Statement year</Text>
+              <View style={styles.chipRow}>
+                {YEAR_OPTIONS.map((option) => {
+                  const active = option === statementYear;
+                  return (
+                    <Pressable
+                      key={option}
+                      onPress={() => changeStatementYear(option)}
+                      style={[styles.accountChip, active && styles.accountChipActive]}
+                    >
+                      <Text style={[styles.accountChipText, active && styles.accountChipTextActive]}>{option}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={styles.yearHint}>
+                For statements that don't print the year. A January statement's December dates go to the year before.
+              </Text>
+            </>
+          )}
 
-          <Text style={styles.sectionTitle}>Statement PDF</Text>
+          <Text style={styles.sectionTitle}>Statement file</Text>
           <Pressable style={styles.pickButton} onPress={pickFile}>
             <Ionicons name="document-attach-outline" size={18} color={colors.accent} />
-            <Text style={styles.pickButtonText}>{fileName ?? "Choose a PDF file"}</Text>
+            <Text style={styles.pickButtonText}>{fileName ?? "Choose a PDF or CSV file"}</Text>
           </Pressable>
+          <Text style={styles.yearHint}>
+            A PDF statement, or the CSV file from your bank's "Download transactions" option.
+          </Text>
 
           {status !== "preview" && status !== "saved" && (
             <Pressable
@@ -249,10 +294,24 @@ export default function UploadScreen() {
 
         {status === "preview" && (
           <View style={styles.sectionCard}>
-            <Text style={styles.previewTitle}>
-              Found {extracted.length} transactions for {selectedAccount?.name ?? "this account"} — review, then
-              save
-            </Text>
+            {extracted.length > 0 && (
+              <Text style={styles.previewTitle}>
+                Found {extracted.length} transactions for {selectedAccount?.name ?? "this account"} — review, then
+                save
+              </Text>
+            )}
+            {isCsv && extracted.length > 0 && (
+              <View style={styles.flipRow}>
+                <Text style={styles.flipText}>
+                  {signsFlipped ? "Flipped + and − to match this app. " : ""}Purchases should be red (−) and
+                  payments green (+). Wrong way round?
+                </Text>
+                <Pressable onPress={flipSigns} style={styles.flipBtn}>
+                  <Ionicons name="swap-vertical" size={14} color={ACCENT} />
+                  <Text style={styles.flipBtnText}>Flip</Text>
+                </Pressable>
+              </View>
+            )}
             {duplicateCount > 0 && (
               <View style={styles.dupBanner}>
                 <Ionicons name="warning-outline" size={16} color="#B45309" />
@@ -310,7 +369,36 @@ export default function UploadScreen() {
                 </View>
               );
             })}
-            {!confirmingSave ? (
+            {extracted.length === 0 ? (
+              <View style={styles.noResults}>
+                <Ionicons name="document-text-outline" size={28} color={colors.textSecondary} />
+                <Text style={styles.noResultsTitle}>No transactions found</Text>
+                <Text style={styles.noResultsText}>
+                  {isCsv
+                    ? "This file doesn't look like a list of transactions. Look for a Date, Description and Amount column in it."
+                    : "We can't read this bank's statement format yet. Most banks let you download your transactions as a CSV file instead. Look for \"Download\" or \"Export\" on your bank's website, then upload that file here."}
+                </Text>
+                <View style={styles.previewActions}>
+                  <Pressable onPress={reset} style={[styles.cancelBtn, styles.noResultsBtn]}>
+                    <Text style={styles.cancelBtnText}>Choose another file</Text>
+                  </Pressable>
+                  {SUPPORT_EMAIL !== "" && !isCsv && (
+                    <Pressable
+                      onPress={() =>
+                        Linking.openURL(
+                          `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
+                            `Bank not supported: ${selectedAccount?.name ?? ""}`
+                          )}&body=${encodeURIComponent("Which bank is this statement from?\n\n")}`
+                        )
+                      }
+                      style={[styles.cancelBtn, styles.noResultsBtn]}
+                    >
+                      <Text style={styles.cancelBtnText}>Report this bank</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            ) : !confirmingSave ? (
               <View style={styles.previewActions}>
                 <Pressable onPress={reset} style={styles.cancelBtn}>
                   <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -478,6 +566,29 @@ function makeStyles(colors: ThemeColors) {
   reviewChipText: { fontSize: 11, fontWeight: "600", color: "#B45309" },
   previewAmount: { fontSize: 13, fontWeight: "700" },
   previewActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+  flipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: ACCENT_LIGHT,
+    borderRadius: radius.chip,
+    padding: spacing.sm,
+  },
+  flipText: { flex: 1, fontSize: 12, color: ACCENT, fontWeight: "600" },
+  flipBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.card,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  flipBtnText: { fontSize: 12, fontWeight: "700", color: ACCENT },
+  noResults: { alignItems: "center", gap: spacing.xs, paddingVertical: spacing.sm },
+  noResultsTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
+  noResultsText: { fontSize: 13, color: colors.textSecondary, textAlign: "center", lineHeight: 19 },
+  noResultsBtn: { paddingVertical: 12 },
   cancelBtn: {
     flex: 1,
     alignItems: "center",

@@ -4,7 +4,8 @@ import { router } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { backupToDrive, restoreFromDrive } from "../lib/googleDrive";
+import { backupNow, markDriveSynced } from "../lib/autoBackup";
+import { restoreFromDrive } from "../lib/googleDrive";
 import { isSignedIn, signIn, signOut } from "../lib/googleAuth";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -41,7 +42,7 @@ export default function SyncScreen() {
   async function handleBackup() {
     setStatus({ kind: "busy", label: "Backing up..." });
     try {
-      await backupToDrive(db);
+      await backupNow(db);
       setStatus({ kind: "done", message: "Backed up to Google Drive." });
     } catch (err) {
       setStatus({ kind: "error", message: err instanceof Error ? err.message : "Backup failed." });
@@ -52,6 +53,7 @@ export default function SyncScreen() {
     setStatus({ kind: "busy", label: "Restoring..." });
     try {
       const { exportedAt } = await restoreFromDrive(db);
+      await markDriveSynced(db);
       setStatus({
         kind: "done",
         message: `Restored backup from ${new Date(exportedAt).toLocaleString()}.`,
@@ -80,7 +82,8 @@ export default function SyncScreen() {
           </View>
           <Text style={styles.heroText}>
             Back up your data to a hidden file in your own Google Drive, and restore it if this
-            device's data is ever missing. Only this app can see that file.
+            device's data is ever missing. Only this app can see that file. After your first backup
+            or restore here, the app also backs up on its own whenever you add transactions.
           </Text>
         </LinearGradient>
 
