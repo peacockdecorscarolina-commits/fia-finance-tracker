@@ -87,6 +87,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (Platform.OS === "web") {
+      // The page behind the app shows through any gap iOS leaves at the
+      // screen edges (see the --app-height script in patch-web-html.js);
+      // matching it to the theme keeps that from reading as a white bar.
+      const background = (mode === "dark" ? DARK : LIGHT).background;
+      document.documentElement.style.backgroundColor = background;
+      document.body.style.backgroundColor = background;
       try {
         window.localStorage.setItem(STORAGE_KEY, mode);
       } catch {
