@@ -11,7 +11,7 @@ import {
   deleteTransaction,
   getCategories,
   getCategoryMonthlyTotals,
-  getLoanBalanceHistory,
+  getLoanStatus,
   getTransactions,
   getTransferCandidates,
   linkTransactions,
@@ -20,6 +20,7 @@ import {
   setTransactionIgnored,
   unlinkTransaction,
 } from "../../lib/db";
+import type { LoanStatus } from "../../lib/loan";
 import { periodRange } from "../../lib/period";
 import { radius, spacing } from "../../lib/theme";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
@@ -61,19 +62,23 @@ export default function CategoryDrillDownScreen() {
   const [editingLoan, setEditingLoan] = useState(false);
   const [loanInput, setLoanInput] = useState("");
   const [loanDateInput, setLoanDateInput] = useState("");
+  const [loanRateInput, setLoanRateInput] = useState("");
   const [monthlyTrend, setMonthlyTrend] = useState<{ month: string; total: number }[]>([]);
-  const [loanHistory, setLoanHistory] = useState<{ month: string; remaining: number }[]>([]);
+  const [loanStatus, setLoanStatus] = useState<LoanStatus | null>(null);
 
   const category = categories.find((c) => c.name === name) ?? null;
+  // Interest rate is optional: blank means no interest.
+  const loanRate = loanRateInput.trim() === "" ? null : Number(loanRateInput);
+  const isLoanRateValid = loanRate === null || (Number.isFinite(loanRate) && loanRate >= 0 && loanRate < 100);
   const isLoanInputValid =
-    Number.isFinite(Number(loanInput)) && Number(loanInput) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(loanDateInput);
-  const paidSoFar = category?.loanAsOfDate
-    ? Math.abs(
-        allTransactions
-          .filter((t) => !t.ignored && t.date > category.loanAsOfDate!)
-          .reduce((sum, t) => sum + t.amount, 0)
-      )
-    : 0;
+    Number.isFinite(Number(loanInput)) &&
+    Number(loanInput) > 0 &&
+    /^\d{4}-\d{2}-\d{2}$/.test(loanDateInput) &&
+    isLoanRateValid;
+  const loanHistory = loanStatus?.history ?? [];
+  // Progress is how far the balance has come down, so interest added along
+  // the way counts against it.
+  const paidDown = category?.loanAmount && loanStatus ? category.loanAmount - loanStatus.remaining : 0;
 
   const load = useCallback(() => {
     const { start, end } =
@@ -88,15 +93,17 @@ export default function CategoryDrillDownScreen() {
 
   useEffect(() => {
     if (!name || !category?.loanAmount || !category.loanAsOfDate) {
-      setLoanHistory([]);
+      setLoanStatus(null);
       return;
     }
-    getLoanBalanceHistory(db, name, category.loanAmount, category.loanAsOfDate).then(setLoanHistory);
-  }, [db, name, category?.loanAmount, category?.loanAsOfDate]);
+    getLoanStatus(db, name, category.loanAmount, category.loanAsOfDate, category.loanInterestRate).then(
+      setLoanStatus
+    );
+  }, [db, name, category?.loanAmount, category?.loanAsOfDate, category?.loanInterestRate, allTransactions]);
 
   async function saveLoanAmount() {
     if (!category || !isLoanInputValid) return;
-    await setCategoryLoanAmount(db, category.id, Number(loanInput), loanDateInput);
+    await setCategoryLoanAmount(db, category.id, Number(loanInput), loanDateInput, loanRate);
     setEditingLoan(false);
     load();
   }
@@ -169,6 +176,21 @@ export default function CategoryDrillDownScreen() {
                   placeholderTextColor={colors.textSecondary}
                 />
               </View>
+              <Text style={styles.loanLabel}>Interest rate (APR) — optional</Text>
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={styles.inputText}
+                  value={loanRateInput}
+                  onChangeText={setLoanRateInput}
+                  keyboardType="decimal-pad"
+                  placeholder="e.g. 6.49"
+                  placeholderTextColor={colors.textSecondary}
+                />
+                <Text style={styles.dollarSign}>%</Text>
+              </View>
+              <Text style={styles.loanHint}>
+                Find it on your loan statement. Leave blank to count every payment fully against the balance.
+              </Text>
               <View style={styles.loanEditActions}>
                 <Pressable onPress={() => setEditingLoan(false)} style={styles.cancelBtn}>
                   <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -192,6 +214,7 @@ export default function CategoryDrillDownScreen() {
                   onPress={() => {
                     setLoanInput(String(category.loanAmount));
                     setLoanDateInput(category.loanAsOfDate ?? todayISO());
+                    setLoanRateInput(category.loanInterestRate != null ? String(category.loanInterestRate) : "");
                     setEditingLoan(true);
                   }}
                 >
@@ -199,7 +222,7 @@ export default function CategoryDrillDownScreen() {
                 </Pressable>
               </View>
               <Text style={styles.loanRemaining}>
-                {formatMoney(Math.max(category.loanAmount - paidSoFar, 0))}{" "}
+                {formatMoney(loanStatus?.remaining ?? category.loanAmount)}{" "}
                 <Text style={styles.loanOfTotal}>of {formatMoney(category.loanAmount)}</Text>
               </Text>
               <View style={styles.progressTrack}>
@@ -209,14 +232,20 @@ export default function CategoryDrillDownScreen() {
                   end={{ x: 1, y: 0 }}
                   style={[
                     styles.progressFillAbs,
-                    { width: `${Math.min(100, Math.max(0, (paidSoFar / category.loanAmount) * 100))}%` },
+                    { width: `${Math.min(100, Math.max(0, (paidDown / category.loanAmount) * 100))}%` },
                   ]}
                 />
               </View>
               <Text style={styles.pctLabel}>
-                {Math.round(Math.min(100, Math.max(0, (paidSoFar / category.loanAmount) * 100)))}% paid off
+                {Math.round(Math.min(100, Math.max(0, (paidDown / category.loanAmount) * 100)))}% paid off
                 {category.loanAsOfDate ? ` · as of ${category.loanAsOfDate}` : ""}
               </Text>
+              {category.loanInterestRate ? (
+                <Text style={styles.pctLabel}>
+                  {category.loanInterestRate}% APR · {formatMoney(loanStatus?.interestSoFar ?? 0)} interest since{" "}
+                  {category.loanAsOfDate}
+                </Text>
+              ) : null}
 
               {loanHistory.length >= 2 && (
                 <View style={styles.payoffChartWrap}>
@@ -236,6 +265,7 @@ export default function CategoryDrillDownScreen() {
               onPress={() => {
                 setLoanInput("");
                 setLoanDateInput(todayISO());
+                setLoanRateInput("");
                 setEditingLoan(true);
               }}
               style={styles.trackLoanBtn}
@@ -328,6 +358,7 @@ function makeStyles(colors: ThemeColors) {
     },
     loanHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
     loanLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
+    loanHint: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
     loanEditLink: { fontSize: 13, color: colors.accent, fontWeight: "600" },
     loanRemaining: { fontSize: 22, fontWeight: "700", color: colors.textPrimary },
     loanOfTotal: { fontSize: 14, fontWeight: "500", color: colors.textSecondary },

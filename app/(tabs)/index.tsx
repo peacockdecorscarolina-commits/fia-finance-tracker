@@ -186,7 +186,7 @@ export default function TransactionsScreen() {
     getLoanSummaries(db).then(async (loanList) => {
       setLoans(loanList);
       const histories = await Promise.all(
-        loanList.map((l) => getLoanBalanceHistory(db, l.name, l.loanAmount, l.loanAsOfDate))
+        loanList.map((l) => getLoanBalanceHistory(db, l.name, l.loanAmount, l.loanAsOfDate, l.loanInterestRate))
       );
       setLoanHistories(Object.fromEntries(loanList.map((l, i) => [l.id, histories[i]])));
     });
