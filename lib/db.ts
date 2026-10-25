@@ -1,6 +1,5 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 import { DEFAULT_CATEGORIES } from "./categories";
-import { DEFAULT_ACCOUNTS } from "./defaultAccounts";
 import type { Account, Asset, AssetBalanceEntry, AssetType, Category, ExtractedTransaction, Transaction } from "./types";
 import { loadCategoryEmojiOverrides, setCategoryEmojiOverride } from "./categoryStyle";
 
@@ -88,6 +87,10 @@ export async function initDatabase(db: SQLiteDatabase) {
       date TEXT NOT NULL,
       balance REAL NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT
+    );
   `);
 
   // Migration for databases created before the `ignored` column existed.
@@ -164,20 +167,24 @@ export async function initDatabase(db: SQLiteDatabase) {
     "SELECT name, emoji FROM categories WHERE emoji IS NOT NULL"
   );
   loadCategoryEmojiOverrides(emojiOverrides);
+  // No accounts are seeded -- a new user starts empty and adds their own
+  // cards, rather than inheriting a hard-coded list.
+}
 
-  for (const account of DEFAULT_ACCOUNTS) {
-    const found = await db.getFirstAsync<{ id: number }>(
-      "SELECT id FROM accounts WHERE name = ?",
-      account.name
-    );
-    if (!found) {
-      await db.runAsync(
-        "INSERT INTO accounts (name, type) VALUES (?, ?)",
-        account.name,
-        account.type
-      );
-    }
-  }
+const USER_NAME_KEY = "user_name";
+
+// null = never asked (show the welcome prompt); "" = they chose to skip it.
+export async function getUserName(db: SQLiteDatabase): Promise<string | null> {
+  const row = await db.getFirstAsync<{ value: string | null }>("SELECT value FROM settings WHERE key = ?", USER_NAME_KEY);
+  return row ? (row.value ?? "") : null;
+}
+
+export async function setUserName(db: SQLiteDatabase, name: string) {
+  await db.runAsync(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+    USER_NAME_KEY,
+    name.trim()
+  );
 }
 
 export async function getCategories(db: SQLiteDatabase): Promise<Category[]> {
@@ -1248,6 +1255,8 @@ export type DataSnapshot = {
   }[];
   assets: { name: string; type: AssetType }[];
   assetBalances: { assetName: string; date: string; balance: number }[];
+  // Optional so backups made before the name setting existed still restore.
+  userName?: string | null;
 };
 
 export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
@@ -1307,6 +1316,7 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     })),
     assets,
     assetBalances,
+    userName: await getUserName(db),
   };
 }
 
@@ -1380,6 +1390,10 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
       entry.date,
       entry.balance
     );
+  }
+
+  if (typeof snapshot.userName === "string") {
+    await setUserName(db, snapshot.userName);
   }
 }
 
