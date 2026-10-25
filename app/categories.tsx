@@ -179,9 +179,11 @@ export default function CategoriesScreen() {
                     ))}
                 </View>
               ) : (
+                // The row opens the category's page (its transactions, and
+                // "Track as a loan"); the pencil edits its name and emoji.
                 <Pressable
                   key={item.id}
-                  onPress={() => startEditing(item)}
+                  onPress={() => router.push({ pathname: "/category/[name]", params: { name: item.name } })}
                   style={[styles.categoryRow, i > 0 && styles.categoryRowDivider]}
                 >
                   <View style={[styles.categoryIcon, { backgroundColor: getCategoryStyle(item.name).color }]}>
@@ -190,6 +192,15 @@ export default function CategoriesScreen() {
                   <Text style={styles.categoryName} numberOfLines={1}>
                     {item.name}
                   </Text>
+                  {item.loanAmount ? <Text style={styles.loanBadge}>Loan</Text> : null}
+                  <Pressable
+                    onPress={() => startEditing(item)}
+                    hitSlop={8}
+                    style={styles.editIconBtn}
+                    accessibilityLabel={`Rename ${item.name}`}
+                  >
+                    <Ionicons name="pencil" size={14} color={colors.textSecondary} />
+                  </Pressable>
                   <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
                 </Pressable>
               )
@@ -203,6 +214,24 @@ export default function CategoriesScreen() {
 
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
+    editIconBtn: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: colors.background,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    loanBadge: {
+      fontSize: 11,
+      fontWeight: "700",
+      color: "#4C1D95",
+      backgroundColor: "#EDE9FE",
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 999,
+      overflow: "hidden",
+    },
   safeArea: { flex: 1, backgroundColor: colors.background },
   container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

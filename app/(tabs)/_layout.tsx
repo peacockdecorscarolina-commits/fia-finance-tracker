@@ -51,6 +51,13 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="pie-chart-outline" size={size} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="balances"
+        options={{
+          title: "Accounts",
+          tabBarIcon: ({ color, size }) => <Ionicons name="wallet-outline" size={size} color={color} />,
+        }}
+      />
     </Tabs>
   );
 }
