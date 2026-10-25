@@ -21,6 +21,12 @@ const ACCENT = "#4C1D95";
 const ACCENT_LIGHT = "#EDE9FE";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 
+// "Auto" reads the year off the statement (falling back to the current one);
+// the rest are for statements that print no year at all. Recent years only --
+// a statement older than that is unlikely to be uploaded.
+const THIS_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = ["Auto", THIS_YEAR, THIS_YEAR - 1, THIS_YEAR - 2] as const;
+
 export default function UploadScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -36,6 +42,10 @@ export default function UploadScreen() {
   const [confirmingSave, setConfirmingSave] = useState(false);
   const [duplicateLookup, setDuplicateLookup] = useState<Map<string, Transaction>>(new Map());
   const [endingBalance, setEndingBalance] = useState<{ balance: number; date: string } | null>(null);
+  const [statementYear, setStatementYear] = useState<(typeof YEAR_OPTIONS)[number]>("Auto");
+  // Kept so changing the year on the preview re-reads the dates without
+  // extracting the PDF again.
+  const statementTextRef = useRef<string | null>(null);
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null;
 
@@ -63,18 +73,29 @@ export default function UploadScreen() {
     setError(null);
     try {
       const text = await extractorRef.current.extractText(fileUri);
+      statementTextRef.current = text;
+      const year = statementYear === "Auto" ? undefined : statementYear;
       const [rows, lookup] = await Promise.all([
-        Promise.resolve(parseStatement(text)),
+        Promise.resolve(parseStatement(text, year)),
         getDuplicateLookup(db, accountId),
       ]);
       setExtracted(rows);
       setDuplicateLookup(lookup);
-      setEndingBalance(findStatementEndingBalance(text));
+      setEndingBalance(findStatementEndingBalance(text, year));
       setStatus("preview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read that PDF.");
       setStatus("idle");
     }
+  }
+
+  function changeStatementYear(option: (typeof YEAR_OPTIONS)[number]) {
+    setStatementYear(option);
+    const text = statementTextRef.current;
+    if (status !== "preview" || !text) return;
+    const year = option === "Auto" ? undefined : option;
+    setExtracted(parseStatement(text, year));
+    setEndingBalance(findStatementEndingBalance(text, year));
   }
 
   function getDuplicateMatch(t: ExtractedTransaction): Transaction | undefined {
@@ -103,6 +124,7 @@ export default function UploadScreen() {
     setExtracted([]);
     setDuplicateLookup(new Map());
     setEndingBalance(null);
+    statementTextRef.current = null;
     setConfirmingSave(false);
   }
 
@@ -159,6 +181,25 @@ export default function UploadScreen() {
               );
             })}
           </View>
+
+          <Text style={styles.sectionTitle}>Statement year</Text>
+          <View style={styles.chipRow}>
+            {YEAR_OPTIONS.map((option) => {
+              const active = option === statementYear;
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => changeStatementYear(option)}
+                  style={[styles.accountChip, active && styles.accountChipActive]}
+                >
+                  <Text style={[styles.accountChipText, active && styles.accountChipTextActive]}>{option}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.yearHint}>
+            For statements that don't print the year. A January statement's December dates go to the year before.
+          </Text>
 
           <Text style={styles.sectionTitle}>Statement PDF</Text>
           <Pressable style={styles.pickButton} onPress={pickFile}>
@@ -342,6 +383,7 @@ function makeStyles(colors: ThemeColors) {
     marginTop: spacing.xs,
   },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  yearHint: { fontSize: 12, color: colors.textSecondary, marginTop: -4 },
   accountChip: {
     flexDirection: "row",
     alignItems: "center",

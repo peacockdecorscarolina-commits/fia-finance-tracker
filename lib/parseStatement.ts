@@ -47,7 +47,7 @@ type StatementPeriod = { startMonth: number; startYear: number; endMonth: number
 // "Statement Period MM/DD/YYYY to MM/DD/YYYY" line, since a billing cycle
 // spanning a year boundary (e.g. Dec 2025 to Jan 2026) means a single
 // fallback year would be wrong for half the transactions.
-function findStatementPeriod(text: string): StatementPeriod | null {
+function findStatementPeriod(text: string, fallbackYear: number): StatementPeriod | null {
   const slashMatch = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+to\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
   if (slashMatch) {
     return {
@@ -89,7 +89,7 @@ function findStatementPeriod(text: string): StatementPeriod | null {
   if (balanceMatch) {
     const startMonth = Number(balanceMatch[1]);
     const endMonth = Number(balanceMatch[3]);
-    const endYear = findStatementYear(text);
+    const endYear = fallbackYear;
     const startYear = startMonth > endMonth ? endYear - 1 : endYear;
     return { startMonth, startYear, endMonth, endYear };
   }
@@ -389,8 +389,27 @@ function parseTransactions(
   return transactions;
 }
 
-export function parseStatement(text: string): ExtractedTransaction[] {
-  return parseTransactions(text, findStatementPeriod(text), findStatementYear(text));
+// A statement covers about a month, so one with both January and December
+// dates in the same year has crossed New Year -- its December dates belong
+// to the year before. inferYearForMonth already gets this right when a
+// statement period line is found; this catches the statements where none
+// was, and every no-year date fell back to a single year.
+function moveDecemberBeforeJanuary(transactions: ExtractedTransaction[]): ExtractedTransaction[] {
+  const januaryYears = new Set(transactions.filter((t) => t.date.slice(5, 7) === "01").map((t) => t.date.slice(0, 4)));
+  return transactions.map((t) =>
+    t.date.slice(5, 7) === "12" && januaryYears.has(t.date.slice(0, 4))
+      ? { ...t, date: `${Number(t.date.slice(0, 4)) - 1}${t.date.slice(4)}` }
+      : t
+  );
+}
+
+// `statementYear` is the year the user picked on the upload screen ("this is
+// a 2027 statement"); it replaces the guess from findStatementYear, which can
+// grab an unrelated printed date. Years printed on the statement itself
+// still win -- this only fills in dates that have none.
+export function parseStatement(text: string, statementYear?: number): ExtractedTransaction[] {
+  const year = statementYear ?? findStatementYear(text);
+  return moveDecemberBeforeJanuary(parseTransactions(text, findStatementPeriod(text, year), year));
 }
 
 // Checking/savings statements (Wells Fargo, seen so far) print their own
@@ -401,12 +420,16 @@ export function parseStatement(text: string): ExtractedTransaction[] {
 // statement re-anchors the account to this figure as of this exact date, so
 // balance tracking can't accumulate error over time the way a pure running
 // total would.
-export function findStatementEndingBalance(text: string): { balance: number; date: string } | null {
+export function findStatementEndingBalance(
+  text: string,
+  statementYear?: number
+): { balance: number; date: string } | null {
   const match = text.match(/Ending\s+balance\s+on\s+(\d{1,2})\/(\d{1,2})\s*\$?\s*([\d,]+\.\d{2})/i);
   if (!match) return null;
   const month = Number(match[1]);
   const day = Number(match[2]);
-  const year = inferYearForMonth(month, findStatementPeriod(text), findStatementYear(text));
+  const fallbackYear = statementYear ?? findStatementYear(text);
+  const year = inferYearForMonth(month, findStatementPeriod(text, fallbackYear), fallbackYear);
   return {
     balance: Number(match[3].replace(/,/g, "")),
     date: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
