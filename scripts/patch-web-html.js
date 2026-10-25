@@ -40,8 +40,34 @@ html = html.replace(
 if (!html.includes("100dvh")) {
   html = html.replace(
     "</style>",
-    `  html, body, #root { height: 100dvh; }\n    </style>`
+    `  html, body, #root { height: 100dvh; height: var(--app-height, 100dvh); }\n    </style>`
   );
+}
+
+// 100dvh alone still left a blank strip below the tab bar when launched from
+// the Home Screen: with the black-translucent status bar, iOS lays the page
+// out from the very top of the screen but reports a viewport shorter by the
+// status bar's height, so every height unit comes up that much short. In
+// standalone mode the app owns the whole screen, so when the reported height
+// is short of the screen's, size to the screen instead. If iOS reports the
+// height correctly this sets nothing and the 100dvh fallback applies.
+const fitScript = `<script>
+(function () {
+  var standalone = navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+  if (!standalone) return;
+  function fit() {
+    var portrait = window.innerHeight >= window.innerWidth;
+    var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    if (full > window.innerHeight) document.documentElement.style.setProperty("--app-height", full + "px");
+    else document.documentElement.style.removeProperty("--app-height");
+  }
+  fit();
+  window.addEventListener("resize", fit);
+  window.addEventListener("orientationchange", fit);
+})();
+</script>`;
+if (!html.includes("--app-height\", full")) {
+  html = html.replace("</head>", `  ${fitScript}\n</head>`);
 }
 
 fs.writeFileSync(indexPath, html);
