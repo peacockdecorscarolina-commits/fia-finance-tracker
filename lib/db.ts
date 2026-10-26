@@ -846,7 +846,9 @@ export async function getAccountBalanceAsOf(
 
 // For a credit card, what's owed is the user's own view of it: charges they
 // ignored (not transfers, which are linked) and what someone paid them back
-// come off. The statement balance includes them, so the adjustment covers
+// come off. Only ignored *charges* -- an ignored payment or credit (money in)
+// still went to the card, and payments were often ignored before transfers
+// were linked automatically, just to keep them out of spending. The statement balance includes them, so the adjustment covers
 // everything up to the date, before or after the statement. Checking and
 // savings stay as the bank has them -- ignoring a purchase there doesn't
 // put the cash back.
@@ -854,7 +856,7 @@ async function cardPersonalAdjustment(db: SQLiteDatabase, accountId: number, tar
   const row = await db.getFirstAsync<{ type: string; adjustment: number | null }>(
     `SELECT accounts.type as type,
        (SELECT SUM(CASE
-            WHEN t.ignored = 1 AND t.linked_transaction_id IS NULL THEN -t.amount
+            WHEN t.ignored = 1 AND t.linked_transaction_id IS NULL AND t.amount < 0 THEN -t.amount
             WHEN t.ignored = 0 THEN COALESCE(t.reimbursed, 0)
             ELSE 0 END)
         FROM transactions t WHERE t.account_id = accounts.id AND t.date <= ?) as adjustment
@@ -923,7 +925,7 @@ export async function getAccountLedger(
     const transaction = toTransaction(row);
     // Same personal view as cardPersonalAdjustment for a card's running balance.
     if (!isCard) running += transaction.amount;
-    else if (!(transaction.ignored && transaction.linkedTransactionId === null)) {
+    else if (!(transaction.ignored && transaction.linkedTransactionId === null && transaction.amount < 0)) {
       running += transaction.amount + (transaction.ignored ? 0 : transaction.reimbursed ?? 0);
     }
     return { ...transaction, balanceAfter: running };
@@ -1397,6 +1399,9 @@ export async function unlinkTransaction(db: SQLiteDatabase, id: number) {
   await db.runAsync("UPDATE transactions SET linked_transaction_id = NULL, ignored = 0 WHERE id = ?", id);
   if (row?.linkedId) {
     await db.runAsync("UPDATE transactions SET linked_transaction_id = NULL, ignored = 0 WHERE id = ?", row.linkedId);
+    // Remember the user said these aren't a pair, or auto-linking would
+    // just link them again next time the app opens.
+    await dismissTransferMatch(db, id, row.linkedId);
   }
 }
 
