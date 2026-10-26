@@ -11,10 +11,15 @@ import {
   getAllAssetsHistory,
   getAssetBalances,
   getAssets,
+  getBankAssets,
   getLoanSummaries,
   getSetting,
   insertAsset,
+  setAccountBalanceCheckpoint,
+  setAccountIncludeInSavings,
   setSetting,
+  todayISO,
+  type BankAsset,
 } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -37,8 +42,18 @@ function formatChartDate(date: string): string {
 
 const INCLUDE_HOME_EQUITY_KEY = "include_home_equity";
 
-const TYPE_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
+// react-native-web colors a switched-on thumb with its own green unless
+// given activeThumbColor, which isn't in the native Switch's types.
+const WEB_SWITCH_THUMB = { activeThumbColor: "#FFFFFF" } as object;
+
+function formatShortDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+const TYPE_ICON: Record<AssetType, string> = { Checking: "🏧", Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
 const TYPE_TINT: Record<AssetType, string> = {
+  Checking: "#E0F2FE",
   Savings: "#EDE9FE",
   Investment: "#DCFCE7",
   "401k": "#DBEAFE",
@@ -86,6 +101,10 @@ export default function AssetsScreen() {
   // Off by default: a house isn't money you can spend, so it only joins the
   // total when the user asks for it.
   const [includeHomeEquity, setIncludeHomeEquity] = useState(false);
+  // Checking and Savings accounts, balances kept from statements.
+  const [banks, setBanks] = useState<BankAsset[]>([]);
+  const [settingBalanceFor, setSettingBalanceFor] = useState<number | null>(null);
+  const [balanceInput, setBalanceInput] = useState("");
 
   const load = useCallback(() => {
     getAssets(db).then(async (list) => {
@@ -100,6 +119,7 @@ export default function AssetsScreen() {
       setLoading(false);
     });
     getAllAssetsHistory(db, ["Home"]).then(setTotalHistory);
+    getBankAssets(db).then(setBanks);
     getLoanSummaries(db).then((loans) =>
       setHouseLoansOwed(loans.filter((l) => l.loanKind === "House").reduce((sum, l) => sum + l.remaining, 0))
     );
@@ -113,11 +133,26 @@ export default function AssetsScreen() {
 
   useFocusEffect(load);
 
+  async function toggleBankIncluded(bank: BankAsset, include: boolean) {
+    await setAccountIncludeInSavings(db, bank.accountId, include);
+    load();
+  }
+
+  // Sets today's balance once; from then on it's kept current from uploads.
+  async function saveBankBalance(bank: BankAsset) {
+    const value = Number(balanceInput.replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(value)) return;
+    await setAccountBalanceCheckpoint(db, bank.accountId, value, todayISO());
+    setSettingBalanceFor(null);
+    setBalanceInput("");
+    load();
+  }
+
   async function handleAdd() {
     const value = Number(newBalance);
     if (!newName.trim() || !Number.isFinite(value)) return;
     const id = await insertAsset(db, newName.trim(), newType);
-    await addAssetBalance(db, id, new Date().toISOString().slice(0, 10), value);
+    await addAssetBalance(db, id, todayISO(), value);
     setAdding(false);
     setNewName("");
     setNewBalance("");
@@ -159,22 +194,102 @@ export default function AssetsScreen() {
     );
   }
 
+  function BankRow({ bank }: { bank: BankAsset }) {
+    const first = bank.history[0]?.balance ?? bank.balance ?? 0;
+    const delta = (bank.balance ?? 0) - first;
+    const color = delta >= 0 ? "#16A34A" : "#DC2626";
+    const settingBalance = settingBalanceFor === bank.accountId;
+    return (
+      <View style={[styles.assetRow, styles.bankRow, { backgroundColor: TYPE_TINT[bank.type] }, !bank.included && { opacity: 0.6 }]}>
+        <Pressable
+          onPress={() => router.push({ pathname: "/account/[name]", params: { name: bank.name } })}
+          style={styles.bankRowTop}
+        >
+          <View style={[styles.assetIcon, { backgroundColor: colors.card }]}>
+            <Text style={{ fontSize: 16 }}>{TYPE_ICON[bank.type]}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.assetName} numberOfLines={1}>
+              {bank.name}
+            </Text>
+            <Text style={styles.assetType}>
+              {bank.balance === null ? "Balance not set yet" : `From statements${bank.asOf ? ` · as of ${formatShortDate(bank.asOf)}` : ""}`}
+            </Text>
+          </View>
+          {bank.history.length >= 2 && <Sparkline points={bank.history.map((h) => h.balance)} color={color} />}
+          {bank.balance !== null && <AnimatedAmount value={bank.balance} style={styles.assetBalance} />}
+          <Ionicons name="chevron-forward" size={16} color="#64748B" />
+        </Pressable>
+        {bank.balance === null && !settingBalance && (
+          <Pressable
+            onPress={() => {
+              setSettingBalanceFor(bank.accountId);
+              setBalanceInput("");
+            }}
+            style={styles.setBalanceBtn}
+          >
+            <Text style={styles.setBalanceText}>{"Set today's balance"}</Text>
+          </Pressable>
+        )}
+        {settingBalance && (
+          <View style={styles.setBalanceRow}>
+            <View style={[styles.inputRow, { flex: 1, backgroundColor: colors.card }]}>
+              <Text style={styles.dollarSign}>$</Text>
+              <TextInput
+                style={[styles.inputText, { marginLeft: 4 }]}
+                value={balanceInput}
+                onChangeText={setBalanceInput}
+                keyboardType="decimal-pad"
+                placeholder="From your bank's app"
+                placeholderTextColor={colors.textSecondary}
+                autoFocus
+              />
+            </View>
+            <Pressable onPress={() => saveBankBalance(bank)} style={styles.setBalanceSave}>
+              <Text style={styles.setBalanceSaveText}>Save</Text>
+            </Pressable>
+          </View>
+        )}
+        <View style={styles.bankIncludeRow}>
+          <Text style={styles.assetType}>Include in Savings & Investments</Text>
+          <Switch
+            value={bank.included}
+            onValueChange={(v) => toggleBankIncluded(bank, v)}
+            trackColor={{ true: ACCENT, false: colors.border }}
+            thumbColor="#FFFFFF"
+            {...WEB_SWITCH_THUMB}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  const countedBanks = banks.filter((b) => b.included && b.balance !== null);
+  const bankTotal = countedBanks.reduce((sum, b) => sum + (b.balance ?? 0), 0);
   const savings = assets.filter((a) => a.type !== "Home");
-  const savingsTotal = savings.reduce((sum, a) => sum + a.balance, 0);
+  const savingsTotal = savings.reduce((sum, a) => sum + a.balance, 0) + bankTotal;
   const homeValue = assets.filter((a) => a.type === "Home").reduce((sum, a) => sum + a.balance, 0);
   const hasHome = assets.some((a) => a.type === "Home");
   const homeEquity = homeValue - houseLoansOwed;
   const equityIncluded = hasHome && includeHomeEquity;
   const total = savingsTotal + (equityIncluded ? homeEquity : 0);
   // "Since first entry" stays about savings -- a home's value isn't growth you saved.
-  const totalFirst = savings.reduce((sum, a) => sum + (a.history[0] ?? a.balance), 0);
+  const totalFirst =
+    savings.reduce((sum, a) => sum + (a.history[0] ?? a.balance), 0) +
+    countedBanks.reduce((sum, b) => sum + (b.history[0]?.balance ?? b.balance ?? 0), 0);
   const totalDelta = savingsTotal - totalFirst;
   const totalPct = totalFirst !== 0 ? (totalDelta / totalFirst) * 100 : 0;
 
   const groups = ASSET_TYPES.map((type) => ({
     type,
     items: assets.filter((a) => a.type === type),
-  })).filter((g) => g.items.length > 0);
+    banks: banks.filter((b) => b.type === type),
+  })).filter((g) => g.items.length > 0 || g.banks.length > 0);
+  const hasAnything = assets.length > 0 || banks.length > 0;
+  // A savings account typed in by hand *and* tracked from statements would
+  // be counted twice.
+  const bankNames = new Set(countedBanks.map((b) => b.name.trim().toLowerCase()));
+  const duplicates = assets.filter((a) => bankNames.has(a.name.trim().toLowerCase()));
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -187,7 +302,7 @@ export default function AssetsScreen() {
           <View style={styles.headerBtn} />
         </View>
 
-        {!loading && assets.length > 0 && (
+        {!loading && hasAnything && (
           <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
             <Text style={styles.heroLabel}>
               {equityIncluded ? "Total incl. home equity" : "Total savings & investments"}
@@ -236,7 +351,7 @@ export default function AssetsScreen() {
             </View>
             <Text style={styles.fieldLabel}>Type</Text>
             <View style={styles.typeGrid}>
-              {ASSET_TYPES.map((t) => {
+              {ASSET_TYPES.filter((t) => t !== "Checking").map((t) => {
                 const active = newType === t;
                 return (
                   <Pressable
@@ -284,7 +399,7 @@ export default function AssetsScreen() {
           </Pressable>
         )}
 
-        {!loading && assets.length === 0 && !adding && (
+        {!loading && !hasAnything && !adding && (
           <View style={styles.sectionCard}>
             <Text style={styles.emptyTitle}>Nothing tracked yet</Text>
             <Text style={styles.emptySubtitle}>Add a savings, investment, or 401k account to start tracking it.</Text>
@@ -296,7 +411,9 @@ export default function AssetsScreen() {
             <Text style={styles.groupsLabel}>Your accounts</Text>
             {groups.map((group) => {
               const isCollapsed = collapsed[group.type];
-              const subtotal = group.items.reduce((sum, a) => sum + a.balance, 0);
+              const subtotal =
+                group.items.reduce((sum, a) => sum + a.balance, 0) +
+                group.banks.filter((b) => b.included).reduce((sum, b) => sum + (b.balance ?? 0), 0);
               return (
                 <View key={group.type} style={[styles.sectionCard, { gap: spacing.sm }]}>
                   <Pressable
@@ -314,7 +431,16 @@ export default function AssetsScreen() {
                       color={colors.textSecondary}
                     />
                   </Pressable>
+                  {!isCollapsed && group.banks.map((b) => <BankRow key={`bank-${b.accountId}`} bank={b} />)}
                   {!isCollapsed && group.items.map((a) => <AssetRow key={a.id} asset={a} />)}
+                  {!isCollapsed &&
+                    group.items
+                      .filter((a) => duplicates.includes(a))
+                      .map((a) => (
+                        <Text key={`dup-${a.id}`} style={styles.duplicateHint}>
+                          {`"${a.name}" is also tracked from your statements, so it's counted twice. Open the one you entered by hand and delete it.`}
+                        </Text>
+                      ))}
                   {group.type === "Home" && (
                     <View style={styles.equityBox}>
                       <View style={styles.equityRow}>
@@ -339,6 +465,7 @@ export default function AssetsScreen() {
                           onValueChange={toggleHomeEquity}
                           trackColor={{ true: ACCENT, false: colors.border }}
                           thumbColor="#FFFFFF"
+                          {...WEB_SWITCH_THUMB}
                         />
                       </View>
                       {houseLoansOwed === 0 && (
@@ -468,6 +595,15 @@ function makeStyles(colors: ThemeColors) {
     emptyTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary, textAlign: "center" },
     emptySubtitle: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
     groupHeaderRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    bankRow: { flexDirection: "column", alignItems: "stretch", gap: spacing.xs },
+    bankRowTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    bankIncludeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    setBalanceBtn: { alignSelf: "flex-start", backgroundColor: ACCENT, borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: 7 },
+    setBalanceText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
+    setBalanceRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    setBalanceSave: { backgroundColor: ACCENT, borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: 10 },
+    setBalanceSaveText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+    duplicateHint: { fontSize: 12, color: "#B45309", fontWeight: "600", lineHeight: 17 },
     equityBox: { gap: spacing.xs, backgroundColor: colors.background, borderRadius: radius.chip, padding: spacing.sm },
     equityRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
     equityTotalRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },

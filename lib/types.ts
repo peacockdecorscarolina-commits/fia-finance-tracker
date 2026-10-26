@@ -6,6 +6,8 @@ export type Account = {
   type: string;
   startingBalance: number | null;
   startingBalanceDate: string | null;
+  // Checking/Savings accounts count toward Savings & Investments unless turned off.
+  includeInSavings: boolean;
 };
 
 export type Category = {
@@ -57,7 +59,9 @@ export type ExtractedTransaction = {
 
 // "Home" is a property's estimated value -- kept out of the savings totals,
 // optionally counted as equity (value minus house loans) on Savings & Investments.
-export const ASSET_TYPES = ["Savings", "Investment", "401k", "Cash", "Home"] as const;
+// "Checking" only ever comes from tracked Checking accounts (see
+// getBankAssets), never typed in by hand.
+export const ASSET_TYPES = ["Checking", "Savings", "Investment", "401k", "Cash", "Home"] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 
 export type Asset = {

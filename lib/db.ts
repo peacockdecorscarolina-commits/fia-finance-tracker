@@ -150,6 +150,9 @@ export async function initDatabase(db: SQLiteDatabase) {
   // Migration for databases created before per-account balance tracking
   // existed.
   const accountColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(accounts)");
+  if (!accountColumns.some((c) => c.name === "include_in_savings")) {
+    await db.execAsync("ALTER TABLE accounts ADD COLUMN include_in_savings INTEGER NOT NULL DEFAULT 1");
+  }
   if (!accountColumns.some((c) => c.name === "starting_balance")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN starting_balance REAL");
   }
@@ -388,10 +391,11 @@ export async function insertAccount(
 // balance, even though the real calculation can draw on any checkpoint,
 // not just this latest one.
 export async function getAccounts(db: SQLiteDatabase): Promise<Account[]> {
-  return db.getAllAsync<Account>(
+  const rows = await db.getAllAsync<Omit<Account, "includeInSavings"> & { includeInSavings: number }>(
     `SELECT accounts.id, accounts.name, accounts.type,
        latest.balance as startingBalance,
-       latest.date as startingBalanceDate
+       latest.date as startingBalanceDate,
+       accounts.include_in_savings as includeInSavings
      FROM accounts
      LEFT JOIN balance_checkpoints latest ON latest.account_id = accounts.id
        AND latest.date = (
@@ -399,6 +403,91 @@ export async function getAccounts(db: SQLiteDatabase): Promise<Account[]> {
        )
      ORDER BY accounts.name`
   );
+  return rows.map((r) => ({ ...r, includeInSavings: r.includeInSavings === 1 }));
+}
+
+export async function setAccountIncludeInSavings(db: SQLiteDatabase, id: number, include: boolean) {
+  await db.runAsync("UPDATE accounts SET include_in_savings = ? WHERE id = ?", include ? 1 : 0, id);
+}
+
+export type BankAsset = {
+  accountId: number;
+  name: string;
+  type: "Checking" | "Savings";
+  included: boolean;
+  // Null until a balance is known -- from a statement's ending balance or
+  // one the user set; after that it's kept current from transactions.
+  balance: number | null;
+  asOf: string | null; // date of the most recent known balance
+  // Balance at each month's end (and today), for growth charts.
+  history: { date: string; balance: number }[];
+};
+
+function monthEndsBetween(first: string, last: string): string[] {
+  const ends: string[] = [];
+  let [y, m] = first.split("-").map(Number);
+  const [ly, lm] = last.split("-").map(Number);
+  while (y < ly || (y === ly && m <= lm)) {
+    ends.push(new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10));
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  return ends;
+}
+
+// Checking and Savings accounts as Savings & Investments entries, their
+// balances kept from statements (see getAccountBalanceAsOf) rather than
+// typed in. Credit cards are debts, so they're never included.
+export async function getBankAssets(db: SQLiteDatabase): Promise<BankAsset[]> {
+  const accounts = (await getAccounts(db)).filter((a) => a.type === "Checking" || a.type === "Savings");
+  const today = todayISO();
+  const results: BankAsset[] = [];
+  for (const a of accounts) {
+    const balance = await getAccountBalanceAsOf(db, a.id, today);
+    const history: BankAsset["history"] = [];
+    if (balance !== null) {
+      const first = await db.getFirstAsync<{ date: string | null }>(
+        `SELECT MIN(date) as date FROM (
+           SELECT date FROM transactions WHERE account_id = ?
+           UNION SELECT date FROM balance_checkpoints WHERE account_id = ?
+         )`,
+        a.id,
+        a.id
+      );
+      for (const end of monthEndsBetween(first?.date ?? today, today)) {
+        const date = end < today ? end : today;
+        const value = await getAccountBalanceAsOf(db, a.id, date);
+        if (value !== null) history.push({ date, balance: value });
+      }
+    }
+    results.push({
+      accountId: a.id,
+      name: a.name,
+      type: a.type as BankAsset["type"],
+      included: a.includeInSavings,
+      balance,
+      asOf: a.startingBalanceDate,
+      history,
+    });
+  }
+  return results;
+}
+
+// Sums several balance series that each change at their own dates: at every
+// date any of them changes, the total of each one's latest value so far.
+function sumSeries(series: { date: string; balance: number }[][]): { date: string; total: number }[] {
+  const points = series.flatMap((entries, i) => entries.map((e) => ({ ...e, i })));
+  points.sort((a, b) => a.date.localeCompare(b.date));
+  const latest = new Map<number, number>();
+  const byDate = new Map<string, number>();
+  for (const p of points) {
+    latest.set(p.i, p.balance);
+    byDate.set(p.date, [...latest.values()].reduce((sum, v) => sum + v, 0));
+  }
+  return [...byDate.entries()].map(([date, total]) => ({ date, total }));
 }
 
 export async function renameAccount(db: SQLiteDatabase, id: number, name: string) {
@@ -437,7 +526,9 @@ export async function setAccountBalanceCheckpoint(
   );
 }
 
-function todayISO(): string {
+// Today in the user's own time zone (toISOString() is UTC, a day ahead on a
+// US evening).
+export function todayISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -601,6 +692,13 @@ export async function getAssetSummaries(
     );
     results.push({ id: a.id, name: a.name, type: a.type, balance: latest?.balance ?? 0 });
   }
+  // Tracked bank accounts join in, with negative ids so they can't collide
+  // with an asset's id where these are listed together.
+  for (const b of await getBankAssets(db)) {
+    if (b.included && b.balance !== null) {
+      results.push({ id: -b.accountId, name: b.name, type: b.type, balance: b.balance });
+    }
+  }
   return results;
 }
 
@@ -612,25 +710,7 @@ export async function getAssetTypeHistory(
   db: SQLiteDatabase,
   type: AssetType
 ): Promise<{ date: string; total: number }[]> {
-  const assets = await getAssets(db);
-  const matching = assets.filter((a) => a.type === type);
-  if (matching.length === 0) return [];
-
-  const latestPerAsset = new Map<number, number>();
-  const byDate = new Map<string, number>();
-  const allEntries: { assetId: number; date: string; balance: number }[] = [];
-  for (const a of matching) {
-    const entries = await getAssetBalances(db, a.id);
-    allEntries.push(...entries.map((e) => ({ assetId: a.id, date: e.date, balance: e.balance })));
-  }
-  allEntries.sort((a, b) => a.date.localeCompare(b.date));
-  for (const entry of allEntries) {
-    latestPerAsset.set(entry.assetId, entry.balance);
-    let total = 0;
-    for (const bal of latestPerAsset.values()) total += bal;
-    byDate.set(entry.date, total);
-  }
-  return [...byDate.entries()].map(([date, total]) => ({ date, total }));
+  return getAssetsHistory(db, (t) => t === type);
 }
 
 // Combined balance-over-time across every asset regardless of type -- powers
@@ -639,24 +719,23 @@ export async function getAllAssetsHistory(
   db: SQLiteDatabase,
   excludeTypes: AssetType[] = []
 ): Promise<{ date: string; total: number }[]> {
-  const assets = (await getAssets(db)).filter((a) => !excludeTypes.includes(a.type));
-  if (assets.length === 0) return [];
+  return getAssetsHistory(db, (t) => !excludeTypes.includes(t));
+}
 
-  const latestPerAsset = new Map<number, number>();
-  const byDate = new Map<string, number>();
-  const allEntries: { assetId: number; date: string; balance: number }[] = [];
-  for (const a of assets) {
-    const entries = await getAssetBalances(db, a.id);
-    allEntries.push(...entries.map((e) => ({ assetId: a.id, date: e.date, balance: e.balance })));
+// Combined balance history of hand-entered assets and included bank
+// accounts whose type passes `includeType`.
+async function getAssetsHistory(
+  db: SQLiteDatabase,
+  includeType: (type: AssetType) => boolean
+): Promise<{ date: string; total: number }[]> {
+  const series: { date: string; balance: number }[][] = [];
+  for (const a of (await getAssets(db)).filter((a) => includeType(a.type))) {
+    series.push((await getAssetBalances(db, a.id)).map((e) => ({ date: e.date, balance: e.balance })));
   }
-  allEntries.sort((a, b) => a.date.localeCompare(b.date));
-  for (const entry of allEntries) {
-    latestPerAsset.set(entry.assetId, entry.balance);
-    let total = 0;
-    for (const bal of latestPerAsset.values()) total += bal;
-    byDate.set(entry.date, total);
+  for (const b of await getBankAssets(db)) {
+    if (b.included && includeType(b.type)) series.push(b.history);
   }
-  return [...byDate.entries()].map(([date, total]) => ({ date, total }));
+  return sumSeries(series.filter((entries) => entries.length > 0));
 }
 
 // Remaining balance for every category tracked as a loan -- mirrors the
