@@ -403,7 +403,7 @@ export default function UploadScreen() {
                 <Pressable onPress={reset} style={styles.cancelBtn}>
                   <Text style={styles.cancelBtnText}>Cancel</Text>
                 </Pressable>
-                <Pressable onPress={() => setConfirmingSave(true)} style={{ flex: 1 }}>
+                <Pressable onPress={() => setConfirmingSave(true)} style={[styles.primaryBtnWrap, { flex: 1 }]}>
                   <LinearGradient
                     colors={GRADIENT}
                     start={{ x: 0, y: 0 }}
@@ -426,7 +426,7 @@ export default function UploadScreen() {
                   <Pressable onPress={() => setConfirmingSave(false)} style={styles.cancelBtn}>
                     <Text style={styles.cancelBtnText}>No, go back</Text>
                   </Pressable>
-                  <Pressable onPress={save} style={{ flex: 1 }}>
+                  <Pressable onPress={save} style={[styles.primaryBtnWrap, { flex: 1 }]}>
                     <LinearGradient
                       colors={GRADIENT}
                       start={{ x: 0, y: 0 }}

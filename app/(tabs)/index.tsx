@@ -328,7 +328,7 @@ export default function TransactionsScreen() {
               <Shimmer width={90} height={20} />
             ) : (
               <>
-                <AnimatedAmount value={totals.expenses} style={styles.statValue} />
+                <AnimatedAmount value={totals.expenses} style={styles.statValue} wholeDollarsFrom={1000} />
                 <MiniSparkline points={monthlyTotals.slice(-6).map((m) => m.expenses)} color={colors.accent} />
               </>
             )}
@@ -350,7 +350,7 @@ export default function TransactionsScreen() {
               <Shimmer width={90} height={20} />
             ) : (
               <>
-                <AnimatedAmount value={totals.income} style={styles.statValue} />
+                <AnimatedAmount value={totals.income} style={styles.statValue} wholeDollarsFrom={1000} />
                 <MiniSparkline points={monthlyTotals.slice(-6).map((m) => m.income)} color="#16A34A" />
               </>
             )}
@@ -368,7 +368,7 @@ export default function TransactionsScreen() {
                 <Ionicons name="trending-up-outline" size={13} color="#F97316" />
               </View>
             </View>
-            {loading ? <Shimmer width={90} height={20} /> : <AnimatedAmount value={totals.payments} style={styles.statValue} />}
+            {loading ? <Shimmer width={90} height={20} /> : <AnimatedAmount value={totals.payments} style={styles.statValue} wholeDollarsFrom={1000} />}
           </Pressable>
         </View>
 
@@ -547,7 +547,9 @@ export default function TransactionsScreen() {
           contentContainerStyle={styles.list}
           ListHeaderComponent={listHeader}
           ListEmptyComponent={
-            loading ? null : (
+            // With no accounts yet, the "Add your first card" banner is the
+            // next step -- this would only repeat it, below the fold.
+            loading || accounts.length === 0 ? null : (
               <EmptyState
                 icon="🧾"
                 title="No transactions here"

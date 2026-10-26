@@ -3,7 +3,7 @@ import { colors } from "../lib/theme";
 
 export function formatAmount(amount: number): string {
   const sign = amount < 0 ? "-" : "+";
-  return `${sign}$${Math.abs(amount).toFixed(2)}`;
+  return `${sign}$${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function AmountText({ amount, size = "md" }: { amount: number; size?: "sm" | "md" | "lg" }) {

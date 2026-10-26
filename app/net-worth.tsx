@@ -323,7 +323,10 @@ export default function AssetsScreen() {
                       </View>
                       <View style={styles.equityRow}>
                         <Text style={styles.equityLabel}>Owed on house loans</Text>
-                        <Text style={[styles.equityValue, { color: "#DC2626" }]}>−{formatMoney(houseLoansOwed)}</Text>
+                        <Text style={[styles.equityValue, houseLoansOwed > 0 && { color: "#DC2626" }]}>
+                          {houseLoansOwed > 0 ? "−" : ""}
+                          {formatMoney(houseLoansOwed)}
+                        </Text>
                       </View>
                       <View style={[styles.equityRow, styles.equityTotalRow]}>
                         <Text style={styles.equityTotalLabel}>Equity</Text>

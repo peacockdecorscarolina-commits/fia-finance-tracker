@@ -9,11 +9,15 @@ export function AnimatedAmount({
   style,
   prefix = "$",
   durationMs = 500,
+  wholeDollarsFrom,
 }: {
   value: number;
   style?: StyleProp<TextStyle>;
   prefix?: string;
   durationMs?: number;
+  // Drop the cents at or above this size -- for tight spots where
+  // "$26,100.95" would wrap but "$26,101" fits.
+  wholeDollarsFrom?: number;
 }) {
   const [display, setDisplay] = useState(value);
   const fromRef = useRef(value);
@@ -37,10 +41,12 @@ export function AnimatedAmount({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
+  const decimals = wholeDollarsFrom !== undefined && Math.abs(value) >= wholeDollarsFrom ? 0 : 2;
   return (
-    <Text style={style}>
+    <Text style={style} numberOfLines={1}>
+      {display < 0 ? "-" : ""}
       {prefix}
-      {display.toFixed(2)}
+      {Math.abs(display).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
     </Text>
   );
 }
