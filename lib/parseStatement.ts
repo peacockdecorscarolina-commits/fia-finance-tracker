@@ -435,3 +435,60 @@ export function findStatementEndingBalance(
     date: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
   };
 }
+
+// Card statements print what's owed under a few names -- "New Balance"
+// (Amex, Chase, Capital One, Citi, Discover), "Statement Balance", "New
+// Statement Balance", "Closing Balance" -- never to be confused with the
+// "Previous Balance" also on the page. A minus sign or "CR" means the card
+// owes you (a credit balance), returned as a negative amount owed.
+const CARD_BALANCE =
+  /(?:^|[^A-Za-z])(?:New\s+(?:Statement\s+)?Balance|Statement\s+Balance|Closing\s+Balance)(?:\s+Total)?\s*[:=]?\s*(-)?\s*\$?\s*(-)?\s*([\d,]+\.\d{2})(\s*CR\b)?/i;
+
+function toIsoDate(raw: string): string | null {
+  const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (slash) {
+    const y = Number(slash[3]) < 100 ? 2000 + Number(slash[3]) : Number(slash[3]);
+    return `${y}-${slash[1].padStart(2, "0")}-${slash[2].padStart(2, "0")}`;
+  }
+  const named = raw.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s*(\d{4})$/);
+  const month = named ? MONTHS[named[1].slice(0, 3).toLowerCase()] : undefined;
+  return named && month ? `${named[3]}-${String(month).padStart(2, "0")}-${named[2].padStart(2, "0")}` : null;
+}
+
+const DATE = String.raw`(\d{1,2}\/\d{1,2}\/(?:\d{4}|\d{2})|[A-Za-z]{3,9}\.?\s+\d{1,2},?\s*\d{4})`;
+
+// The date a card statement's balance is as of: its closing date, however
+// the issuer prints it.
+function findClosingDate(text: string): string | null {
+  const patterns = [
+    new RegExp(String.raw`Opening\s*\/\s*Closing\s+Date\s*${DATE}\s*[-–—]\s*${DATE}`, "i"), // Chase: second date
+    new RegExp(String.raw`(?:Statement\s+)?Closing\s+Date(?:\s+of\s+Billing\s+Cycle)?\s*[:]?\s*${DATE}`, "i"),
+    new RegExp(String.raw`Statement\s+(?:Closing\s+)?Date\s*[:]?\s*${DATE}`, "i"),
+    new RegExp(String.raw`${DATE}\s+(?:to|through|-|–|—)\s+${DATE}`, "i"), // a billing period: its end
+  ];
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m) {
+      const raw = m[2] ?? m[1];
+      const iso = toIsoDate(raw.trim());
+      if (iso) return iso;
+    }
+  }
+  return null;
+}
+
+// A card statement's balance (positive = owed) and the date it's as of.
+// `fallbackDate` (usually the statement's last transaction) is used when no
+// closing date is printed.
+export function findStatementCardBalance(
+  text: string,
+  fallbackDate: string | null
+): { owed: number; date: string } | null {
+  const m = text.match(CARD_BALANCE);
+  if (!m) return null;
+  const amount = Number(m[3].replace(/,/g, ""));
+  const isCredit = Boolean(m[1] || m[2] || m[4]);
+  const date = findClosingDate(text) ?? fallbackDate;
+  if (!date) return null;
+  return { owed: isCredit ? -amount : amount, date };
+}

@@ -248,6 +248,10 @@ export async function initDatabase(db: SQLiteDatabase) {
   );
   loadCategoryEmojiOverrides(emojiOverrides);
   await migrateMerchantKeys(db);
+  if ((await getSetting(db, LINKED_BOTH_IGNORED_KEY)) === null) {
+    await db.runAsync("UPDATE transactions SET ignored = 1 WHERE linked_transaction_id IS NOT NULL");
+    await setSetting(db, LINKED_BOTH_IGNORED_KEY, "1");
+  }
   // Catches transfers in data saved before auto-linking existed, and any
   // a manual add or restore made linkable since.
   await autoLinkTransfers(db);
@@ -313,6 +317,14 @@ export async function setSetting(db: SQLiteDatabase, key: string, value: string)
 }
 
 const MERCHANT_KEYS_VERSION_KEY = "merchant_keys_version";
+const LINKED_BOTH_IGNORED_KEY = "linked_both_ignored";
+
+// Money coming into a checking or savings account -- a paycheck, a
+// transfer -- is never spending, even before it's categorized as Income,
+// so spending totals leave it out. Money back on a card (a refund) still
+// counts against spending.
+const NOT_BANK_INFLOW = `NOT (transactions.amount > 0 AND transactions.account_id IN
+  (SELECT id FROM accounts WHERE type IN ('Checking', 'Savings')))`;
 
 // Bump when normalizeMerchantKey's output changes, so stored keys follow.
 const MERCHANT_KEYS_VERSION = "3";
@@ -1319,8 +1331,12 @@ export async function linkTransactions(db: SQLiteDatabase, idA: number, idB: num
   );
   if (rows.length !== 2) return;
   const [a, b] = rows;
-  await db.runAsync("UPDATE transactions SET linked_transaction_id = ?, ignored = ? WHERE id = ?", b.id, a.amount < 0 ? 1 : 0, a.id);
-  await db.runAsync("UPDATE transactions SET linked_transaction_id = ?, ignored = ? WHERE id = ?", a.id, b.amount < 0 ? 1 : 0, b.id);
+  // Both sides: a transfer (checking paying a card) moves money, it isn't
+  // spending -- and the card's "+$800 PAYMENT" side left counted used to
+  // pull spending down by $800. Balances still include both, since they
+  // sum every transaction regardless.
+  await db.runAsync("UPDATE transactions SET linked_transaction_id = ?, ignored = 1 WHERE id = ?", b.id, a.id);
+  await db.runAsync("UPDATE transactions SET linked_transaction_id = ?, ignored = 1 WHERE id = ?", a.id, b.id);
 }
 
 // Undoes a link. Leaves `ignored` as linking last set it on both sides --
@@ -1331,9 +1347,9 @@ export async function unlinkTransaction(db: SQLiteDatabase, id: number) {
     "SELECT linked_transaction_id as linkedId FROM transactions WHERE id = ?",
     id
   );
-  await db.runAsync("UPDATE transactions SET linked_transaction_id = NULL WHERE id = ?", id);
+  await db.runAsync("UPDATE transactions SET linked_transaction_id = NULL, ignored = 0 WHERE id = ?", id);
   if (row?.linkedId) {
-    await db.runAsync("UPDATE transactions SET linked_transaction_id = NULL WHERE id = ?", row.linkedId);
+    await db.runAsync("UPDATE transactions SET linked_transaction_id = NULL, ignored = 0 WHERE id = ?", row.linkedId);
   }
 }
 
@@ -1519,6 +1535,7 @@ export async function getIncomeExpenseTotals(
        SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as income,
        SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
+             AND ${NOT_BANK_INFLOW}
            THEN -transactions.amount ELSE 0 END) as expenses,
        SUM(CASE WHEN LOWER(categories.name) = LOWER(?) OR categories.loan_amount IS NOT NULL
            THEN ABS(transactions.amount) ELSE 0 END) as payments
@@ -1531,7 +1548,18 @@ export async function getIncomeExpenseTotals(
     PAYMENT_CATEGORY_NAME,
     ...params
   );
-  return { income: row?.income ?? 0, expenses: row?.expenses ?? 0, payments: row?.payments ?? 0 };
+  // Payments: what cards received, counted once on the card side (linked
+  // transfers are left out of the sums above, so they're counted here), plus
+  // payments on tracked loans.
+  const cardPayments = await getCardPaymentsTotal(db, filters.start, filters.end, filters.accountId);
+  const loanRow = await db.getFirstAsync<{ total: number | null }>(
+    `SELECT SUM(ABS(transactions.amount)) as total
+     FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE ${clauses.join(" AND ")} AND categories.loan_amount IS NOT NULL`,
+    ...params
+  );
+  return { income: row?.income ?? 0, expenses: row?.expenses ?? 0, payments: cardPayments + (loanRow?.total ?? 0) };
 }
 
 export type MonthlyTotal = { month: string; income: number; expenses: number };
@@ -1550,6 +1578,7 @@ export async function getMonthlyTotals(
        SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as income,
        SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
+             AND ${NOT_BANK_INFLOW}
            THEN -transactions.amount ELSE 0 END) as expenses
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
@@ -1582,7 +1611,7 @@ export async function getCategoryMonthlyTotals(
        SUM(-transactions.amount) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.ignored = 0 AND LOWER(categories.name) = LOWER(?)
+     WHERE transactions.ignored = 0 AND ${NOT_BANK_INFLOW} AND LOWER(categories.name) = LOWER(?)
        ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}
      GROUP BY month
      ORDER BY month DESC
@@ -1606,6 +1635,7 @@ export async function getAccountMonthlyTotals(
        substr(transactions.date, 1, 7) as month,
        SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
+             AND ${NOT_BANK_INFLOW}
            THEN -transactions.amount ELSE 0 END) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
@@ -1663,6 +1693,7 @@ export async function getAccountSpendSummary(
     `SELECT
        SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
+             AND ${NOT_BANK_INFLOW}
            THEN -transactions.amount ELSE 0 END) as spent,
        SUM(CASE WHEN LOWER(categories.name) = LOWER(?) OR categories.loan_amount IS NOT NULL
            THEN ABS(transactions.amount) ELSE 0 END) as received
@@ -1704,7 +1735,7 @@ export async function getCategorySummary(
     `SELECT categories.name as categoryName, SUM(-transactions.amount) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
        AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
        AND categories.loan_amount IS NULL
        ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}
@@ -1723,6 +1754,56 @@ export async function getCategorySummary(
 // same kind of debt-service transfer as a card Payment, not real spending
 // or income. Shown as its own figure since both are excluded from Income
 // and Expenses (see getIncomeExpenseTotals).
+// What's owed on each credit card as of a date. A card's running balance
+// is kept like any account's (charges negative), so owed is its negative.
+// Cards with no known balance yet -- no statement balance read, none set --
+// are listed in `missing` instead of guessed at.
+export async function getCardsOwed(
+  db: SQLiteDatabase,
+  asOfDate: string
+): Promise<{ total: number; cards: { id: number; name: string; owed: number }[]; missing: string[] }> {
+  const cards = (await getAccounts(db)).filter((a) => a.type === "Credit Card");
+  const known: { id: number; name: string; owed: number }[] = [];
+  const missing: string[] = [];
+  for (const card of cards) {
+    const balance = await getAccountBalanceAsOf(db, card.id, asOfDate);
+    if (balance === null) missing.push(card.name);
+    else known.push({ id: card.id, name: card.name, owed: -balance });
+  }
+  return { total: known.reduce((sum, c) => sum + c.owed, 0), cards: known, missing };
+}
+
+// Payments credit cards received in a period, counted once -- on the card's
+// side, so the checking withdrawal that paid it isn't counted again -- and
+// only payments: the Payment category, a linked transfer, or a payment line
+// ("PAYMENT THANK YOU", "AUTOPAY"). Refunds are money in too but aren't payments.
+export async function getCardPaymentsTotal(
+  db: SQLiteDatabase,
+  start: string,
+  end: string,
+  accountId?: number
+): Promise<number> {
+  const row = await db.getFirstAsync<{ total: number | null }>(
+    `SELECT SUM(transactions.amount) as total
+     FROM transactions
+     JOIN accounts ON accounts.id = transactions.account_id
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE accounts.type = 'Credit Card' AND transactions.amount > 0
+       AND transactions.date >= ? AND transactions.date <= ?
+       AND (LOWER(categories.name) = LOWER(?)
+         OR transactions.linked_transaction_id IS NOT NULL
+         OR UPPER(transactions.merchant) LIKE '%PAYMENT%'
+         OR UPPER(transactions.merchant) LIKE '%AUTOPAY%'
+         OR UPPER(transactions.merchant) LIKE '%THANK YOU%')
+       ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}`,
+    start,
+    end,
+    PAYMENT_CATEGORY_NAME,
+    ...(accountId !== undefined ? [accountId] : [])
+  );
+  return row?.total ?? 0;
+}
+
 export async function getPaymentTotal(db: SQLiteDatabase, month: string): Promise<number> {
   const row = await db.getFirstAsync<{ total: number | null }>(
     // ABS() because a payment can be recorded as a positive credit (the
@@ -2023,7 +2104,7 @@ export async function getAccountSummary(
      FROM transactions
      JOIN accounts ON accounts.id = transactions.account_id
      JOIN categories ON categories.id = transactions.category_id
-     WHERE transactions.date LIKE ? AND transactions.ignored = 0
+     WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
        AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
        AND categories.loan_amount IS NULL
      GROUP BY accounts.name
