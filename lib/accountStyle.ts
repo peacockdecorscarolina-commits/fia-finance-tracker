@@ -23,13 +23,28 @@ const CARD_COLOR_OVERRIDES: Record<string, string> = {
   "wells fargo checking": "#D9605A", // soft red
 };
 
-// Handed out in the order accounts were added (by id) rather than hashed from
-// the name, since hashing let several cards land on the same color. Distinct
-// for the first CARD_COLORS.length accounts; after that colors repeat.
-export function getAccountCardColor(name: string, accounts: { id: number; name: string }[]): string {
+// Colors for real cards (cardCatalog.json ids), so a card keeps its color
+// when renamed -- the same picks as the name-based ones above.
+const PRODUCT_COLORS: Record<string, string> = {
+  "amex-blue-cash-everyday": "#2C5F9E", // medium-dark blue
+  "amex-classic-green": "#55A072", // soft sage green
+  "bilt-palladium": "#2E2E33", // charcoal
+  "capital-one-savor": "#9F1239", // crimson
+};
+
+// A hand-picked color by name, then by real card, then one handed out in the
+// order accounts were added (by id) rather than hashed from the name, since
+// hashing let several cards land on the same color. Distinct for the first
+// CARD_COLORS.length accounts; after that colors repeat.
+export function getAccountCardColor(
+  name: string,
+  accounts: { id: number; name: string; cardProduct?: string | null }[]
+): string {
   const override = CARD_COLOR_OVERRIDES[name.trim().toLowerCase()];
   if (override) return override;
   const account = accounts.find((a) => a.name === name);
+  const productColor = account?.cardProduct ? PRODUCT_COLORS[account.cardProduct] : undefined;
+  if (productColor) return productColor;
   const index = account
     ? accounts.map((a) => a.id).sort((a, b) => a - b).indexOf(account.id)
     : hashString(name);

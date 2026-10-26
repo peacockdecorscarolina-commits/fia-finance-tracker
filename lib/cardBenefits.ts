@@ -15,6 +15,8 @@ export type CatalogBenefit = {
   amount: number;
   period: BenefitPeriod;
   matchAny: string[];
+  // Set for a benefit the user added themselves (its custom_benefits row id).
+  customId?: number;
 };
 
 export type CatalogCard = {

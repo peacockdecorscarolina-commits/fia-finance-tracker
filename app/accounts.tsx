@@ -118,6 +118,13 @@ export default function AccountsScreen() {
     load();
   }
 
+  async function useRealCardName(cardName: string) {
+    if (editingId === null) return;
+    await renameAccount(db, editingId, cardName);
+    setEditingName(cardName);
+    load();
+  }
+
   async function handleDelete(id: number) {
     await deleteAccount(db, id);
     setConfirmingDeleteId(null);
@@ -295,6 +302,15 @@ export default function AccountsScreen() {
                   );
                 })}
               </View>
+              {(() => {
+                const picked = CARD_CATALOG.find((c) => c.id === editingAccount.cardProduct);
+                return picked && picked.name !== editingAccount.name ? (
+                  <Pressable onPress={() => useRealCardName(picked.name)} style={styles.useNameBtn}>
+                    <Ionicons name="text-outline" size={14} color={ACCENT} />
+                    <Text style={styles.useNameText}>{`Rename to "${picked.name}"`}</Text>
+                  </Pressable>
+                ) : null;
+              })()}
             </View>
 
             <View style={styles.balanceSection}>
@@ -468,6 +484,17 @@ function makeStyles(colors: ThemeColors) {
   editSaveBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: ACCENT },
   editSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
   cardHint: { fontSize: 12, color: colors.textSecondary },
+  useNameBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    backgroundColor: "#EDE9FE",
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  useNameText: { fontSize: 13, fontWeight: "700", color: ACCENT },
   cardChoiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   cardChoice: {
     paddingHorizontal: spacing.sm,

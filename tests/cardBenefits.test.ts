@@ -58,3 +58,17 @@ describe("annual fee and catalog", () => {
     }
   });
 });
+
+describe("a benefit the user added", () => {
+  const custom = { id: "custom-1", name: "Uber credit", detail: "Added by you.", amount: 10, period: "monthly" as const, matchAny: ["UBER"], customId: 1 };
+
+  it("is detected like a catalog one", () => {
+    const s = benefitStatus(custom, [tx("2026-10-14", "UBER TRIP", -24.1)], new Map(), TODAY, null);
+    expect([s.used, s.left]).toEqual([10, 0]);
+  });
+
+  it("with no statement word, waits for the user to mark it", () => {
+    const s = benefitStatus({ ...custom, matchAny: [] }, [tx("2026-10-14", "UBER TRIP", -24.1)], new Map(), TODAY, null);
+    expect(s.used).toBe(0);
+  });
+});
