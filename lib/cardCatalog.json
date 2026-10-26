@@ -1,5 +1,5 @@
 {
-  "_readme": "Card benefits by card product. Edit amounts here when an issuer changes terms, bump checkedOn, then push. matchAny: words to look for in a transaction on that card (a statement credit line or a qualifying purchase) to detect a use. period: monthly | semiannual (Jan-Jun / Jul-Dec) | yearly (calendar year) | cardYear (resets on the card's anniversary, from its annual-fee charge; calendar year until one is found) | every4Years.",
+  "_readme": "Card benefits by card product. Edit amounts here when an issuer changes terms, bump checkedOn, then push. matchAny: words to look for in a transaction on that card (a statement credit line or a qualifying purchase) to detect a use. period: monthly | quarterly (Jan-Mar, Apr-Jun...) | semiannual (Jan-Jun / Jul-Dec) | yearly (calendar year) | cardYear (resets on the card's anniversary, from its annual-fee charge; calendar year until one is found) | every4Years.",
   "version": 1,
   "checkedOn": "2026-10",
   "cards": [
@@ -15,7 +15,11 @@
           "detail": "Disney+, Hulu or ESPN on this card. Enroll in your Amex account first.",
           "amount": 7,
           "period": "monthly",
-          "matchAny": ["DISNEY", "HULU", "ESPN"]
+          "matchAny": [
+            "DISNEY",
+            "HULU",
+            "ESPN"
+          ]
         },
         {
           "id": "home-chef",
@@ -23,7 +27,30 @@
           "detail": "Home Chef meal kits on this card. Enroll in your Amex account first.",
           "amount": 15,
           "period": "monthly",
-          "matchAny": ["HOME CHEF", "HOMECHEF"]
+          "matchAny": [
+            "HOME CHEF",
+            "HOMECHEF"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "amex-blue-cash-preferred",
+      "name": "Amex Blue Cash Preferred",
+      "issuer": "American Express",
+      "annualFee": 95,
+      "benefits": [
+        {
+          "id": "disney-streaming",
+          "name": "Disney streaming credit",
+          "detail": "Disney+, Hulu or ESPN on this card. Enroll in your Amex account first.",
+          "amount": 10,
+          "period": "monthly",
+          "matchAny": [
+            "DISNEY",
+            "HULU",
+            "ESPN"
+          ]
         }
       ]
     },
@@ -39,39 +66,144 @@
           "detail": "CLEAR+ membership paid with this card.",
           "amount": 219,
           "period": "yearly",
-          "matchAny": ["CLEARME", "CLEAR SECURE", "CLEAR PLUS", "CLEAR+"]
+          "matchAny": [
+            "CLEARME",
+            "CLEAR SECURE",
+            "CLEAR PLUS",
+            "CLEAR+"
+          ]
         }
       ]
     },
     {
-      "id": "chase-sapphire-preferred",
-      "name": "Chase Sapphire Preferred",
-      "issuer": "Chase",
-      "annualFee": 95,
+      "id": "amex-gold",
+      "name": "Amex Gold",
+      "issuer": "American Express",
+      "annualFee": 325,
       "benefits": [
         {
-          "id": "chase-travel-hotel",
-          "name": "Chase Travel hotel credit",
-          "detail": "Hotel booked through Chase Travel with this card.",
-          "amount": 100,
-          "period": "cardYear",
-          "matchAny": ["CHASE TRAVEL", "HOTEL CREDIT"]
-        },
-        {
-          "id": "doordash-monthly",
-          "name": "DoorDash credit",
-          "detail": "Groceries or everyday essentials on DoorDash. Needs DashPass activated with this card.",
+          "id": "uber-cash",
+          "name": "Uber Cash",
+          "detail": "Uber Eats or U.S. Uber rides with this card linked in the Uber app.",
           "amount": 10,
           "period": "monthly",
-          "matchAny": ["DOORDASH", "DD *DOORDASH"]
+          "matchAny": [
+            "UBER"
+          ]
         },
         {
-          "id": "trusted-traveler",
-          "name": "Global Entry / TSA PreCheck / NEXUS credit",
-          "detail": "Application fee paid with this card.",
+          "id": "dining",
+          "name": "Dining credit",
+          "detail": "Grubhub, Seamless, Buffalo Wild Wings, Five Guys, The Cheesecake Factory or Wonder. Enroll first.",
+          "amount": 10,
+          "period": "monthly",
+          "matchAny": [
+            "GRUBHUB",
+            "SEAMLESS",
+            "BUFFALO WILD",
+            "FIVE GUYS",
+            "CHEESECAKE FACTORY",
+            "WONDER"
+          ]
+        },
+        {
+          "id": "resy",
+          "name": "Resy credit",
+          "detail": "U.S. Resy restaurants. Enroll in your Amex account first.",
+          "amount": 50,
+          "period": "semiannual",
+          "matchAny": [
+            "RESY"
+          ]
+        },
+        {
+          "id": "dunkin",
+          "name": "Dunkin' credit",
+          "detail": "U.S. Dunkin' locations. Enroll first.",
+          "amount": 7,
+          "period": "monthly",
+          "matchAny": [
+            "DUNKIN"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "amex-platinum",
+      "name": "Amex Platinum",
+      "issuer": "American Express",
+      "annualFee": 895,
+      "benefits": [
+        {
+          "id": "uber-cash",
+          "name": "Uber Cash",
+          "detail": "Uber rides or Uber Eats with this card linked in the Uber app. $20 extra in December.",
+          "amount": 15,
+          "period": "monthly",
+          "matchAny": [
+            "UBER"
+          ]
+        },
+        {
+          "id": "uber-one",
+          "name": "Uber One membership credit",
+          "detail": "Auto-renewing Uber One membership paid with this card.",
           "amount": 120,
-          "period": "every4Years",
-          "matchAny": ["GLOBAL ENTRY", "TSA PRE", "TSA PRECHECK", "NEXUS", "CBP", "IDEMIA", "TELOS"]
+          "period": "yearly",
+          "matchAny": [
+            "UBER ONE"
+          ]
+        },
+        {
+          "id": "resy",
+          "name": "Resy dining credit",
+          "detail": "U.S. Resy restaurants. Enroll in your Amex account first.",
+          "amount": 100,
+          "period": "quarterly",
+          "matchAny": [
+            "RESY"
+          ]
+        },
+        {
+          "id": "lululemon",
+          "name": "lululemon credit",
+          "detail": "U.S. lululemon stores (not outlets) or lululemon.com. Enroll first.",
+          "amount": 75,
+          "period": "quarterly",
+          "matchAny": [
+            "LULULEMON"
+          ]
+        },
+        {
+          "id": "digital-entertainment",
+          "name": "Digital entertainment credit",
+          "detail": "Disney+, Hulu, ESPN+, Peacock, Paramount+, NYT, WSJ, YouTube Premium. Enroll first.",
+          "amount": 25,
+          "period": "monthly",
+          "matchAny": [
+            "DISNEY",
+            "HULU",
+            "ESPN",
+            "PEACOCK",
+            "PARAMOUNT",
+            "NYTIMES",
+            "NEW YORK TIMES",
+            "WSJ",
+            "WALL STREET JOURNAL",
+            "YOUTUBE"
+          ]
+        },
+        {
+          "id": "fhr-hotel",
+          "name": "Hotel credit (Fine Hotels + Resorts / Hotel Collection)",
+          "detail": "Prepaid stay of 2+ nights booked through Amex Travel.",
+          "amount": 300,
+          "period": "semiannual",
+          "matchAny": [
+            "AMEX TRAVEL",
+            "AMEXTRAVEL",
+            "FINE HOTELS"
+          ]
         }
       ]
     },
@@ -87,7 +219,10 @@
           "detail": "Hotel stay of 2+ nights booked through the Bilt Travel portal.",
           "amount": 200,
           "period": "semiannual",
-          "matchAny": ["BILT TRAVEL", "BILT HOTEL"]
+          "matchAny": [
+            "BILT TRAVEL",
+            "BILT HOTEL"
+          ]
         },
         {
           "id": "bilt-cash",
@@ -100,13 +235,6 @@
       ]
     },
     {
-      "id": "citi-aadvantage-platinum-select",
-      "name": "Citi / AAdvantage Platinum Select",
-      "issuer": "Citi",
-      "annualFee": 99,
-      "benefits": []
-    },
-    {
       "id": "capital-one-savor",
       "name": "Capital One Savor",
       "issuer": "Capital One",
@@ -114,8 +242,230 @@
       "benefits": []
     },
     {
+      "id": "capital-one-venture",
+      "name": "Capital One Venture",
+      "issuer": "Capital One",
+      "annualFee": 95,
+      "benefits": [
+        {
+          "id": "trusted-traveler",
+          "name": "Global Entry / TSA PreCheck credit",
+          "detail": "Application fee paid with this card.",
+          "amount": 120,
+          "period": "every4Years",
+          "matchAny": [
+            "GLOBAL ENTRY",
+            "TSA PRE",
+            "TSA PRECHECK",
+            "NEXUS",
+            "CBP",
+            "IDEMIA",
+            "TELOS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "capital-one-venture-x",
+      "name": "Capital One Venture X",
+      "issuer": "Capital One",
+      "annualFee": 395,
+      "benefits": [
+        {
+          "id": "travel-credit",
+          "name": "Capital One Travel credit",
+          "detail": "Bookings through Capital One Travel with this card.",
+          "amount": 300,
+          "period": "cardYear",
+          "matchAny": [
+            "CAPITAL ONE TRAVEL",
+            "CAP ONE TRAVEL"
+          ]
+        },
+        {
+          "id": "trusted-traveler",
+          "name": "Global Entry / TSA PreCheck credit",
+          "detail": "Application fee paid with this card.",
+          "amount": 120,
+          "period": "every4Years",
+          "matchAny": [
+            "GLOBAL ENTRY",
+            "TSA PRE",
+            "TSA PRECHECK",
+            "NEXUS",
+            "CBP",
+            "IDEMIA",
+            "TELOS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chase-freedom-flex",
+      "name": "Chase Freedom Flex",
+      "issuer": "Chase",
+      "annualFee": 0,
+      "benefits": []
+    },
+    {
+      "id": "chase-freedom-unlimited",
+      "name": "Chase Freedom Unlimited",
+      "issuer": "Chase",
+      "annualFee": 0,
+      "benefits": []
+    },
+    {
+      "id": "chase-sapphire-preferred",
+      "name": "Chase Sapphire Preferred",
+      "issuer": "Chase",
+      "annualFee": 95,
+      "benefits": [
+        {
+          "id": "chase-travel-hotel",
+          "name": "Chase Travel hotel credit",
+          "detail": "Hotel booked through Chase Travel with this card.",
+          "amount": 100,
+          "period": "cardYear",
+          "matchAny": [
+            "CHASE TRAVEL",
+            "HOTEL CREDIT"
+          ]
+        },
+        {
+          "id": "doordash-monthly",
+          "name": "DoorDash credit",
+          "detail": "Groceries or everyday essentials on DoorDash. Needs DashPass activated with this card.",
+          "amount": 10,
+          "period": "monthly",
+          "matchAny": [
+            "DOORDASH",
+            "DD *DOORDASH"
+          ]
+        },
+        {
+          "id": "trusted-traveler",
+          "name": "Global Entry / TSA PreCheck / NEXUS credit",
+          "detail": "Application fee paid with this card.",
+          "amount": 120,
+          "period": "every4Years",
+          "matchAny": [
+            "GLOBAL ENTRY",
+            "TSA PRE",
+            "TSA PRECHECK",
+            "NEXUS",
+            "CBP",
+            "IDEMIA",
+            "TELOS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chase-sapphire-reserve",
+      "name": "Chase Sapphire Reserve",
+      "issuer": "Chase",
+      "annualFee": 795,
+      "benefits": [
+        {
+          "id": "travel-credit",
+          "name": "Travel credit",
+          "detail": "Applied automatically to travel purchases on this card.",
+          "amount": 300,
+          "period": "cardYear",
+          "matchAny": [
+            "TRAVEL CREDIT"
+          ]
+        },
+        {
+          "id": "the-edit",
+          "name": "The Edit hotel credit",
+          "detail": "Prepaid hotel booking from The Edit through Chase Travel.",
+          "amount": 250,
+          "period": "semiannual",
+          "matchAny": [
+            "THE EDIT",
+            "CHASE TRAVEL"
+          ]
+        },
+        {
+          "id": "exclusive-tables",
+          "name": "Dining credit (Exclusive Tables)",
+          "detail": "Sapphire Reserve Exclusive Tables restaurants, booked through OpenTable.",
+          "amount": 300,
+          "period": "yearly",
+          "matchAny": [
+            "OPENTABLE",
+            "EXCLUSIVE TABLES"
+          ]
+        },
+        {
+          "id": "trusted-traveler",
+          "name": "Global Entry / TSA PreCheck credit",
+          "detail": "Application fee paid with this card.",
+          "amount": 120,
+          "period": "every4Years",
+          "matchAny": [
+            "GLOBAL ENTRY",
+            "TSA PRE",
+            "TSA PRECHECK",
+            "NEXUS",
+            "CBP",
+            "IDEMIA",
+            "TELOS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "citi-aadvantage-platinum-select",
+      "name": "Citi / AAdvantage Platinum Select",
+      "issuer": "Citi",
+      "annualFee": 99,
+      "benefits": []
+    },
+    {
+      "id": "citi-double-cash",
+      "name": "Citi Double Cash",
+      "issuer": "Citi",
+      "annualFee": 0,
+      "benefits": []
+    },
+    {
+      "id": "citi-strata-premier",
+      "name": "Citi Strata Premier",
+      "issuer": "Citi",
+      "annualFee": 95,
+      "benefits": [
+        {
+          "id": "citi-hotel",
+          "name": "Hotel savings",
+          "detail": "$100 off a single hotel stay of $500+ (before taxes and fees) booked on CitiTravel.com.",
+          "amount": 100,
+          "period": "yearly",
+          "matchAny": [
+            "CITITRAVEL",
+            "CITI TRAVEL"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "discover-it-cash-back",
+      "name": "Discover it Cash Back",
+      "issuer": "Discover",
+      "annualFee": 0,
+      "benefits": []
+    },
+    {
       "id": "wells-fargo-active-cash",
       "name": "Wells Fargo Active Cash",
+      "issuer": "Wells Fargo",
+      "annualFee": 0,
+      "benefits": []
+    },
+    {
+      "id": "wells-fargo-autograph",
+      "name": "Wells Fargo Autograph",
       "issuer": "Wells Fargo",
       "annualFee": 0,
       "benefits": []
