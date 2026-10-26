@@ -72,3 +72,28 @@ describe("a benefit the user added", () => {
     expect(s.used).toBe(0);
   });
 });
+
+describe("credits used inside an app (Uber Cash)", () => {
+  const uberCash = findCard("amex-gold")!.benefits.find((b) => b.id === "uber-cash")!;
+
+  it("is marked as in-app in the catalog", () => {
+    expect(uberCash.appliedAs).toBe("inApp");
+  });
+
+  it("counts any Uber charge as the full credit, since Uber uses it first", () => {
+    // A $10.99 ride with $10 Uber Cash only charges the card $0.99.
+    const s = benefitStatus(uberCash, [tx("2026-10-14", "UBER TRIP", -0.99)], new Map(), TODAY, null);
+    expect([s.used, s.left]).toEqual([10, 0]);
+  });
+
+  it("can't see a fully covered ride, so it waits for the user", () => {
+    const s = benefitStatus(uberCash, [], new Map(), TODAY, null);
+    expect(s.used).toBe(0);
+    expect(benefitStatus(uberCash, [], new Map([["uber-cash|2026-10", 10]]), TODAY, null).used).toBe(10);
+  });
+
+  it("leaves statement credits counting what was spent", () => {
+    const dunkin = findCard("amex-gold")!.benefits.find((b) => b.id === "dunkin")!;
+    expect(benefitStatus(dunkin, [tx("2026-10-02", "DUNKIN #1234", -3.5)], new Map(), TODAY, null).used).toBe(3.5);
+  });
+});

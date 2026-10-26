@@ -136,7 +136,8 @@ export async function initDatabase(db: SQLiteDatabase) {
       name TEXT NOT NULL,
       amount REAL NOT NULL,
       period TEXT NOT NULL,
-      match_words TEXT
+      match_words TEXT,
+      applied_as TEXT
     );
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY NOT NULL,
@@ -186,6 +187,10 @@ export async function initDatabase(db: SQLiteDatabase) {
   // Migration for databases created before per-account balance tracking
   // existed.
   const accountColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(accounts)");
+  const customBenefitColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(custom_benefits)");
+  if (!customBenefitColumns.some((c) => c.name === "applied_as")) {
+    await db.execAsync("ALTER TABLE custom_benefits ADD COLUMN applied_as TEXT");
+  }
   if (!accountColumns.some((c) => c.name === "card_product")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN card_product TEXT");
   }
@@ -552,15 +557,16 @@ export async function setBenefitMark(
 export async function addCustomBenefit(
   db: SQLiteDatabase,
   accountId: number,
-  benefit: { name: string; amount: number; period: BenefitPeriod; matchWords: string[] }
+  benefit: { name: string; amount: number; period: BenefitPeriod; matchWords: string[]; appliedAs: "statementCredit" | "inApp" }
 ) {
   await db.runAsync(
-    "INSERT INTO custom_benefits (account_id, name, amount, period, match_words) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO custom_benefits (account_id, name, amount, period, match_words, applied_as) VALUES (?, ?, ?, ?, ?, ?)",
     accountId,
     benefit.name.trim(),
     benefit.amount,
     benefit.period,
-    benefit.matchWords.map((w) => w.trim()).filter(Boolean).join(",") || null
+    benefit.matchWords.map((w) => w.trim()).filter(Boolean).join(",") || null,
+    benefit.appliedAs
   );
 }
 
@@ -573,8 +579,15 @@ export async function deleteCustomBenefit(db: SQLiteDatabase, id: number) {
 }
 
 async function getCustomBenefits(db: SQLiteDatabase, accountId: number): Promise<CatalogBenefit[]> {
-  const rows = await db.getAllAsync<{ id: number; name: string; amount: number; period: BenefitPeriod; match_words: string | null }>(
-    "SELECT id, name, amount, period, match_words FROM custom_benefits WHERE account_id = ? ORDER BY id",
+  const rows = await db.getAllAsync<{
+    id: number;
+    name: string;
+    amount: number;
+    period: BenefitPeriod;
+    match_words: string | null;
+    applied_as: "statementCredit" | "inApp" | null;
+  }>(
+    "SELECT id, name, amount, period, match_words, applied_as FROM custom_benefits WHERE account_id = ? ORDER BY id",
     accountId
   );
   return rows.map((r) => ({
@@ -584,6 +597,7 @@ async function getCustomBenefits(db: SQLiteDatabase, accountId: number): Promise
     amount: r.amount,
     period: r.period,
     matchAny: r.match_words ? r.match_words.split(",") : [],
+    appliedAs: r.applied_as ?? "statementCredit",
     customId: r.id,
   }));
 }
@@ -1736,7 +1750,15 @@ export type DataSnapshot = {
   // cardProduct/annualFee/benefitMarks are optional so older backups still restore.
   accounts: { name: string; type: string; cardProduct?: string | null; annualFee?: number | null }[];
   benefitMarks?: { accountName: string; benefitId: string; periodKey: string; amount: number }[];
-  customBenefits?: { accountName: string; name: string; amount: number; period: BenefitPeriod; matchWords: string | null; benefitId: string }[];
+  customBenefits?: {
+    accountName: string;
+    name: string;
+    amount: number;
+    period: BenefitPeriod;
+    matchWords: string | null;
+    appliedAs?: "statementCredit" | "inApp" | null;
+    benefitId: string;
+  }[];
   // loanInterestRate is optional so backups from before it existed still restore.
   categories: {
     name: string;
@@ -1846,10 +1868,12 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
       amount: number;
       period: BenefitPeriod;
       matchWords: string | null;
+      appliedAs: "statementCredit" | "inApp" | null;
       benefitId: string;
     }>(
       `SELECT accounts.name as accountName, custom_benefits.name as name, custom_benefits.amount as amount,
          custom_benefits.period as period, custom_benefits.match_words as matchWords,
+         custom_benefits.applied_as as appliedAs,
          'custom-' || custom_benefits.id as benefitId
        FROM custom_benefits JOIN accounts ON accounts.id = custom_benefits.account_id ORDER BY custom_benefits.id`
     ),
@@ -1954,12 +1978,13 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     const accountId = accountIds.get(b.accountName);
     if (accountId === undefined) continue;
     const result = await db.runAsync(
-      "INSERT INTO custom_benefits (account_id, name, amount, period, match_words) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO custom_benefits (account_id, name, amount, period, match_words, applied_as) VALUES (?, ?, ?, ?, ?, ?)",
       accountId,
       b.name,
       b.amount,
       b.period,
-      b.matchWords
+      b.matchWords,
+      b.appliedAs ?? null
     );
     customIdMap.set(`${b.accountName}|${b.benefitId}`, `custom-${result.lastInsertRowId}`);
   }

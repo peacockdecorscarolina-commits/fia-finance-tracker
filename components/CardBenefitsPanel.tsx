@@ -47,6 +47,7 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
   const [newAmount, setNewAmount] = useState("");
   const [newPeriod, setNewPeriod] = useState<BenefitPeriod>("monthly");
   const [newMatch, setNewMatch] = useState("");
+  const [newAppliedAs, setNewAppliedAs] = useState<"statementCredit" | "inApp">("statementCredit");
   const newAmountValue = Number(newAmount.replace(/[$,\s]/g, ""));
   const canAdd = newName.trim() !== "" && Number.isFinite(newAmountValue) && newAmountValue > 0;
 
@@ -57,12 +58,14 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
       amount: newAmountValue,
       period: newPeriod,
       matchWords: newMatch.split(","),
+      appliedAs: newAppliedAs,
     });
     setAdding(false);
     setNewName("");
     setNewAmount("");
     setNewPeriod("monthly");
     setNewMatch("");
+    setNewAppliedAs("statementCredit");
     onChanged();
   }
 
@@ -195,6 +198,23 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                   </Pressable>
                 ))}
               </View>
+              <Text style={styles.meta}>How is it applied?</Text>
+              <View style={styles.actions}>
+                {(
+                  [
+                    ["statementCredit", "Credited back on the statement"],
+                    ["inApp", "Used inside the app (like Uber Cash)"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Pressable
+                    key={value}
+                    onPress={() => setNewAppliedAs(value)}
+                    style={[styles.actionBtn, newAppliedAs === value && styles.periodActive]}
+                  >
+                    <Text style={[styles.actionText, newAppliedAs !== value && { color: colors.textSecondary }]}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <TextInput
                 value={newMatch}
                 onChangeText={setNewMatch}
@@ -242,6 +262,11 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                         : `${formatMoney(s.left)} left · ${s.daysLeft} day${s.daysLeft === 1 ? "" : "s"} left`}
                   {!fullyUsed && s.used > 0 ? ` · ${formatMoney(s.left)} left` : ""}
                 </Text>
+                {s.benefit.appliedAs === "inApp" && s.used === 0 && (
+                  <Text style={styles.meta}>
+                    {"Fully covered rides or orders don't show on your statement. Used it in the app? Tap I used it."}
+                  </Text>
+                )}
                 {partialFor === key ? (
                   <View style={styles.inlineRow}>
                     <View style={styles.inputRow}>

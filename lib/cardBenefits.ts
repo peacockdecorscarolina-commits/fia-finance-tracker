@@ -15,6 +15,11 @@ export type CatalogBenefit = {
   amount: number;
   period: BenefitPeriod;
   matchAny: string[];
+  // How the credit reaches you. A statement credit is charged in full and
+  // credited back later; an in-app one (Uber Cash, DoorDash) is spent inside
+  // the merchant's app first, so the card is only charged what's left over
+  // -- 99 cents for a $10.99 ride, or nothing at all.
+  appliedAs?: "statementCredit" | "inApp";
   // Set for a benefit the user added themselves (its custom_benefits row id).
   customId?: number;
 };
@@ -107,6 +112,12 @@ export function detectUse(benefit: CatalogBenefit, cardTransactions: Transaction
       !t.ignored &&
       words.some((w) => t.merchant.toUpperCase().includes(w))
   );
+  // Any charge at all for an in-app credit means it was used up first, so
+  // the leftover the card paid (often cents) isn't the amount used.
+  if (benefit.appliedAs === "inApp") {
+    const latest = hits.map((t) => t.date).sort().pop() ?? null;
+    return { amount: latest ? benefit.amount : 0, date: latest };
+  }
   // A credit line is the clearest signal of the amount actually applied;
   // otherwise count the qualifying purchases.
   const credits = hits.filter((t) => t.amount > 0);
