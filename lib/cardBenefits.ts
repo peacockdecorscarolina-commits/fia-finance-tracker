@@ -6,7 +6,7 @@ import type { Transaction } from "./types";
 // own transactions -- the issuer's statement-credit line, or a qualifying
 // purchase -- and the user can mark a use themselves when it can't be.
 
-export type BenefitPeriod = "monthly" | "semiannual" | "yearly" | "cardYear" | "every4Years";
+export type BenefitPeriod = "monthly" | "quarterly" | "semiannual" | "yearly" | "cardYear" | "every4Years";
 
 export type CatalogBenefit = {
   id: string;
@@ -51,6 +51,11 @@ export function currentWindow(period: BenefitPeriod, today: string, anniversaryM
   switch (period) {
     case "monthly":
       return { key: iso(y, m, 1).slice(0, 7), start: iso(y, m, 1), end: iso(y, m, lastDay(y, m)) };
+    case "quarterly": {
+      const q = Math.ceil(m / 3);
+      const endMonth = q * 3;
+      return { key: `${y}-Q${q}`, start: iso(y, endMonth - 2, 1), end: iso(y, endMonth, lastDay(y, endMonth)) };
+    }
     case "semiannual":
       return m <= 6
         ? { key: `${y}-H1`, start: iso(y, 1, 1), end: iso(y, 6, 30) }
@@ -176,6 +181,7 @@ export function usedLast12Months(
 
 export const PERIOD_LABEL: Record<BenefitPeriod, string> = {
   monthly: "month",
+  quarterly: "quarter",
   semiannual: "half year",
   yearly: "year",
   cardYear: "card year",
