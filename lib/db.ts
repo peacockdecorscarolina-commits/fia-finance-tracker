@@ -1300,7 +1300,9 @@ export type MonthlyTotal = { month: string; income: number; expenses: number };
 // have any transactions, oldest first, for charting.
 export async function getMonthlyTotals(
   db: SQLiteDatabase,
-  months: number
+  months: number,
+  // Limits it to one account, like Home's card chips do for its totals.
+  accountId?: number
 ): Promise<MonthlyTotal[]> {
   const rows = await db.getAllAsync<MonthlyTotal>(
     `SELECT
@@ -1312,12 +1314,14 @@ export async function getMonthlyTotals(
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0
+       ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}
      GROUP BY month
      ORDER BY month DESC
      LIMIT ?`,
     INCOME_CATEGORY_NAME,
     INCOME_CATEGORY_NAME,
     PAYMENT_CATEGORY_NAME,
+    ...(accountId !== undefined ? [accountId] : []),
     months
   );
   return rows.reverse();
@@ -1325,10 +1329,12 @@ export async function getMonthlyTotals(
 
 // Monthly spend for a single category, for the trend chart on the category
 // detail page -- expressed as a positive amount (spend magnitude) per month.
+// Pass accountId to limit it to one card.
 export async function getCategoryMonthlyTotals(
   db: SQLiteDatabase,
   categoryName: string,
-  months: number
+  months: number,
+  accountId?: number
 ): Promise<{ month: string; total: number }[]> {
   const rows = await db.getAllAsync<{ month: string; total: number }>(
     `SELECT
@@ -1337,10 +1343,12 @@ export async function getCategoryMonthlyTotals(
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0 AND LOWER(categories.name) = LOWER(?)
+       ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}
      GROUP BY month
      ORDER BY month DESC
      LIMIT ?`,
     categoryName,
+    ...(accountId !== undefined ? [accountId] : []),
     months
   );
   return rows.reverse();

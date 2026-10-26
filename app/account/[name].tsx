@@ -298,7 +298,7 @@ export default function AccountDrillDownScreen() {
               <Pressable
                 key={c.categoryName}
                 style={styles.categoryLine}
-                onPress={() => router.push({ pathname: "/category/[name]", params: { name: c.categoryName, month: periodKey } })}
+                onPress={() => router.push({ pathname: "/category/[name]", params: { name: c.categoryName, month: periodKey, account: name } })}
               >
                 <View style={styles.categoryLineTop}>
                   <Text style={styles.categoryLineName} numberOfLines={1}>

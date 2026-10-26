@@ -39,7 +39,7 @@ export default function AllTransactionsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
-  const { start, end, categoryName, mode, search, tag: tagParam } = useLocalSearchParams<{
+  const { start, end, categoryName, mode, search, tag: tagParam, accountId: accountParam } = useLocalSearchParams<{
     start?: string;
     end?: string;
     categoryName?: string;
@@ -49,11 +49,13 @@ export default function AllTransactionsScreen() {
     search?: string;
     // Set when a tag chip on a transaction was tapped -- filters to that tag.
     tag?: string;
+    // Opens filtered to this account (Home's selected card chip).
+    accountId?: string;
   }>();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<number | "all">("all");
+  const [selectedAccountId, setSelectedAccountId] = useState<number | "all">(accountParam ? Number(accountParam) : "all");
   const [loading, setLoading] = useState(true);
   const [searchOpen, setSearchOpen] = useState(search === "1" || !!tagParam);
   const [query, setQuery] = useState("");
