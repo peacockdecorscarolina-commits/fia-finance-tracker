@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
+import { merchantMatchText } from "./formatMerchant";
 import type { Account, Asset, AssetBalanceEntry, AssetType, Category, ExtractedTransaction, Transaction } from "./types";
 import { loadCategoryEmojiOverrides, setCategoryEmojiOverride } from "./categoryStyle";
 
@@ -13,7 +14,17 @@ import { loadCategoryEmojiOverrides, setCategoryEmojiOverride } from "./category
 // address or a flight's ticket number after it. Left as plain trim+
 // uppercase, every occurrence of what's really the same merchant would get
 // a different key, and memory would never match twice.
+// Merchant memory's key: the cleaned name (store number, city, address,
+// phone and card-processor prefix stripped -- see merchantMatchText), so
+// one categorization covers every location of the same place, then the
+// rules below on top.
 export function normalizeMerchantKey(merchant: string): string {
+  return legacyMerchantKey(merchantMatchText(merchant));
+}
+
+// The key as it was before the cleaned name went in front of it; kept for
+// moving existing merchant memory over (see migrateMerchantKeys).
+function legacyMerchantKey(merchant: string): string {
   const words = merchant.trim().split(/\s+/);
   // Drop a leading reference/transaction-number-like token some issuers
   // print before the actual merchant name (e.g. Wells Fargo's
@@ -197,6 +208,7 @@ export async function initDatabase(db: SQLiteDatabase) {
     "SELECT name, emoji FROM categories WHERE emoji IS NOT NULL"
   );
   loadCategoryEmojiOverrides(emojiOverrides);
+  await migrateMerchantKeys(db);
   // Catches transfers in data saved before auto-linking existed, and any
   // a manual add or restore made linkable since.
   await autoLinkTransfers(db);
@@ -259,6 +271,42 @@ export async function getSetting(db: SQLiteDatabase, key: string): Promise<strin
 
 export async function setSetting(db: SQLiteDatabase, key: string, value: string) {
   await db.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, value);
+}
+
+const MERCHANT_KEYS_VERSION_KEY = "merchant_keys_version";
+
+// One-time: re-keys merchant memory and subscription choices from the old
+// raw-text key to the cleaned-name key, so nothing the user already taught
+// the app is lost. Each old key is mapped through the transactions that
+// produced it; one with no transactions left falls back to re-keying its
+// own text. When several old keys merge into one (two locations of the same
+// place), the one covering the most transactions wins.
+async function migrateMerchantKeys(db: SQLiteDatabase) {
+  if ((await getSetting(db, MERCHANT_KEYS_VERSION_KEY)) === "2") return;
+  const merchants = await db.getAllAsync<{ merchant: string; count: number }>(
+    "SELECT merchant, COUNT(*) as count FROM transactions GROUP BY merchant"
+  );
+  const newKeyFor = new Map<string, string>();
+  const usage = new Map<string, number>();
+  for (const { merchant, count } of merchants) {
+    const oldKey = legacyMerchantKey(merchant);
+    if (!newKeyFor.has(oldKey)) newKeyFor.set(oldKey, normalizeMerchantKey(merchant));
+    usage.set(oldKey, (usage.get(oldKey) ?? 0) + count);
+  }
+  const remap = async (table: string, valueColumn: string) => {
+    const rows = await db.getAllAsync<{ merchant_key: string; value: string | number }>(
+      `SELECT merchant_key, ${valueColumn} as value FROM ${table}`
+    );
+    rows.sort((a, b) => (usage.get(b.merchant_key) ?? 0) - (usage.get(a.merchant_key) ?? 0));
+    await db.runAsync(`DELETE FROM ${table}`);
+    for (const row of rows) {
+      const key = newKeyFor.get(row.merchant_key) ?? normalizeMerchantKey(row.merchant_key);
+      await db.runAsync(`INSERT OR IGNORE INTO ${table} (merchant_key, ${valueColumn}) VALUES (?, ?)`, key, row.value);
+    }
+  };
+  await remap("merchant_category_map", "category_id");
+  await remap("recurring_overrides", "status");
+  await setSetting(db, MERCHANT_KEYS_VERSION_KEY, "2");
 }
 
 const USER_NAME_KEY = "user_name";
@@ -1700,6 +1748,10 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     await setUserName(db, snapshot.userName);
   }
 
+  // A backup can predate the cleaned-name keys; re-key whatever it brought.
+  await setSetting(db, MERCHANT_KEYS_VERSION_KEY, "1");
+  const restoreMigration = () => migrateMerchantKeys(db);
+
   if (snapshot.recurringOverrides) {
     await db.runAsync("DELETE FROM recurring_overrides");
     for (const o of snapshot.recurringOverrides) {
@@ -1710,6 +1762,7 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
       );
     }
   }
+  await restoreMigration();
 }
 
 export type AccountTotal = { accountName: string; total: number };
