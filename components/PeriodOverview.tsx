@@ -30,6 +30,7 @@ import {
 import { monthsBetween, periodRange } from "../lib/period";
 import { radius, spacing, tabBarClearance } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
+import type { Recurring } from "../lib/subscriptions";
 import { ASSET_TYPES, type Account, type AssetType, type Transaction } from "../lib/types";
 
 const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
@@ -44,6 +45,14 @@ const NET_WORTH_TINT: Record<AssetType, string> = {
 const HERO_GRADIENT = ["#4C1D95", "#312E81"] as const;
 
 const VIEWS = ["Month", "Year"] as const;
+
+const SUMMARY_RECURRING_LIMIT = 6;
+const FREQUENCY_UNIT: Record<Recurring["frequency"], string> = { weekly: "week", monthly: "month", yearly: "year" };
+
+function formatShortDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 type SummaryView = (typeof VIEWS)[number];
 
 function formatMoney(value: number): string {
@@ -256,7 +265,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const [reviewCount, setReviewCount] = useState(0);
   const [loading, setLoading] = useState(true);
   // Active subscriptions and bills -- always "right now", not tied to the picked period.
-  const [recurring, setRecurring] = useState<{ count: number; monthly: number }>({ count: 0, monthly: 0 });
+  const [recurring, setRecurring] = useState<Recurring[]>([]);
   const [assets, setAssets] = useState<{ id: number; name: string; type: AssetType; balance: number }[]>([]);
   const [assetHistories, setAssetHistories] = useState<Record<AssetType, { date: string; total: number }[]>>(
     {} as Record<AssetType, { date: string; total: number }[]>
@@ -267,10 +276,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
       getNeedsReviewCount(db).then(setReviewCount);
       getTransactionMonthBounds(db).then(setMonthBounds);
       if (section === "spending") {
-        getRecurring(db).then((list) => {
-          const active = list.filter((r) => !r.isStopped);
-          setRecurring({ count: active.length, monthly: active.reduce((sum, r) => sum + r.monthlyCost, 0) });
-        });
+        getRecurring(db).then(setRecurring);
       }
       getAssetSummaries(db).then(setAssets);
       Promise.all(ASSET_TYPES.map((type) => getAssetTypeHistory(db, type).then((history) => [type, history] as const))).then(
@@ -310,6 +316,10 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   // as a big drop, so the change is only shown once the year is over.
   const showDelta = prevTotal > 0 && (view === "Month" || year < currentMonth().slice(0, 4));
   const remaining = Math.max(total - paymentTotal, 0);
+  // Subscriptions & bills are about "right now", not the picked period.
+  const activeRecurring = recurring.filter((r) => !r.isStopped);
+  const recurringMonthly = activeRecurring.reduce((sum, r) => sum + r.monthlyCost, 0);
+  const stoppedCount = recurring.length - activeRecurring.length;
 
   // The current month is always offered, even before any statement covers it,
   // and so is the selected one. String compare works since months are "YYYY-MM".
@@ -451,26 +461,6 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
             </View>
           </View>
         </LinearGradient>
-        )}
-
-        {section === "spending" && (
-          <Pressable style={styles.assetCard} onPress={() => router.push("/subscriptions")}>
-            <View style={[styles.assetCardIcon, { backgroundColor: "#EDE9FE" }]}>
-              <Ionicons name="repeat" size={16} color="#4C1D95" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.assetCardLabel}>Subscriptions & bills</Text>
-              <Text style={styles.assetCardValue}>
-                {recurring.count > 0 ? `${formatMoney(recurring.monthly)} / month` : "None found yet"}
-              </Text>
-              {recurring.count > 0 && (
-                <Text style={styles.assetCardLabel}>
-                  {recurring.count} active · {formatMoney(recurring.monthly * 12)} a year
-                </Text>
-              )}
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-          </Pressable>
         )}
 
         {section === "accounts" && (
@@ -617,6 +607,78 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
             )}
           </View>
         </View>
+        )}
+
+        {section === "spending" && (
+          <View>
+            <View style={styles.stackTitleRow}>
+              <Text style={[styles.stackTitle, { marginBottom: 0 }]}>Subscriptions & bills</Text>
+              {recurring.length > 0 && (
+                <Pressable onPress={() => router.push("/subscriptions")}>
+                  <Text style={styles.stackTitleLink}>See all</Text>
+                </Pressable>
+              )}
+            </View>
+            <View style={[styles.sectionCard, { marginTop: spacing.sm }]}>
+              {activeRecurring.length === 0 ? (
+                <EmptyState
+                  icon="🔁"
+                  title="None found yet"
+                  subtitle="Charges that repeat show up here after the second one. Or tap Subscription on any transaction to mark it."
+                />
+              ) : (
+                <>
+                  <View style={styles.subTotalRow}>
+                    <View>
+                      <Text style={styles.subTotalValue}>{formatMoney(recurringMonthly)} / month</Text>
+                      <Text style={styles.txMeta}>
+                        {activeRecurring.length} active · {formatMoney(recurringMonthly * 12)} a year
+                      </Text>
+                    </View>
+                  </View>
+                  {activeRecurring.slice(0, SUMMARY_RECURRING_LIMIT).map((r) => (
+                    <Pressable key={r.merchantKey} style={styles.txRow} onPress={() => router.push("/subscriptions")}>
+                      <View style={[styles.subIcon, r.kind === "bill" && { backgroundColor: "#DBEAFE" }]}>
+                        <Ionicons name={r.kind === "bill" ? "receipt-outline" : "repeat"} size={15} color="#4C1D95" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.txName} numberOfLines={1}>
+                          {formatMerchantName(r.merchant)}
+                        </Text>
+                        <Text style={styles.txMeta} numberOfLines={1}>
+                          {r.kind === "bill" ? "Bill" : "Subscription"} · next ~{formatShortDate(r.nextDate)}
+                        </Text>
+                        {r.previousAmount !== null && r.amount > r.previousAmount ? (
+                          <Text style={styles.subFlagUp}>▲ Price went up from {formatMoney(r.previousAmount)}</Text>
+                        ) : r.isNew ? (
+                          <Text style={styles.subFlagNew}>New this month</Text>
+                        ) : null}
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={styles.txAmount}>{formatMoney(r.amount)}</Text>
+                        <Text style={styles.txCategory}>/ {FREQUENCY_UNIT[r.frequency]}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                  {(activeRecurring.length > SUMMARY_RECURRING_LIMIT || stoppedCount > 0) && (
+                    <Pressable onPress={() => router.push("/subscriptions")}>
+                      <Text style={styles.stackTitleLink}>
+                        {[
+                          activeRecurring.length > SUMMARY_RECURRING_LIMIT
+                            ? `${activeRecurring.length - SUMMARY_RECURRING_LIMIT} more`
+                            : null,
+                          stoppedCount > 0 ? `${stoppedCount} possibly cancelled` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}{" "}
+                        →
+                      </Text>
+                    </Pressable>
+                  )}
+                </>
+              )}
+            </View>
+          </View>
         )}
 
         {section === "spending" && (
@@ -774,6 +836,18 @@ function makeStyles(colors: ThemeColors) {
     textTransform: "uppercase",
     letterSpacing: 0.6,
     marginBottom: spacing.sm,
+  },
+  subFlagUp: { fontSize: 11, fontWeight: "700", color: "#B45309", marginTop: 2 },
+  subFlagNew: { fontSize: 11, fontWeight: "700", color: "#16A34A", marginTop: 2 },
+  subTotalRow: { paddingBottom: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border },
+  subTotalValue: { fontSize: 20, fontWeight: "700", color: colors.textPrimary },
+  subIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#EDE9FE",
+    alignItems: "center",
+    justifyContent: "center",
   },
   stackTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   stackTitleLink: { fontSize: 13, fontWeight: "600", color: colors.accent },
