@@ -139,6 +139,9 @@ export async function initDatabase(db: SQLiteDatabase) {
       match_words TEXT,
       applied_as TEXT
     );
+    -- Transfer matching looks up "the opposite of this amount" (see
+    -- TRANSFER_PAIRS), which is a full scan of every pair without this.
+    CREATE INDEX IF NOT EXISTS transactions_amount ON transactions(amount);
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT
@@ -1022,38 +1025,38 @@ export async function deleteAssetBalance(db: SQLiteDatabase, id: number) {
 // Inserts extracted transactions, checking local merchant memory first: a
 // merchant we've already categorized before is trusted over the extraction's
 // own guess, and doesn't need review again.
+// Saves a statement's transactions in one database transaction -- much
+// faster than a write per row, and a failure partway leaves nothing half
+// saved. Merchant memory and category ids are read once up front instead of
+// once per row.
 export async function insertExtractedTransactions(
   db: SQLiteDatabase,
   accountId: number,
   extracted: ExtractedTransaction[]
 ) {
+  const memory = new Map(
+    (await db.getAllAsync<{ merchant_key: string; category_id: number }>(
+      "SELECT merchant_key, category_id FROM merchant_category_map"
+    )).map((r) => [r.merchant_key, r.category_id])
+  );
+  const categoryIds = new Map<string, number>();
   for (const t of extracted) {
-    const key = normalizeMerchantKey(t.merchant);
-    const known = await db.getFirstAsync<{ category_id: number }>(
-      "SELECT category_id FROM merchant_category_map WHERE merchant_key = ?",
-      key
-    );
-
-    let categoryId: number;
-    let needsReview: boolean;
-    if (known) {
-      categoryId = known.category_id;
-      needsReview = false;
-    } else {
-      categoryId = await getCategoryIdByName(db, t.category);
-      needsReview = t.needsReview;
-    }
-
-    await db.runAsync(
-      "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, ?, 0)",
-      accountId,
-      t.date,
-      t.merchant,
-      t.amount,
-      categoryId,
-      needsReview ? 1 : 0
-    );
+    if (!categoryIds.has(t.category)) categoryIds.set(t.category, await getCategoryIdByName(db, t.category));
   }
+  await db.withTransactionAsync(async () => {
+    for (const t of extracted) {
+      const known = memory.get(normalizeMerchantKey(t.merchant));
+      await db.runAsync(
+        "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, ?, 0)",
+        accountId,
+        t.date,
+        t.merchant,
+        t.amount,
+        known ?? categoryIds.get(t.category)!,
+        known !== undefined ? 0 : t.needsReview ? 1 : 0
+      );
+    }
+  });
 }
 
 // For entries that don't come from a statement upload (a recurring car
@@ -1218,18 +1221,7 @@ export type TransferMatch = { a: Transaction; b: Transaction };
 // transactions from future scans since they're no longer unlinked.
 export async function findTransferMatches(db: SQLiteDatabase): Promise<TransferMatch[]> {
   const rows = await db.getAllAsync<{ aId: number; bId: number; dayGap: number }>(
-    `SELECT a.id as aId, b.id as bId, ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) as dayGap
-     FROM transactions a
-     JOIN transactions b ON b.id > a.id
-     WHERE a.linked_transaction_id IS NULL
-       AND b.linked_transaction_id IS NULL
-       AND a.account_id != b.account_id
-       AND ABS(a.amount + b.amount) < 0.01
-       AND ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) <= 7
-       AND NOT EXISTS (
-         SELECT 1 FROM dismissed_transfer_matches
-         WHERE dismissed_transfer_matches.a_id = a.id AND dismissed_transfer_matches.b_id = b.id
-       )
+    `${TRANSFER_PAIRS} AND ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) <= 7
      ORDER BY dayGap ASC
      LIMIT 50`
   );
@@ -1270,6 +1262,27 @@ export async function dismissTransferMatch(db: SQLiteDatabase, aId: number, bId:
 // marked ignored -- otherwise the same money would show up twice, once as
 // an expense leaving one account and again as a payment on the other.
 // Overwrites whatever `ignored` was previously set to on both sides.
+// Unlinked pairs on different accounts where one is money in and the other
+// the same amount out, not dismissed on Find Transfers. Joining money-in
+// rows to the exact negated amount uses the amount index, instead of
+// comparing every transaction with every other one -- which, with a few
+// thousand transactions, was most of the app's startup time. Ids come back
+// lowest first, the way dismissed pairs are stored. Callers add the date
+// window.
+const TRANSFER_PAIRS = `
+  SELECT MIN(a.id, b.id) as aId, MAX(a.id, b.id) as bId,
+    ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) as dayGap
+  FROM transactions a
+  JOIN transactions b ON b.amount = -a.amount
+  WHERE a.amount > 0
+    AND a.linked_transaction_id IS NULL
+    AND b.linked_transaction_id IS NULL
+    AND a.account_id != b.account_id
+    AND NOT EXISTS (
+      SELECT 1 FROM dismissed_transfer_matches d
+      WHERE d.a_id = MIN(a.id, b.id) AND d.b_id = MAX(a.id, b.id)
+    )`;
+
 // Links the obvious transfers without asking -- typically checking paying
 // off a card: the same amount to the cent, money out of one account and in
 // to another, within 5 days either way. Only a pair with no other candidate
@@ -1280,19 +1293,7 @@ const AUTO_LINK_MAX_DAYS = 5;
 
 export async function autoLinkTransfers(db: SQLiteDatabase): Promise<number> {
   const pairs = await db.getAllAsync<{ aId: number; bId: number }>(
-    `SELECT a.id as aId, b.id as bId
-     FROM transactions a
-     JOIN transactions b ON b.id > a.id
-     WHERE a.linked_transaction_id IS NULL
-       AND b.linked_transaction_id IS NULL
-       AND a.account_id != b.account_id
-       AND a.amount != 0
-       AND ABS(a.amount + b.amount) < 0.005
-       AND ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) <= ?
-       AND NOT EXISTS (
-         SELECT 1 FROM dismissed_transfer_matches
-         WHERE dismissed_transfer_matches.a_id = a.id AND dismissed_transfer_matches.b_id = b.id
-       )`,
+    `${TRANSFER_PAIRS} AND ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) <= ?`,
     AUTO_LINK_MAX_DAYS
   );
   const candidateCount = new Map<number, number>();
