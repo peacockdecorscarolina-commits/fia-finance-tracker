@@ -48,6 +48,10 @@ export type Transaction = {
   // Free-text note and free-form tags (lowercase, no "#") the user adds.
   note: string | null;
   tags: string[];
+  // How much of a charge someone paid back (cash, Zelle...) and how; spending
+  // and what's owed on a card count only the rest.
+  reimbursed: number | null;
+  reimbursedVia: string | null;
 };
 
 // Shape returned by the extraction step (currently on-device, rule-based —

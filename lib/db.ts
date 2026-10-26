@@ -157,6 +157,10 @@ export async function initDatabase(db: SQLiteDatabase) {
   // the $800 withdrawal on a checking statement that pays off a credit
   // card, paired with that same $800 showing as a payment credit on the
   // card's own statement -- two transactions, one real transfer).
+  if (!columns.some((c) => c.name === "reimbursed")) {
+    await db.execAsync("ALTER TABLE transactions ADD COLUMN reimbursed REAL");
+    await db.execAsync("ALTER TABLE transactions ADD COLUMN reimbursed_via TEXT");
+  }
   if (!columns.some((c) => c.name === "note")) {
     await db.execAsync("ALTER TABLE transactions ADD COLUMN note TEXT");
   }
@@ -323,6 +327,9 @@ const LINKED_BOTH_IGNORED_KEY = "linked_both_ignored";
 // transfer -- is never spending, even before it's categorized as Income,
 // so spending totals leave it out. Money back on a card (a refund) still
 // counts against spending.
+// A transaction's amount for spending: a charge less what someone paid back.
+const SPEND_AMOUNT = "(transactions.amount + COALESCE(transactions.reimbursed, 0))";
+
 const NOT_BANK_INFLOW = `NOT (transactions.amount > 0 AND transactions.account_id IN
   (SELECT id FROM accounts WHERE type IN ('Checking', 'Savings')))`;
 
@@ -834,7 +841,28 @@ export async function getAccountBalanceAsOf(
     checkpoint.date,
     accountId
   );
-  return checkpoint.balance + (row?.delta ?? 0);
+  return checkpoint.balance + (row?.delta ?? 0) + (await cardPersonalAdjustment(db, accountId, target));
+}
+
+// For a credit card, what's owed is the user's own view of it: charges they
+// ignored (not transfers, which are linked) and what someone paid them back
+// come off. The statement balance includes them, so the adjustment covers
+// everything up to the date, before or after the statement. Checking and
+// savings stay as the bank has them -- ignoring a purchase there doesn't
+// put the cash back.
+async function cardPersonalAdjustment(db: SQLiteDatabase, accountId: number, target: string): Promise<number> {
+  const row = await db.getFirstAsync<{ type: string; adjustment: number | null }>(
+    `SELECT accounts.type as type,
+       (SELECT SUM(CASE
+            WHEN t.ignored = 1 AND t.linked_transaction_id IS NULL THEN -t.amount
+            WHEN t.ignored = 0 THEN COALESCE(t.reimbursed, 0)
+            ELSE 0 END)
+        FROM transactions t WHERE t.account_id = accounts.id AND t.date <= ?) as adjustment
+     FROM accounts WHERE accounts.id = ?`,
+    target,
+    accountId
+  );
+  return row?.type === "Credit Card" ? (row.adjustment ?? 0) : 0;
 }
 
 // Same as getAccountBalanceAsOf, batched for every account that has at
@@ -889,9 +917,15 @@ export async function getAccountLedger(
     monthEnd
   );
 
+  const isCard =
+    (await db.getFirstAsync<{ type: string }>("SELECT type FROM accounts WHERE id = ?", accountId))?.type === "Credit Card";
   const withBalance: TransactionWithBalance[] = rows.map((row) => {
     const transaction = toTransaction(row);
-    running += transaction.amount;
+    // Same personal view as cardPersonalAdjustment for a card's running balance.
+    if (!isCard) running += transaction.amount;
+    else if (!(transaction.ignored && transaction.linkedTransactionId === null)) {
+      running += transaction.amount + (transaction.ignored ? 0 : transaction.reimbursed ?? 0);
+    }
     return { ...transaction, balanceAfter: running };
   });
 
@@ -1107,6 +1141,8 @@ const TRANSACTION_SELECT = `
     linked_tx.date as linkedDate,
     linked_account.name as linkedAccountName,
     transactions.note as note,
+    transactions.reimbursed as reimbursed,
+    transactions.reimbursed_via as reimbursedVia,
     (SELECT group_concat(tags.name, char(31)) FROM transaction_tags
        JOIN tags ON tags.id = transaction_tags.tag_id
        WHERE transaction_tags.transaction_id = transactions.id) as tagList
@@ -1141,6 +1177,17 @@ export function normalizeTag(raw: string): string {
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9_-]/g, "");
+}
+
+// "Someone paid me back" for part of a charge -- `amount` of it, by `via`
+// (Cash, Zelle...). Null clears it.
+export async function setTransactionReimbursed(db: SQLiteDatabase, id: number, amount: number | null, via: string | null) {
+  await db.runAsync(
+    "UPDATE transactions SET reimbursed = ?, reimbursed_via = ? WHERE id = ?",
+    amount && amount > 0 ? amount : null,
+    amount && amount > 0 ? via : null,
+    id
+  );
 }
 
 // Replaces a transaction's note and full tag list.
@@ -1536,7 +1583,7 @@ export async function getIncomeExpenseTotals(
        SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
              AND ${NOT_BANK_INFLOW}
-           THEN -transactions.amount ELSE 0 END) as expenses,
+           THEN -${SPEND_AMOUNT} ELSE 0 END) as expenses,
        SUM(CASE WHEN LOWER(categories.name) = LOWER(?) OR categories.loan_amount IS NOT NULL
            THEN ABS(transactions.amount) ELSE 0 END) as payments
      FROM transactions
@@ -1579,7 +1626,7 @@ export async function getMonthlyTotals(
        SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
              AND ${NOT_BANK_INFLOW}
-           THEN -transactions.amount ELSE 0 END) as expenses
+           THEN -${SPEND_AMOUNT} ELSE 0 END) as expenses
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0
@@ -1608,7 +1655,7 @@ export async function getCategoryMonthlyTotals(
   const rows = await db.getAllAsync<{ month: string; total: number }>(
     `SELECT
        substr(transactions.date, 1, 7) as month,
-       SUM(-transactions.amount) as total
+       SUM(-${SPEND_AMOUNT}) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0 AND ${NOT_BANK_INFLOW} AND LOWER(categories.name) = LOWER(?)
@@ -1636,7 +1683,7 @@ export async function getAccountMonthlyTotals(
        SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
              AND ${NOT_BANK_INFLOW}
-           THEN -transactions.amount ELSE 0 END) as total
+           THEN -${SPEND_AMOUNT} ELSE 0 END) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.account_id = ? AND transactions.ignored = 0
@@ -1694,7 +1741,7 @@ export async function getAccountSpendSummary(
        SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
              AND ${NOT_BANK_INFLOW}
-           THEN -transactions.amount ELSE 0 END) as spent,
+           THEN -${SPEND_AMOUNT} ELSE 0 END) as spent,
        SUM(CASE WHEN LOWER(categories.name) = LOWER(?) OR categories.loan_amount IS NOT NULL
            THEN ABS(transactions.amount) ELSE 0 END) as received
      FROM transactions
@@ -1732,7 +1779,7 @@ export async function getCategorySummary(
   accountId?: number
 ): Promise<CategoryTotal[]> {
   return db.getAllAsync<CategoryTotal>(
-    `SELECT categories.name as categoryName, SUM(-transactions.amount) as total
+    `SELECT categories.name as categoryName, SUM(-${SPEND_AMOUNT}) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
@@ -1862,6 +1909,8 @@ export type DataSnapshot = {
     // Optional so backups from before notes and tags existed still restore.
     note?: string | null;
     tags?: string[];
+    reimbursed?: number | null;
+    reimbursedVia?: string | null;
   }[];
   assets: { name: string; type: AssetType }[];
   assetBalances: { assetName: string; date: string; balance: number }[];
@@ -1910,9 +1959,13 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     ignored: number;
     note: string | null;
     tagList: string | null;
+    reimbursed: number | null;
+    reimbursedVia: string | null;
   }>(
     `SELECT
        transactions.note as note,
+       transactions.reimbursed as reimbursed,
+       transactions.reimbursed_via as reimbursedVia,
        (SELECT group_concat(tags.name, char(31)) FROM transaction_tags
           JOIN tags ON tags.id = transaction_tags.tag_id
           WHERE transaction_tags.transaction_id = transactions.id) as tagList,
@@ -2031,6 +2084,9 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     if (t.note || t.tags?.length) {
       await setTransactionNote(db, inserted.lastInsertRowId, t.note ?? "", t.tags ?? []);
     }
+    if (t.reimbursed) {
+      await setTransactionReimbursed(db, inserted.lastInsertRowId, t.reimbursed, t.reimbursedVia ?? null);
+    }
   }
 
   const assetIds = new Map<string, number>();
@@ -2100,7 +2156,7 @@ export async function getAccountSummary(
   month: string
 ): Promise<AccountTotal[]> {
   return db.getAllAsync<AccountTotal>(
-    `SELECT accounts.name as accountName, SUM(-transactions.amount) as total
+    `SELECT accounts.name as accountName, SUM(-${SPEND_AMOUNT}) as total
      FROM transactions
      JOIN accounts ON accounts.id = transactions.account_id
      JOIN categories ON categories.id = transactions.category_id

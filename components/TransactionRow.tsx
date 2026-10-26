@@ -4,7 +4,14 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getAllTags, getRecurringOverride, normalizeTag, setRecurringOverride, setTransactionNote } from "../lib/db";
+import {
+  getAllTags,
+  getRecurringOverride,
+  normalizeTag,
+  setRecurringOverride,
+  setTransactionNote,
+  setTransactionReimbursed,
+} from "../lib/db";
 import type { RecurringOverride } from "../lib/subscriptions";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { radius, spacing } from "../lib/theme";
@@ -123,6 +130,38 @@ export function TransactionRow({
     setPickingRecurring(false);
   }
 
+  // "Someone paid me back": part of a charge covered by cash, Zelle and so
+  // on. Spending and what's owed on a card then count only the rest.
+  const [reimbursed, setReimbursed] = useState(transaction.reimbursed);
+  const [reimbursedVia, setReimbursedVia] = useState(transaction.reimbursedVia);
+  const [editingPaidBack, setEditingPaidBack] = useState(false);
+  const [paidBackInput, setPaidBackInput] = useState("");
+  const [paidBackVia, setPaidBackVia] = useState("Zelle");
+  useEffect(() => {
+    setReimbursed(transaction.reimbursed);
+    setReimbursedVia(transaction.reimbursedVia);
+  }, [transaction.reimbursed, transaction.reimbursedVia]);
+  const charge = Math.abs(transaction.amount);
+  const isCharge = transaction.amount < 0;
+
+  function togglePaidBack() {
+    if (editingPaidBack) {
+      setEditingPaidBack(false);
+      return;
+    }
+    setPaidBackInput(reimbursed ? String(reimbursed) : "");
+    setPaidBackVia(reimbursedVia ?? "Zelle");
+    setEditingPaidBack(true);
+  }
+
+  async function savePaidBack(amount: number | null) {
+    const value = amount === null ? null : Math.min(Math.max(amount, 0), charge);
+    await setTransactionReimbursed(db, transaction.id, value, paidBackVia);
+    setReimbursed(value && value > 0 ? value : null);
+    setReimbursedVia(value && value > 0 ? paidBackVia : null);
+    setEditingPaidBack(false);
+  }
+
   const typed = normalizeTag(tagInput);
   const suggestions = knownTags
     .filter((t) => !tagsDraft.includes(t) && (!typed || t.startsWith(typed)))
@@ -174,6 +213,12 @@ export function TransactionRow({
             ))}
           </View>
           {note ? <Text style={styles.noteText}>{note}</Text> : null}
+          {reimbursed ? (
+            <Text style={styles.paidBackText}>
+              Paid back ${reimbursed.toFixed(2)}
+              {reimbursedVia ? ` by ${reimbursedVia}` : ""} · your share ${(charge - reimbursed).toFixed(2)}
+            </Text>
+          ) : null}
         </View>
         <AmountText amount={transaction.amount} />
       </View>
@@ -199,6 +244,12 @@ export function TransactionRow({
           <Ionicons name="create-outline" size={13} color={colors.accent} />
           <Text style={styles.actionLinkText}>{editingNote ? "Cancel" : note || tags.length ? "Edit note" : "Note"}</Text>
         </Pressable>
+        {isCharge && (
+          <Pressable onPress={togglePaidBack} style={styles.actionBtn}>
+            <Ionicons name="people-outline" size={13} color={colors.accent} />
+            <Text style={styles.actionLinkText}>{editingPaidBack ? "Cancel" : "Paid back"}</Text>
+          </Pressable>
+        )}
         <Pressable onPress={toggleRecurringPanel} style={styles.actionBtn}>
           <Ionicons name="repeat" size={13} color={colors.accent} />
           <Text style={styles.actionLinkText}>{pickingRecurring ? "Cancel" : "Subscription"}</Text>
@@ -226,6 +277,57 @@ export function TransactionRow({
           </Pressable>
         )}
       </View>
+
+      {editingPaidBack && (
+        <View style={styles.noteEditor}>
+          <Text style={styles.meta}>Did someone pay you back for part of this?</Text>
+          <View style={styles.tagEditorRow}>
+            <TextInput
+              value={paidBackInput}
+              onChangeText={setPaidBackInput}
+              keyboardType="decimal-pad"
+              placeholder={`Amount, up to $${charge.toFixed(2)}`}
+              placeholderTextColor={colors.textSecondary}
+              style={[styles.noteInput, styles.tagInput]}
+              autoFocus
+            />
+            <Pressable onPress={() => setPaidBackInput((charge / 2).toFixed(2))} style={styles.suggestionChip}>
+              <Text style={styles.suggestionText}>Half (${(charge / 2).toFixed(2)})</Text>
+            </Pressable>
+          </View>
+          <View style={styles.categoryRow}>
+            {["Cash", "Zelle", "Venmo", "Other"].map((via) => (
+              <Pressable
+                key={via}
+                onPress={() => setPaidBackVia(via)}
+                style={[styles.categoryOption, paidBackVia === via && styles.recurringOptionActive]}
+              >
+                <Text style={[styles.categoryOptionText, paidBackVia === via && styles.recurringOptionTextActive]}>{via}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.noteActions}>
+            {reimbursed ? (
+              <Pressable onPress={() => savePaidBack(null)} style={styles.noteCancelBtn}>
+                <Text style={styles.noteCancelText}>Remove</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => setEditingPaidBack(false)} style={styles.noteCancelBtn}>
+                <Text style={styles.noteCancelText}>Cancel</Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => {
+                const v = Number(paidBackInput.replace(/[$,\s]/g, ""));
+                if (Number.isFinite(v) && v > 0) savePaidBack(v);
+              }}
+              style={styles.noteSaveBtn}
+            >
+              <Text style={styles.noteSaveText}>Save</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       {pickingRecurring && (
         <View style={styles.noteEditor}>
@@ -449,6 +551,7 @@ function makeStyles(colors: ThemeColors) {
     recurringOptionActive: { borderColor: "#4C1D95", backgroundColor: "#EDE9FE" },
     recurringOptionTextActive: { color: "#4C1D95" },
     tagChipText: { fontSize: 12, fontWeight: "700", color: "#4C1D95" },
+    paidBackText: { fontSize: 12, color: "#16A34A", fontWeight: "600", marginTop: 6 },
     noteText: { fontSize: 12, color: colors.textSecondary, marginTop: 6, fontStyle: "italic", lineHeight: 17 },
     noteEditor: { gap: spacing.sm, marginTop: spacing.xs },
     noteInput: {

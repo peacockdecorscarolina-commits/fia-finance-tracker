@@ -22,6 +22,8 @@ export function tx(date: string, merchant: string, amount: number, extra: Partia
     linkedAccountName: null,
     note: null,
     tags: [],
+    reimbursed: null,
+    reimbursedVia: null,
     ...extra,
   };
 }
