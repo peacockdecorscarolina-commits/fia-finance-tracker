@@ -28,6 +28,7 @@ export type CatalogCard = {
   id: string;
   name: string;
   issuer: string;
+  color: string; // close to the real card's look
   annualFee: number;
   benefits: CatalogBenefit[];
 };

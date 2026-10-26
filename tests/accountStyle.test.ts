@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { getAccountCardColor } from "../lib/accountStyle";
+import { CARD_CATALOG } from "../lib/cardBenefits";
 
 describe("getAccountCardColor", () => {
-  it("keeps a real card's color after it's renamed", () => {
-    const before = getAccountCardColor("Amex Green", [{ id: 1, name: "Amex Green", cardProduct: null }]);
-    const after = getAccountCardColor("Amex Classic Green", [{ id: 1, name: "Amex Classic Green", cardProduct: "amex-classic-green" }]);
-    expect(after).toBe(before);
+  it("shows a real card in its own color, whatever it's named", () => {
+    const asGold = (name: string) => getAccountCardColor(name, [{ id: 1, name, cardProduct: "amex-gold" }]);
+    expect(asGold("Amex Gold")).toBe(asGold("My Gold"));
+    expect(asGold("My Gold")).toBe(CARD_CATALOG.find((c) => c.id === "amex-gold")!.color);
+  });
+
+  it("keeps a hand-picked color for an account that isn't a real card", () => {
+    expect(getAccountCardColor("Wells Fargo Checking", [{ id: 1, name: "Wells Fargo Checking", cardProduct: null }])).toBe("#D9605A");
   });
 
   it("gives the first accounts different colors", () => {

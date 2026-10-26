@@ -1,5 +1,5 @@
 {
-  "_readme": "Card benefits by card product. Edit amounts here when an issuer changes terms, bump checkedOn, then push. matchAny: words to look for in a transaction on that card (a statement credit line or a qualifying purchase) to detect a use. period: monthly | quarterly (Jan-Mar, Apr-Jun...) | semiannual (Jan-Jun / Jul-Dec) | yearly (calendar year) | cardYear (resets on the card's anniversary, from its annual-fee charge; calendar year until one is found) | every4Years. appliedAs: \"inApp\" for credits spent inside the merchant's app before the card is charged (Uber Cash, DoorDash) -- any charge there then counts as the full credit used; omit for statement credits.",
+  "_readme": "Card benefits by card product. Edit amounts here when an issuer changes terms, bump checkedOn, then push. matchAny: words to look for in a transaction on that card (a statement credit line or a qualifying purchase) to detect a use. period: monthly | quarterly (Jan-Mar, Apr-Jun...) | semiannual (Jan-Jun / Jul-Dec) | yearly (calendar year) | cardYear (resets on the card's anniversary, from its annual-fee charge; calendar year until one is found) | every4Years. appliedAs: \"inApp\" for credits spent inside the merchant's app before the card is charged (Uber Cash, DoorDash) -- any charge there then counts as the full credit used; omit for statement credits. color: the card's own color in the app, close to the real card's look (deep enough for white text).",
   "version": 1,
   "checkedOn": "2026-10",
   "cards": [
@@ -7,6 +7,7 @@
       "id": "amex-blue-cash-everyday",
       "name": "Amex Blue Cash Everyday",
       "issuer": "American Express",
+      "color": "#3F7FBF",
       "annualFee": 0,
       "benefits": [
         {
@@ -38,6 +39,7 @@
       "id": "amex-blue-cash-preferred",
       "name": "Amex Blue Cash Preferred",
       "issuer": "American Express",
+      "color": "#1F5A9E",
       "annualFee": 95,
       "benefits": [
         {
@@ -58,6 +60,7 @@
       "id": "amex-classic-green",
       "name": "Amex Classic Green Card",
       "issuer": "American Express",
+      "color": "#3E7D55",
       "annualFee": 150,
       "benefits": [
         {
@@ -79,6 +82,7 @@
       "id": "amex-gold",
       "name": "Amex Gold",
       "issuer": "American Express",
+      "color": "#A8833A",
       "annualFee": 325,
       "benefits": [
         {
@@ -133,6 +137,7 @@
       "id": "amex-platinum",
       "name": "Amex Platinum",
       "issuer": "American Express",
+      "color": "#7E858D",
       "annualFee": 895,
       "benefits": [
         {
@@ -213,6 +218,7 @@
       "id": "bilt-palladium",
       "name": "Bilt Palladium",
       "issuer": "Bilt",
+      "color": "#737980",
       "annualFee": 495,
       "benefits": [
         {
@@ -240,6 +246,7 @@
       "id": "capital-one-savor",
       "name": "Capital One Savor",
       "issuer": "Capital One",
+      "color": "#8A4B32",
       "annualFee": 0,
       "benefits": []
     },
@@ -247,6 +254,7 @@
       "id": "capital-one-venture",
       "name": "Capital One Venture",
       "issuer": "Capital One",
+      "color": "#22364F",
       "annualFee": 95,
       "benefits": [
         {
@@ -271,6 +279,7 @@
       "id": "capital-one-venture-x",
       "name": "Capital One Venture X",
       "issuer": "Capital One",
+      "color": "#1E2124",
       "annualFee": 395,
       "benefits": [
         {
@@ -306,6 +315,7 @@
       "id": "chase-freedom-flex",
       "name": "Chase Freedom Flex",
       "issuer": "Chase",
+      "color": "#3B5B86",
       "annualFee": 0,
       "benefits": []
     },
@@ -313,6 +323,7 @@
       "id": "chase-freedom-unlimited",
       "name": "Chase Freedom Unlimited",
       "issuer": "Chase",
+      "color": "#2A72BD",
       "annualFee": 0,
       "benefits": []
     },
@@ -320,6 +331,7 @@
       "id": "chase-sapphire-preferred",
       "name": "Chase Sapphire Preferred",
       "issuer": "Chase",
+      "color": "#1E4A8C",
       "annualFee": 95,
       "benefits": [
         {
@@ -367,6 +379,7 @@
       "id": "chase-sapphire-reserve",
       "name": "Chase Sapphire Reserve",
       "issuer": "Chase",
+      "color": "#16203A",
       "annualFee": 795,
       "benefits": [
         {
@@ -423,6 +436,7 @@
       "id": "citi-aadvantage-platinum-select",
       "name": "Citi / AAdvantage Platinum Select",
       "issuer": "Citi",
+      "color": "#5F6873",
       "annualFee": 99,
       "benefits": []
     },
@@ -430,6 +444,7 @@
       "id": "citi-double-cash",
       "name": "Citi Double Cash",
       "issuer": "Citi",
+      "color": "#2A7D9C",
       "annualFee": 0,
       "benefits": []
     },
@@ -437,6 +452,7 @@
       "id": "citi-strata-premier",
       "name": "Citi Strata Premier",
       "issuer": "Citi",
+      "color": "#1B2E4B",
       "annualFee": 95,
       "benefits": [
         {
@@ -456,6 +472,7 @@
       "id": "discover-it-cash-back",
       "name": "Discover it Cash Back",
       "issuer": "Discover",
+      "color": "#D9622B",
       "annualFee": 0,
       "benefits": []
     },
@@ -463,6 +480,7 @@
       "id": "wells-fargo-active-cash",
       "name": "Wells Fargo Active Cash",
       "issuer": "Wells Fargo",
+      "color": "#B11C2E",
       "annualFee": 0,
       "benefits": []
     },
@@ -470,6 +488,7 @@
       "id": "wells-fargo-autograph",
       "name": "Wells Fargo Autograph",
       "issuer": "Wells Fargo",
+      "color": "#2E2B38",
       "annualFee": 0,
       "benefits": []
     }
