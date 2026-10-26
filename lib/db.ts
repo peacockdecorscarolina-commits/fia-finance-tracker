@@ -1325,10 +1325,12 @@ export async function getMonthlyTotals(
 
 // Monthly spend for a single category, for the trend chart on the category
 // detail page -- expressed as a positive amount (spend magnitude) per month.
+// Pass accountId to limit it to one card.
 export async function getCategoryMonthlyTotals(
   db: SQLiteDatabase,
   categoryName: string,
-  months: number
+  months: number,
+  accountId?: number
 ): Promise<{ month: string; total: number }[]> {
   const rows = await db.getAllAsync<{ month: string; total: number }>(
     `SELECT
@@ -1337,10 +1339,12 @@ export async function getCategoryMonthlyTotals(
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0 AND LOWER(categories.name) = LOWER(?)
+       ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}
      GROUP BY month
      ORDER BY month DESC
      LIMIT ?`,
     categoryName,
+    ...(accountId !== undefined ? [accountId] : []),
     months
   );
   return rows.reverse();

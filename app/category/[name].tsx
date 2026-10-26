@@ -9,6 +9,7 @@ import { TransactionRow } from "../../components/TransactionRow";
 import { getCategoryStyle } from "../../lib/categoryStyle";
 import {
   deleteTransaction,
+  getAccounts,
   getCategories,
   getCategoryMonthlyTotals,
   getLoanStatus,
@@ -49,11 +50,14 @@ export default function CategoryDrillDownScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // Either `month` ("YYYY-MM", or "YYYY" from Summary's Year view) or an
   // explicit start/end (Home's Week/Month/Year periods). Neither = all time.
-  const { name, month, start: startParam, end: endParam } = useLocalSearchParams<{
+  // `account` (a card's name) limits the list and trend to that card, when
+  // opened from the card's own page.
+  const { name, month, start: startParam, end: endParam, account } = useLocalSearchParams<{
     name: string;
     month?: string;
     start?: string;
     end?: string;
+    account?: string;
   }>();
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -89,11 +93,15 @@ export default function CategoryDrillDownScreen() {
   const load = useCallback(() => {
     const { start, end } =
       startParam && endParam ? { start: startParam, end: endParam } : month ? periodRange(month) : {};
-    getTransactions(db, { categoryName: name, start, end }).then(setTransactions);
+    getAccounts(db).then((accounts) => {
+      const accountId = account ? accounts.find((a) => a.name === account)?.id : undefined;
+      getTransactions(db, { categoryName: name, start, end, accountId }).then(setTransactions);
+      if (name) getCategoryMonthlyTotals(db, name, TREND_MONTHS, accountId).then(setMonthlyTrend);
+    });
+    // Unfiltered: a tracked loan's payments count from whichever card paid them.
     getTransactions(db, { categoryName: name }).then(setAllTransactions);
     getCategories(db).then(setCategories);
-    if (name) getCategoryMonthlyTotals(db, name, TREND_MONTHS).then(setMonthlyTrend);
-  }, [db, name, month, startParam, endParam]);
+  }, [db, name, month, startParam, endParam, account]);
 
   useFocusEffect(load);
 
@@ -364,6 +372,17 @@ export default function CategoryDrillDownScreen() {
           <View style={styles.headerBtn} />
         </View>
 
+        {account ? (
+          <View style={styles.accountFilterRow}>
+            <Text style={styles.accountFilterText} numberOfLines={1}>
+              Only {account}
+            </Text>
+            <Pressable onPress={() => router.setParams({ account: undefined })}>
+              <Text style={styles.accountFilterLink}>Show all cards</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <FlatList
           data={transactions}
           keyExtractor={(item) => String(item.id)}
@@ -411,6 +430,19 @@ function makeStyles(colors: ThemeColors) {
       justifyContent: "center",
     },
     headerTitle: { flex: 1, textAlign: "center", fontSize: 16, fontWeight: "700", color: colors.textPrimary },
+    accountFilterRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      backgroundColor: "#EDE9FE",
+      borderRadius: radius.chip,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 8,
+      marginBottom: spacing.sm,
+    },
+    accountFilterText: { flex: 1, fontSize: 13, fontWeight: "700", color: "#4C1D95" },
+    accountFilterLink: { fontSize: 13, fontWeight: "600", color: "#4C1D95", textDecorationLine: "underline" },
     list: { gap: spacing.sm, paddingBottom: spacing.xl },
     emptyCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.lg, alignItems: "center" },
     emptyText: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
