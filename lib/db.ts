@@ -1271,9 +1271,12 @@ export async function getTransactionMonthBounds(
 
 export type CategoryTotal = { categoryName: string; total: number };
 
+// `month` is a date prefix: "YYYY-MM" for a month or "YYYY" for a year.
+// Pass accountId to limit it to one card.
 export async function getCategorySummary(
   db: SQLiteDatabase,
-  month: string
+  month: string,
+  accountId?: number
 ): Promise<CategoryTotal[]> {
   return db.getAllAsync<CategoryTotal>(
     `SELECT categories.name as categoryName, SUM(-transactions.amount) as total
@@ -1282,11 +1285,13 @@ export async function getCategorySummary(
      WHERE transactions.date LIKE ? AND transactions.ignored = 0
        AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
        AND categories.loan_amount IS NULL
+       ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}
      GROUP BY categories.name
      ORDER BY total DESC`,
     `${month}%`,
     INCOME_CATEGORY_NAME,
-    PAYMENT_CATEGORY_NAME
+    PAYMENT_CATEGORY_NAME,
+    ...(accountId !== undefined ? [accountId] : [])
   );
 }
 

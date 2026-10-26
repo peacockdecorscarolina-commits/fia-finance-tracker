@@ -19,6 +19,7 @@ import {
   getAccounts,
   getAccountSpendSummary,
   getCategories,
+  getCategorySummary,
   getTransactionMonthBounds,
   getTransactions,
   getTransferCandidates,
@@ -26,6 +27,7 @@ import {
   setMerchantCategory,
   setTransactionIgnored,
   unlinkTransaction,
+  type CategoryTotal,
   type TransactionWithBalance,
 } from "../../lib/db";
 import { currentMonth, monthsBetween, periodRange, shiftMonth } from "../../lib/period";
@@ -152,6 +154,7 @@ export default function AccountDrillDownScreen() {
     return monthParam === currentMonth().slice(0, 4) ? currentMonth() : `${monthParam}-12`;
   });
   const [monthBounds, setMonthBounds] = useState<{ first: string; last: string } | null>(null);
+  const [categoryTotals, setCategoryTotals] = useState<CategoryTotal[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [monthlyTotals, setMonthlyTotals] = useState<{ month: string; total: number }[]>([]);
   const [summary, setSummary] = useState({ spent: 0, received: 0 });
@@ -167,6 +170,7 @@ export default function AccountDrillDownScreen() {
       if (found) {
         const { start, end } = periodRange(periodKey);
         getTransactions(db, { accountId: found.id, start, end }).then(setTransactions);
+        getCategorySummary(db, periodKey, found.id).then(setCategoryTotals);
         // Long enough to cover last year in full for the Year comparison.
         getAccountMonthlyTotals(db, found.id, 36).then(setMonthlyTotals);
         getAccountSpendSummary(db, found.id, start, end).then(setSummary);
@@ -228,6 +232,10 @@ export default function AccountDrillDownScreen() {
   const net = summary.spent - summary.received;
   const pace = weeklyPace(dailySpend, month);
 
+  // Refunds can leave a category net negative; only actual spending is shown.
+  const spendingCategories = categoryTotals.filter((c) => c.total > 0);
+  const categorySpendTotal = spendingCategories.reduce((sum, c) => sum + c.total, 0);
+
   const pickerEdges = [currentMonth(), month, ...(monthBounds ? [monthBounds.first, monthBounds.last] : [])].sort();
   const pickerMonths = monthsBetween(pickerEdges[pickerEdges.length - 1], pickerEdges[0]);
   const pickerYears = [...new Set(pickerMonths.map((m) => m.slice(0, 4)))];
@@ -277,6 +285,34 @@ export default function AccountDrillDownScreen() {
             color={colors.accent}
             width={320}
           />
+        </View>
+      )}
+
+      {spendingCategories.length > 0 && (
+        <View style={styles.paceCard}>
+          <Text style={styles.paceTitle}>By category</Text>
+          {spendingCategories.map((c) => {
+            const catStyle = getCategoryStyle(c.categoryName);
+            const share = categorySpendTotal > 0 ? (c.total / categorySpendTotal) * 100 : 0;
+            return (
+              <Pressable
+                key={c.categoryName}
+                style={styles.categoryLine}
+                onPress={() => router.push({ pathname: "/category/[name]", params: { name: c.categoryName, month: periodKey } })}
+              >
+                <View style={styles.categoryLineTop}>
+                  <Text style={styles.categoryLineName} numberOfLines={1}>
+                    {catStyle.emoji} {c.categoryName}
+                  </Text>
+                  <Text style={styles.categoryLineAmount}>{formatMoney(c.total)}</Text>
+                  <Text style={styles.categoryLinePct}>{share.toFixed(0)}%</Text>
+                </View>
+                <View style={styles.categoryBarTrack}>
+                  <View style={[styles.categoryBarFill, { width: `${share}%`, backgroundColor: catStyle.color }]} />
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
       )}
 
@@ -572,6 +608,13 @@ function makeStyles(colors: ThemeColors) {
     marginBottom: spacing.md,
     gap: spacing.sm,
   },
+  categoryLine: { gap: 6 },
+  categoryLineTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  categoryLineName: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+  categoryLineAmount: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  categoryLinePct: { width: 38, textAlign: "right", fontSize: 12, fontWeight: "600", color: colors.textSecondary },
+  categoryBarTrack: { height: 6, borderRadius: 3, backgroundColor: colors.background, overflow: "hidden" },
+  categoryBarFill: { height: 6, borderRadius: 3 },
   paceTitle: {
     fontSize: 12,
     fontWeight: "700",
