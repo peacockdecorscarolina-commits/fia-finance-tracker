@@ -202,7 +202,7 @@ export default function TransactionsScreen() {
         end: transactionRange?.end,
       }).then(setTransactions),
       getIncomeExpenseTotals(db, { accountId: accountFilter, start, end }).then(setTotals),
-      getMonthlyTotals(db, CHART_MONTHS).then(setMonthlyTotals),
+      getMonthlyTotals(db, CHART_MONTHS, accountFilter).then(setMonthlyTotals),
     ]).then(() => setLoading(false));
   }, [db, selectedAccountId, period, selectedMonth]);
 
@@ -266,6 +266,9 @@ export default function TransactionsScreen() {
     { icon: "cloud-upload-outline", label: "Upload statement", onPress: () => router.push("/upload") },
   ];
 
+  // With a card chip selected, every drill-down opens on that same card.
+  const accountParam = selectedAccountId === "all" ? {} : { accountId: String(selectedAccountId) };
+
   const listHeader = (
     <>
       <View style={styles.headerRow}>
@@ -316,7 +319,7 @@ export default function TransactionsScreen() {
             style={styles.statBox}
             onPress={() => {
               const { start, end } = getPeriodRange(period);
-              router.push({ pathname: "/all-transactions", params: { start, end, mode: "expenses" } });
+              router.push({ pathname: "/all-transactions", params: { start, end, mode: "expenses", ...accountParam } });
             }}
           >
             <View style={styles.statTopRow}>
@@ -338,7 +341,7 @@ export default function TransactionsScreen() {
             style={styles.statBox}
             onPress={() => {
               const { start, end } = getPeriodRange(period);
-              router.push({ pathname: "/all-transactions", params: { start, end, categoryName: "Income" } });
+              router.push({ pathname: "/all-transactions", params: { start, end, categoryName: "Income", ...accountParam } });
             }}
           >
             <View style={styles.statTopRow}>
@@ -360,7 +363,7 @@ export default function TransactionsScreen() {
             style={styles.statBox}
             onPress={() => {
               const { start, end } = getPeriodRange(period);
-              router.push({ pathname: "/all-transactions", params: { start, end, mode: "payments" } });
+              router.push({ pathname: "/all-transactions", params: { start, end, mode: "payments", ...accountParam } });
             }}
           >
             <View style={styles.statTopRow}>
@@ -503,7 +506,7 @@ export default function TransactionsScreen() {
                 <Text style={styles.clearLink}>Clear filter</Text>
               </Pressable>
             )}
-            <Pressable onPress={() => router.push("/all-transactions")}>
+            <Pressable onPress={() => router.push({ pathname: "/all-transactions", params: accountParam })}>
               <Text style={styles.clearLink}>See all</Text>
             </Pressable>
           </View>

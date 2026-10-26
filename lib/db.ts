@@ -1300,7 +1300,9 @@ export type MonthlyTotal = { month: string; income: number; expenses: number };
 // have any transactions, oldest first, for charting.
 export async function getMonthlyTotals(
   db: SQLiteDatabase,
-  months: number
+  months: number,
+  // Limits it to one account, like Home's card chips do for its totals.
+  accountId?: number
 ): Promise<MonthlyTotal[]> {
   const rows = await db.getAllAsync<MonthlyTotal>(
     `SELECT
@@ -1312,12 +1314,14 @@ export async function getMonthlyTotals(
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0
+       ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}
      GROUP BY month
      ORDER BY month DESC
      LIMIT ?`,
     INCOME_CATEGORY_NAME,
     INCOME_CATEGORY_NAME,
     PAYMENT_CATEGORY_NAME,
+    ...(accountId !== undefined ? [accountId] : []),
     months
   );
   return rows.reverse();
