@@ -444,12 +444,14 @@ export async function deleteCategory(db: SQLiteDatabase, id: number, name: strin
 export async function insertAccount(
   db: SQLiteDatabase,
   name: string,
-  type: string
+  type: string,
+  cardProduct: string | null = null
 ): Promise<number> {
   const result = await db.runAsync(
-    "INSERT INTO accounts (name, type) VALUES (?, ?)",
+    "INSERT INTO accounts (name, type, card_product) VALUES (?, ?, ?)",
     name,
-    type
+    type,
+    cardProduct
   );
   return result.lastInsertRowId;
 }
