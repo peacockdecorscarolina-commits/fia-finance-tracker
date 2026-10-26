@@ -9,7 +9,14 @@ import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { autoBackup } from "../lib/autoBackup";
-import { getAccounts, getCategories, getDuplicateLookup, insertCategory, insertManualTransaction } from "../lib/db";
+import {
+  autoLinkTransfers,
+  getAccounts,
+  getCategories,
+  getDuplicateLookup,
+  insertCategory,
+  insertManualTransaction,
+} from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Account, Category, Transaction } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -95,6 +102,7 @@ export default function AddTransactionScreen() {
       amount: isExpense ? -amount : amount,
       categoryId,
     });
+    await autoLinkTransfers(db);
     autoBackup(db);
     setSaved(true);
     setAmountText("");
