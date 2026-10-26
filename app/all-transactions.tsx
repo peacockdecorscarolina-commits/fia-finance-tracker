@@ -11,6 +11,7 @@ import { TransactionRow } from "../components/TransactionRow";
 import {
   deleteTransaction,
   getAccounts,
+  getAllTags,
   getCategories,
   getTransactions,
   getTransferCandidates,
@@ -38,7 +39,7 @@ export default function AllTransactionsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
-  const { start, end, categoryName, mode, search } = useLocalSearchParams<{
+  const { start, end, categoryName, mode, search, tag: tagParam } = useLocalSearchParams<{
     start?: string;
     end?: string;
     categoryName?: string;
@@ -46,21 +47,26 @@ export default function AllTransactionsScreen() {
     // "1" when opened from the More menu's Search item -- starts with the
     // search panel open and focused.
     search?: string;
+    // Set when a tag chip on a transaction was tapped -- filters to that tag.
+    tag?: string;
   }>();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | "all">("all");
   const [loading, setLoading] = useState(true);
-  const [searchOpen, setSearchOpen] = useState(search === "1");
+  const [searchOpen, setSearchOpen] = useState(search === "1" || !!tagParam);
   const [query, setQuery] = useState("");
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
+  const [selectedTag, setSelectedTag] = useState<string | null>(tagParam ?? null);
+  const [allTags, setAllTags] = useState<{ name: string; count: number }[]>([]);
 
   const load = useCallback(() => {
     const accountFilter = selectedAccountId === "all" ? undefined : selectedAccountId;
     getAccounts(db).then(setAccounts);
     getCategories(db).then(setCategories);
+    getAllTags(db).then(setAllTags);
     getTransactions(db, {
       accountId: accountFilter,
       start,
@@ -77,21 +83,25 @@ export default function AllTransactionsScreen() {
   useFocusEffect(load);
 
   // Filtered in memory rather than in SQL: the list is already loaded, so
-  // typing doesn't need a query per keystroke. Matches both the raw statement
-  // text and the cleaned-up display name, so "starb" finds "SQ *STARBUCKS #12".
+  // typing doesn't need a query per keystroke. Matches the raw statement
+  // text, the cleaned-up display name (so "starb" finds "SQ *STARBUCKS #12"),
+  // and the transaction's note and tags.
   // The amount range compares the size of the amount, ignoring sign, so
   // "20 to 50" catches purchases and refunds alike.
   const min = parseAmountInput(minAmount);
   const max = parseAmountInput(maxAmount);
-  const needle = query.trim().toLowerCase();
-  const isFiltering = needle !== "" || min !== null || max !== null;
+  const needle = query.trim().toLowerCase().replace(/^#/, "");
+  const isFiltering = needle !== "" || min !== null || max !== null || selectedTag !== null;
   const visibleTransactions = useMemo(() => {
     if (!isFiltering) return transactions;
     return transactions.filter((t) => {
+      if (selectedTag && !t.tags.includes(selectedTag)) return false;
       if (
         needle &&
         !t.merchant.toLowerCase().includes(needle) &&
-        !formatMerchantName(t.merchant).toLowerCase().includes(needle)
+        !formatMerchantName(t.merchant).toLowerCase().includes(needle) &&
+        !(t.note ?? "").toLowerCase().includes(needle) &&
+        !t.tags.some((tag) => tag.includes(needle))
       ) {
         return false;
       }
@@ -100,7 +110,7 @@ export default function AllTransactionsScreen() {
       if (max !== null && size > max) return false;
       return true;
     });
-  }, [transactions, isFiltering, needle, min, max]);
+  }, [transactions, isFiltering, needle, min, max, selectedTag]);
   const visibleTotal = visibleTransactions.reduce((sum, t) => sum + t.amount, 0);
 
   // Closing the panel clears it, so no filter keeps applying out of sight.
@@ -109,6 +119,7 @@ export default function AllTransactionsScreen() {
       setQuery("");
       setMinAmount("");
       setMaxAmount("");
+      setSelectedTag(null);
     }
     setSearchOpen(!searchOpen);
   }
@@ -167,10 +178,10 @@ export default function AllTransactionsScreen() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search vendor"
+              placeholder="Search vendor, note or #tag"
               placeholderTextColor={colors.textSecondary}
               style={[styles.inputText, { marginLeft: 6 }]}
-              autoFocus
+              autoFocus={!tagParam}
               autoComplete="off"
               autoCorrect={false}
               autoCapitalize="none"
@@ -205,6 +216,24 @@ export default function AllTransactionsScreen() {
               />
             </View>
           </View>
+          {allTags.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagFilterRow}>
+              {allTags.map(({ name, count }) => {
+                const active = name === selectedTag;
+                return (
+                  <Pressable
+                    key={name}
+                    onPress={() => setSelectedTag(active ? null : name)}
+                    style={[styles.tagFilterChip, active && styles.tagFilterChipActive]}
+                  >
+                    <Text style={[styles.tagFilterText, active && styles.tagFilterTextActive]}>
+                      #{name} · {count}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
         </View>
       )}
 
@@ -254,7 +283,7 @@ export default function AllTransactionsScreen() {
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
           loading ? null : isFiltering ? (
-            <EmptyState icon="🔍" title="No matches" subtitle="Try a different vendor or amount range." />
+            <EmptyState icon="🔍" title="No matches" subtitle="Try a different vendor, tag or amount range." />
           ) : (
             <EmptyState icon="🧾" title="No transactions here" subtitle="Nothing to show yet." />
           )
@@ -309,6 +338,18 @@ function makeStyles(colors: ThemeColors) {
     },
     inputText: { flex: 1, fontSize: 14, color: colors.textPrimary },
     amountRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    tagFilterRow: { gap: spacing.sm },
+    tagFilterChip: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+      borderRadius: radius.pill,
+      backgroundColor: colors.card,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+    },
+    tagFilterChipActive: { backgroundColor: "#EDE9FE", borderColor: "#4C1D95" },
+    tagFilterText: { fontSize: 12, fontWeight: "700", color: colors.textSecondary },
+    tagFilterTextActive: { color: "#4C1D95" },
     dollarSign: { fontSize: 14, color: colors.textSecondary, fontWeight: "600" },
     toText: { color: colors.textSecondary, fontWeight: "600" },
     filterScroll: { flexGrow: 0, marginBottom: spacing.sm },
