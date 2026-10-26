@@ -70,5 +70,28 @@ if (!html.includes("--app-height\", full")) {
   html = html.replace("</head>", `  ${fitScript}\n</head>`);
 }
 
+// manifest.webmanifest (in public/) is what makes Chrome on Android and
+// computers offer a real "Install" -- app.json's "web" keys don't produce
+// one. sw.js lets the installed app open offline; once it's running, the
+// files this first visit already loaded are handed to it to save.
+const installTags = `<link rel="manifest" href="/manifest.webmanifest">
+  <script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    var firstInstall = !navigator.serviceWorker.controller;
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(function () {
+      return navigator.serviceWorker.ready;
+    }).then(function (reg) {
+      if (!firstInstall || !reg.active) return;
+      var urls = performance.getEntriesByType("resource").map(function (e) { return e.name; });
+      reg.active.postMessage({ type: "save-loaded-files", urls: urls });
+    }).catch(function () {});
+  });
+}
+  </script>`;
+if (!html.includes('rel="manifest"')) {
+  html = html.replace("</head>", `  ${installTags}\n</head>`);
+}
+
 fs.writeFileSync(indexPath, html);
 console.log("Patched dist/index.html with iOS PWA meta tags.");
