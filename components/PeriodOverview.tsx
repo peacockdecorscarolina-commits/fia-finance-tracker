@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EmptyState } from "./EmptyState";
@@ -22,6 +22,8 @@ import {
   getNeedsReviewCount,
   getPaymentTotal,
   getRecurring,
+  getSetting,
+  setSetting,
   getTransactionMonthBounds,
   getTransactions,
   type AccountTotal,
@@ -48,6 +50,8 @@ const HERO_GRADIENT = ["#4C1D95", "#312E81"] as const;
 const VIEWS = ["Month", "Year"] as const;
 
 const SUMMARY_RECURRING_LIMIT = 6;
+// Which sections are folded up, shared by both tabs and kept across visits.
+const COLLAPSED_SECTIONS_KEY = "collapsed_sections";
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -270,6 +274,49 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const [loading, setLoading] = useState(true);
   // Active subscriptions and bills -- always "right now", not tied to the picked period.
   const [recurring, setRecurring] = useState<Recurring[]>([]);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    getSetting(db, COLLAPSED_SECTIONS_KEY).then((raw) => {
+      try {
+        if (raw) setCollapsed(JSON.parse(raw));
+      } catch {
+        // A bad saved value just means everything starts open.
+      }
+    });
+  }, [db]);
+
+  function toggleSection(key: string) {
+    const next = { ...collapsed, [key]: !collapsed[key] };
+    setCollapsed(next);
+    setSetting(db, COLLAPSED_SECTIONS_KEY, JSON.stringify(next));
+  }
+
+  // A section's title with a chevron that folds it; while folded, `summary`
+  // (e.g. its total) shows in place of the section's own link.
+  function sectionHeader(key: string, title: string, summary: string, link?: { label: string; onPress: () => void }) {
+    const isCollapsed = !!collapsed[key];
+    return (
+      <View style={styles.stackTitleRow}>
+        <Pressable
+          onPress={() => toggleSection(key)}
+          style={styles.sectionToggle}
+          accessibilityLabel={`${isCollapsed ? "Expand" : "Collapse"} ${title}`}
+          hitSlop={6}
+        >
+          <Ionicons name={isCollapsed ? "chevron-forward" : "chevron-down"} size={14} color={colors.textSecondary} />
+          <Text style={[styles.stackTitle, { marginBottom: 0 }]}>{title}</Text>
+        </Pressable>
+        {isCollapsed ? (
+          <Text style={styles.sectionSummary}>{summary}</Text>
+        ) : link ? (
+          <Pressable onPress={link.onPress}>
+            <Text style={styles.stackTitleLink}>{link.label}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
   const [assets, setAssets] = useState<{ id: number; name: string; type: AssetType; balance: number }[]>([]);
   const [assetHistories, setAssetHistories] = useState<Record<AssetType, { date: string; total: number }[]>>(
     {} as Record<AssetType, { date: string; total: number }[]>
@@ -469,8 +516,12 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
 
         {section === "accounts" && (
           <View style={{ gap: spacing.md }}>
-            <Text style={[styles.stackTitle, { marginBottom: 0 }]}>Savings & Investments</Text>
-            {assets.length === 0 && (
+            {sectionHeader(
+              "savings",
+              "Savings & Investments",
+              formatMoney(assets.filter((a) => a.type !== "Home").reduce((sum, a) => sum + a.balance, 0))
+            )}
+            {!collapsed.savings && assets.length === 0 && (
               <Pressable style={styles.assetCard} onPress={() => router.push("/net-worth")}>
                 <View style={[styles.assetCardIcon, { backgroundColor: NET_WORTH_TINT.Savings }]}>
                   <Text style={{ fontSize: 16 }}>➕</Text>
@@ -482,7 +533,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                 <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
               </Pressable>
             )}
-            {ASSET_TYPES.filter((type) => assets.some((a) => a.type === type)).map((type) => {
+            {!collapsed.savings && ASSET_TYPES.filter((type) => assets.some((a) => a.type === type)).map((type) => {
               const history = assetHistories[type] ?? [];
               const totalForType = assets.filter((a) => a.type === type).reduce((sum, a) => sum + a.balance, 0);
               const first = history[0]?.total ?? totalForType;
@@ -511,13 +562,13 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
 
         {section === "accounts" && (
         <View style={{ gap: spacing.sm }}>
-          <View style={styles.stackTitleRow}>
-            <Text style={[styles.stackTitle, { marginBottom: 0 }]}>By account</Text>
-            <Pressable onPress={() => router.push("/accounts")}>
-              <Text style={styles.stackTitleLink}>Manage</Text>
-            </Pressable>
-          </View>
-          {loading ? null : accountTotals.length === 0 ? (
+          {sectionHeader(
+            "byAccount",
+            "By account",
+            `${accountTotals.length} account${accountTotals.length === 1 ? "" : "s"}`,
+            { label: "Manage", onPress: () => router.push("/accounts") }
+          )}
+          {loading || collapsed.byAccount ? null : accountTotals.length === 0 ? (
             <View style={styles.sectionCard}>
               <EmptyState icon="📊" title="Nothing here yet" subtitle={`No spending recorded on any card ${periodWord}.`} />
             </View>
@@ -572,8 +623,9 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
 
         {section === "spending" && (
         <View>
-          <Text style={styles.stackTitle}>By category</Text>
-          <View style={styles.sectionCard}>
+          {sectionHeader("byCategory", "By category", formatMoney(total))}
+          {!collapsed.byCategory && (
+          <View style={[styles.sectionCard, { marginTop: spacing.sm }]}>
             {loading ? null : categoryTotals.length === 0 ? (
               <EmptyState icon="📊" title="Nothing here yet" subtitle={`No spending recorded ${periodWord}.`} />
             ) : (
@@ -610,19 +662,19 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
               </View>
             )}
           </View>
+          )}
         </View>
         )}
 
         {section === "spending" && (
           <View>
-            <View style={styles.stackTitleRow}>
-              <Text style={[styles.stackTitle, { marginBottom: 0 }]}>Subscriptions & bills</Text>
-              {recurring.length > 0 && (
-                <Pressable onPress={() => router.push("/subscriptions")}>
-                  <Text style={styles.stackTitleLink}>See all</Text>
-                </Pressable>
-              )}
-            </View>
+            {sectionHeader(
+              "subscriptions",
+              "Subscriptions & bills",
+              `${formatMoney(recurringMonthly)}/mo`,
+              recurring.length > 0 ? { label: "See all", onPress: () => router.push("/subscriptions") } : undefined
+            )}
+            {!collapsed.subscriptions && (
             <View style={[styles.sectionCard, { marginTop: spacing.sm }]}>
               {activeRecurring.length === 0 ? (
                 <EmptyState
@@ -682,13 +734,15 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                 </>
               )}
             </View>
+            )}
           </View>
         )}
 
         {section === "spending" && (
         <View>
-          <Text style={styles.stackTitle}>Last transactions</Text>
-          <View style={styles.sectionCard}>
+          {sectionHeader("lastTransactions", "Last transactions", `${recent.length} shown`)}
+          {!collapsed.lastTransactions && (
+          <View style={[styles.sectionCard, { marginTop: spacing.sm }]}>
             {loading ? null : recent.length === 0 ? (
               <EmptyState icon="🧾" title="Nothing here yet" subtitle={`No transactions recorded ${periodWord}.`} />
             ) : (
@@ -712,6 +766,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
               })
             )}
           </View>
+          )}
         </View>
         )}
       </ScrollView>
@@ -854,6 +909,8 @@ function makeStyles(colors: ThemeColors) {
     justifyContent: "center",
   },
   stackTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sectionToggle: { flexDirection: "row", alignItems: "center", gap: 4 },
+  sectionSummary: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
   stackTitleLink: { fontSize: 13, fontWeight: "600", color: colors.accent },
   accountRow: {
     flexDirection: "row",
