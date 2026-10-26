@@ -618,7 +618,11 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                       <Text style={styles.accountRowName} numberOfLines={1}>
                         {a.accountName}
                       </Text>
-                      <Text style={styles.accountRowSub}>{share.toFixed(1)}% of spend</Text>
+                      <Text style={styles.accountRowSub}>
+                        {account && (account.type === "Checking" || account.type === "Savings")
+                          ? `${account.type} account`
+                          : `${share.toFixed(1)}% of spend`}
+                      </Text>
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
                       <Text style={styles.accountRowAmount}>
