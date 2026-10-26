@@ -26,7 +26,7 @@ import {
   type AccountTotal,
   type CategoryTotal,
 } from "../lib/db";
-import { periodRange } from "../lib/period";
+import { monthsBetween, periodRange } from "../lib/period";
 import { radius, spacing, tabBarClearance } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 import { ASSET_TYPES, type Account, type AssetType, type Transaction } from "../lib/types";
@@ -65,13 +65,6 @@ function formatMonthLabel(month: string): string {
   return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
-// Every month from `newest` back to `oldest`, inclusive -- gaps included, so a
-// month with no statement yet is still reachable.
-function monthsBetween(newest: string, oldest: string): string[] {
-  const list: string[] = [];
-  for (let m = newest; m >= oldest; m = shiftMonth(m, -1)) list.push(m);
-  return list;
-}
 
 const DONUT_SIZE = 140;
 const DONUT_HOLE_SIZE = 92;
@@ -519,7 +512,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
               return (
                 <Pressable
                   key={a.accountName}
-                  onPress={() => router.push({ pathname: "/account/[name]", params: { name: a.accountName, month } })}
+                  onPress={() => router.push({ pathname: "/account/[name]", params: { name: a.accountName, month: periodKey } })}
                 >
                   <LinearGradient
                     colors={[color, darken(color, 40)]}
