@@ -378,7 +378,10 @@ export default function TransactionsScreen() {
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e) => setPanelPage(Math.round(e.nativeEvent.contentOffset.x / PANEL_WIDTH))}
+            // onScroll, not onMomentumScrollEnd: the web build never fires
+            // momentum events, so the dots never moved on swipe there.
+            onScroll={(e) => setPanelPage(Math.round(e.nativeEvent.contentOffset.x / PANEL_WIDTH))}
+            scrollEventThrottle={16}
           >
             <View style={{ width: PANEL_WIDTH, padding: spacing.md }}>
               <MonthlyBarChart
