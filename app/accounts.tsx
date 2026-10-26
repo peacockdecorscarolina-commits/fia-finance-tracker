@@ -48,6 +48,7 @@ export default function AccountsScreen() {
   const [name, setName] = useState("");
   const [type, setType] = useState<(typeof ACCOUNT_TYPES)[number]["value"]>("Checking");
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [newCardProduct, setNewCardProduct] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
   const [editingBalance, setEditingBalance] = useState(false);
@@ -70,9 +71,19 @@ export default function AccountsScreen() {
 
   async function handleAdd() {
     if (!name.trim()) return;
-    await insertAccount(db, name.trim(), type);
+    await insertAccount(db, name.trim(), type, type === "Credit Card" ? newCardProduct : null);
     setName("");
+    setNewCardProduct(null);
     load();
+  }
+
+  // Picking the real card fills in its name as a starting point -- unless
+  // the user already typed their own -- which they can shorten to a nickname.
+  function chooseNewCard(productId: string | null) {
+    const previous = CARD_CATALOG.find((c) => c.id === newCardProduct)?.name ?? "";
+    const next = CARD_CATALOG.find((c) => c.id === productId)?.name ?? "";
+    if (!name.trim() || name === previous) setName(next);
+    setNewCardProduct(productId);
   }
 
   function startEditing(account: Account) {
@@ -135,18 +146,6 @@ export default function AccountsScreen() {
             </View>
           </View>
 
-          <Text style={styles.fieldLabel}>Account name</Text>
-          <View style={styles.inputRow}>
-            <Ionicons name="business-outline" size={16} color={colors.textSecondary} />
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g. Chase Checking"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.inputText}
-            />
-          </View>
-
           <Text style={styles.fieldLabel}>Type</Text>
           <View style={styles.typeGrid}>
             {ACCOUNT_TYPES.map((t) => {
@@ -164,6 +163,39 @@ export default function AccountsScreen() {
                 </Pressable>
               );
             })}
+          </View>
+
+          {type === "Credit Card" && (
+            <>
+              <Text style={styles.fieldLabel}>Which card is it?</Text>
+              <Text style={styles.cardHint}>Adds its benefits and annual fee. {"Skip it if yours isn't listed."}</Text>
+              <View style={styles.cardChoiceRow}>
+                {[{ id: null, name: "Not listed" }, ...CARD_CATALOG].map((c) => {
+                  const active = newCardProduct === c.id;
+                  return (
+                    <Pressable
+                      key={c.id ?? "none"}
+                      onPress={() => chooseNewCard(c.id)}
+                      style={[styles.cardChoice, active && styles.cardChoiceActive]}
+                    >
+                      <Text style={[styles.cardChoiceText, active && styles.cardChoiceTextActive]}>{c.name}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          )}
+
+          <Text style={styles.fieldLabel}>{type === "Credit Card" && newCardProduct ? "Name (shorten it to a nickname if you like)" : "Account name"}</Text>
+          <View style={styles.inputRow}>
+            <Ionicons name="business-outline" size={16} color={colors.textSecondary} />
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder={type === "Credit Card" ? "e.g. Amex Gold" : "e.g. Chase Checking"}
+              placeholderTextColor={colors.textSecondary}
+              style={styles.inputText}
+            />
           </View>
 
           <Pressable onPress={handleAdd} disabled={!name.trim()} style={{ opacity: name.trim() ? 1 : 0.5 }}>
