@@ -471,15 +471,14 @@ export type TransactionWithBalance = Transaction & { balanceAfter: number };
 // opposite of every other transaction list in the app (newest first), so
 // the result is reversed back to newest-first right before returning, with
 // each transaction keeping the balance it produced.
-export async function getAccountLedgerForMonth(
+// Transactions between two dates (a month or a whole year), newest first,
+// each with the account's running balance after it.
+export async function getAccountLedger(
   db: SQLiteDatabase,
   accountId: number,
-  month: string
+  monthStart: string,
+  monthEnd: string
 ): Promise<TransactionWithBalance[]> {
-  const [year, m] = month.split("-").map(Number);
-  const monthStart = `${year}-${String(m).padStart(2, "0")}-01`;
-  const monthEnd = `${year}-${String(m).padStart(2, "0")}-${String(new Date(year, m, 0).getDate()).padStart(2, "0")}`;
-
   let running = (await getAccountBalanceAsOf(db, accountId, dayBefore(monthStart))) ?? 0;
 
   const rows = await db.getAllAsync<TransactionRow>(

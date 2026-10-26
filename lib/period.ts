@@ -57,3 +57,11 @@ export function recentMonths(from: string, count: number): string[] {
   }
   return list;
 }
+
+// Every month from `newest` back to `oldest`, inclusive -- gaps included, so a
+// month with no statement yet is still reachable.
+export function monthsBetween(newest: string, oldest: string): string[] {
+  const list: string[] = [];
+  for (let m = newest; m >= oldest; m = shiftMonth(m, -1)) list.push(m);
+  return list;
+}

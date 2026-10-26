@@ -6,6 +6,7 @@ import { useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AmountText } from "../../components/AmountText";
 import { LineChart } from "../../components/LineChart";
+import { SegmentedControl } from "../../components/SegmentedControl";
 import { TransactionRow } from "../../components/TransactionRow";
 import { getAccountStyle } from "../../lib/accountStyle";
 import { getCategoryStyle } from "../../lib/categoryStyle";
@@ -13,11 +14,12 @@ import { formatMerchantName } from "../../lib/formatMerchant";
 import {
   deleteTransaction,
   getAccountDailySpend,
-  getAccountLedgerForMonth,
+  getAccountLedger,
   getAccountMonthlyTotals,
   getAccounts,
   getAccountSpendSummary,
   getCategories,
+  getTransactionMonthBounds,
   getTransactions,
   getTransferCandidates,
   linkTransactions,
@@ -26,7 +28,7 @@ import {
   unlinkTransaction,
   type TransactionWithBalance,
 } from "../../lib/db";
-import { currentMonth, monthRange, recentMonths, shiftMonth } from "../../lib/period";
+import { currentMonth, monthsBetween, periodRange, shiftMonth } from "../../lib/period";
 import { radius, spacing } from "../../lib/theme";
 import type { Category, Transaction } from "../../lib/types";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
@@ -44,6 +46,12 @@ function formatMonthLabel(month: string): string {
 }
 
 const TREND_MONTHS = 6;
+const VIEWS = ["Month", "Year"] as const;
+
+function formatMonthShort(month: string): string {
+  const [year, m] = month.split("-").map(Number);
+  return new Date(year, m - 1, 1).toLocaleDateString(undefined, { month: "short" });
+}
 
 // Rough (not precise) running total by week-of-month -- just meant to show
 // the shape of spending through the month, not an exact daily ledger.
@@ -125,38 +133,54 @@ function HeroTrend({ points, width = 110, height = 56 }: { points: number[]; wid
 export default function AccountDrillDownScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // `month` is "YYYY-MM", or a bare "YYYY" when opened from the Accounts
+  // tab's Year view -- which opens this page on that whole year.
   const { name, month: monthParam } = useLocalSearchParams<{ name: string; month: string }>();
+  const openedOnYear = /^\d{4}$/.test(monthParam ?? "");
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [ledger, setLedger] = useState<TransactionWithBalance[]>([]);
   const [hasBalanceTracking, setHasBalanceTracking] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [month, setMonth] = useState(monthParam || currentMonth());
+  // Year view keeps a month too, so switching back to Month lands somewhere
+  // sensible: the current month for this year, December for past years.
+  const [view, setView] = useState<(typeof VIEWS)[number]>(openedOnYear ? "Year" : "Month");
+  const [month, setMonth] = useState(() => {
+    if (!monthParam) return currentMonth();
+    if (!openedOnYear) return monthParam;
+    return monthParam === currentMonth().slice(0, 4) ? currentMonth() : `${monthParam}-12`;
+  });
+  const [monthBounds, setMonthBounds] = useState<{ first: string; last: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [monthlyTotals, setMonthlyTotals] = useState<{ month: string; total: number }[]>([]);
   const [summary, setSummary] = useState({ spent: 0, received: 0 });
   const [dailySpend, setDailySpend] = useState<{ date: string; total: number }[]>([]);
 
+  const year = month.slice(0, 4);
+  const periodKey = view === "Year" ? year : month;
+
   const load = useCallback(() => {
+    getTransactionMonthBounds(db).then(setMonthBounds);
     getAccounts(db).then((accounts) => {
       const found = accounts.find((a) => a.name === name) ?? null;
       if (found) {
-        const { start, end } = monthRange(month);
+        const { start, end } = periodRange(periodKey);
         getTransactions(db, { accountId: found.id, start, end }).then(setTransactions);
-        getAccountMonthlyTotals(db, found.id, 24).then(setMonthlyTotals);
+        // Long enough to cover last year in full for the Year comparison.
+        getAccountMonthlyTotals(db, found.id, 36).then(setMonthlyTotals);
         getAccountSpendSummary(db, found.id, start, end).then(setSummary);
         getAccountDailySpend(db, found.id, start, end).then(setDailySpend);
         setHasBalanceTracking(found.startingBalance !== null);
         if (found.startingBalance !== null) {
-          getAccountLedgerForMonth(db, found.id, month).then(setLedger);
+          getAccountLedger(db, found.id, start, end).then(setLedger);
         } else {
           setLedger([]);
         }
       }
     });
     getCategories(db).then(setCategories);
-  }, [db, name, month]);
+  }, [db, name, periodKey]);
 
   useFocusEffect(load);
 
@@ -186,33 +210,65 @@ export default function AccountDrillDownScreen() {
   }
 
   const style = getAccountStyle(name ?? "");
-  const trend = monthlyTotals.filter((m) => m.month <= month).slice(-TREND_MONTHS);
-  const prevMonthKey = shiftMonth(month, -1);
-  const prevTotal = monthlyTotals.find((m) => m.month === prevMonthKey)?.total ?? 0;
+  const isYear = view === "Year";
+  const periodLabel = isYear ? year : formatMonthLabel(month);
+  // Each month of the selected year, through this month for the current year.
+  const yearMonths = monthsBetween(year === currentMonth().slice(0, 4) ? currentMonth() : `${year}-12`, `${year}-01`).reverse();
+  const yearByMonth = yearMonths.map((m) => ({ month: m, total: monthlyTotals.find((t) => t.month === m)?.total ?? 0 }));
+  const trend = isYear ? yearByMonth : monthlyTotals.filter((m) => m.month <= month).slice(-TREND_MONTHS);
+  const prevKey = isYear ? String(Number(year) - 1) : shiftMonth(month, -1);
+  const prevTotal = isYear
+    ? monthlyTotals.filter((m) => m.month.startsWith(prevKey)).reduce((sum, m) => sum + m.total, 0)
+    : (monthlyTotals.find((m) => m.month === prevKey)?.total ?? 0);
   const delta = summary.spent - prevTotal;
   const pct = prevTotal !== 0 ? (delta / prevTotal) * 100 : null;
+  // A year still in progress against a full previous year would always read
+  // as a big drop, so that comparison waits until the year is over.
+  const showDelta = !isYear || year < currentMonth().slice(0, 4);
   const net = summary.spent - summary.received;
   const pace = weeklyPace(dailySpend, month);
 
+  const pickerEdges = [currentMonth(), month, ...(monthBounds ? [monthBounds.first, monthBounds.last] : [])].sort();
+  const pickerMonths = monthsBetween(pickerEdges[pickerEdges.length - 1], pickerEdges[0]);
+  const pickerYears = [...new Set(pickerMonths.map((m) => m.slice(0, 4)))];
+
   const listHeader = (
     <>
+      <View style={styles.viewToggle}>
+        <SegmentedControl options={VIEWS} value={view} onChange={setView} />
+      </View>
+
       <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
         <View style={styles.heroTopRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.heroLabel}>Spent in {formatMonthLabel(month)}</Text>
+            <Text style={styles.heroLabel}>Spent in {periodLabel}</Text>
             <Text style={styles.heroValue}>{formatMoney(summary.spent)}</Text>
-            <View style={styles.heroDeltaPill}>
-              <Text style={[styles.heroDeltaText, { color: delta <= 0 ? "#86EFAC" : "#FCA5A5" }]}>
-                {delta <= 0 ? "▼" : "▲"} {pct !== null ? `${Math.abs(pct).toFixed(1)}%` : formatMoney(Math.abs(delta))}
-              </Text>
-              <Text style={styles.heroDeltaSub}>vs {formatMonthLabel(prevMonthKey)}</Text>
-            </View>
+            {showDelta && (
+              <View style={styles.heroDeltaPill}>
+                <Text style={[styles.heroDeltaText, { color: delta <= 0 ? "#86EFAC" : "#FCA5A5" }]}>
+                  {delta <= 0 ? "▼" : "▲"} {pct !== null ? `${Math.abs(pct).toFixed(1)}%` : formatMoney(Math.abs(delta))}
+                </Text>
+                <Text style={styles.heroDeltaSub}>vs {isYear ? prevKey : formatMonthLabel(prevKey)}</Text>
+              </View>
+            )}
           </View>
           {trend.length >= 2 && <HeroTrend points={trend.map((t) => t.total)} />}
         </View>
       </LinearGradient>
 
-      {pace.filter((p) => p.total > 0).length >= 2 && (
+      {isYear && yearByMonth.filter((m) => m.total > 0).length >= 2 && (
+        <View style={styles.paceCard}>
+          <Text style={styles.paceTitle}>Spending by month</Text>
+          <LineChart
+            points={yearByMonth.map((m) => m.total)}
+            labels={yearByMonth.map((m) => formatMonthShort(m.month))}
+            color={colors.accent}
+            width={320}
+          />
+        </View>
+      )}
+
+      {!isYear && pace.filter((p) => p.total > 0).length >= 2 && (
         <View style={styles.paceCard}>
           <Text style={styles.paceTitle}>Spending pace this month</Text>
           <LineChart
@@ -229,26 +285,41 @@ export default function AccountDrillDownScreen() {
         <View>
           <Pressable onPress={() => setPickerOpen((v) => !v)} style={styles.monthPill}>
             <Ionicons name="calendar-outline" size={14} color={colors.textPrimary} />
-            <Text style={styles.monthPillText}>{formatMonthLabel(month)}</Text>
+            <Text style={styles.monthPillText}>{periodLabel}</Text>
             <Ionicons name={pickerOpen ? "chevron-up" : "chevron-down"} size={14} color={colors.textSecondary} />
           </Pressable>
 
           {pickerOpen && (
             <ScrollView style={styles.monthDropdown} nestedScrollEnabled>
-              {recentMonths(currentMonth(), 12).map((m) => (
-                <Pressable
-                  key={m}
-                  style={[styles.monthOption, m === month && styles.monthOptionActive]}
-                  onPress={() => {
-                    setMonth(m);
-                    setPickerOpen(false);
-                  }}
-                >
-                  <Text style={[styles.monthOptionText, m === month && styles.monthOptionTextActive]}>
-                    {formatMonthLabel(m)}
-                  </Text>
-                </Pressable>
-              ))}
+              {isYear
+                ? pickerYears.map((y) => (
+                    <Pressable
+                      key={y}
+                      style={[styles.monthOption, y === year && styles.monthOptionActive]}
+                      onPress={() => {
+                        // Same month-of-year in the picked year, capped at the newest month offered.
+                        const target = `${y}-${month.slice(5)}`;
+                        setMonth(target > pickerMonths[0] ? pickerMonths[0] : target);
+                        setPickerOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.monthOptionText, y === year && styles.monthOptionTextActive]}>{y}</Text>
+                    </Pressable>
+                  ))
+                : pickerMonths.map((m) => (
+                    <Pressable
+                      key={m}
+                      style={[styles.monthOption, m === month && styles.monthOptionActive]}
+                      onPress={() => {
+                        setMonth(m);
+                        setPickerOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.monthOptionText, m === month && styles.monthOptionTextActive]}>
+                        {formatMonthLabel(m)}
+                      </Text>
+                    </Pressable>
+                  ))}
             </ScrollView>
           )}
         </View>
@@ -510,6 +581,7 @@ function makeStyles(colors: ThemeColors) {
   },
   mainList: { flex: 1 },
   listHeaderWrap: { zIndex: 20 },
+  viewToggle: { marginBottom: spacing.md },
   list: { gap: spacing.sm, paddingBottom: spacing.xl },
   emptyCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.lg, alignItems: "center" },
   emptyText: { fontSize: 13, color: colors.textSecondary, textAlign: "center" },
