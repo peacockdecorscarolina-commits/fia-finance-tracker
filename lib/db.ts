@@ -296,14 +296,20 @@ export async function setSetting(db: SQLiteDatabase, key: string, value: string)
 
 const MERCHANT_KEYS_VERSION_KEY = "merchant_keys_version";
 
-// One-time: re-keys merchant memory and subscription choices from the old
-// raw-text key to the cleaned-name key, so nothing the user already taught
-// the app is lost. Each old key is mapped through the transactions that
-// produced it; one with no transactions left falls back to re-keying its
-// own text. When several old keys merge into one (two locations of the same
-// place), the one covering the most transactions wins.
+// Bump when normalizeMerchantKey's output changes, so stored keys follow.
+const MERCHANT_KEYS_VERSION = "3";
+
+// Re-keys merchant memory and subscription choices whenever the key rules
+// change, so nothing the user already taught the app is lost. Keys from
+// the original raw-text rules are mapped through the transactions that
+// produced them; any other key is re-keyed from its own text. When several
+// old keys merge into one (two locations of the same place), the one
+// covering the most transactions wins. Then memory is backfilled from the
+// transactions themselves -- every reviewed transaction already carries the
+// category the user chose -- which recovers any merchant whose old key
+// can't be mapped forward.
 async function migrateMerchantKeys(db: SQLiteDatabase) {
-  if ((await getSetting(db, MERCHANT_KEYS_VERSION_KEY)) === "2") return;
+  if ((await getSetting(db, MERCHANT_KEYS_VERSION_KEY)) === MERCHANT_KEYS_VERSION) return;
   const merchants = await db.getAllAsync<{ merchant: string; count: number }>(
     "SELECT merchant, COUNT(*) as count FROM transactions GROUP BY merchant"
   );
@@ -327,7 +333,19 @@ async function migrateMerchantKeys(db: SQLiteDatabase) {
   };
   await remap("merchant_category_map", "category_id");
   await remap("recurring_overrides", "status");
-  await setSetting(db, MERCHANT_KEYS_VERSION_KEY, "2");
+
+  const reviewed = await db.getAllAsync<{ merchant: string; categoryId: number }>(
+    `SELECT merchant, category_id as categoryId FROM transactions
+     WHERE needs_review = 0 ORDER BY date DESC, id DESC`
+  );
+  for (const { merchant, categoryId } of reviewed) {
+    await db.runAsync(
+      "INSERT OR IGNORE INTO merchant_category_map (merchant_key, category_id) VALUES (?, ?)",
+      normalizeMerchantKey(merchant),
+      categoryId
+    );
+  }
+  await setSetting(db, MERCHANT_KEYS_VERSION_KEY, MERCHANT_KEYS_VERSION);
 }
 
 const USER_NAME_KEY = "user_name";

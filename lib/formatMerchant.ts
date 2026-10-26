@@ -12,9 +12,19 @@ const STATE_CODES = new Set([
   "WI", "WY", "DC", "PR",
 ]);
 
+// Phone numbers in the shapes statements print them: 800-672-4399,
+// 8005928996, 877-8244858, 1-888-280-4331, +14158799686, (800)555-1212,
+// and spelled ones like 800-COMCAST.
+function isPhoneNumber(token: string): boolean {
+  return (
+    /^\+?1?[-.]?\(?\d{3}\)?[-.]?\d{3}[-.]?\d{4}$/.test(token) ||
+    /^\+?1?-?\d{3}-[A-Za-z]{4,}$/.test(token)
+  );
+}
+
 function isNoiseToken(token: string): boolean {
   if (/^\d+$/.test(token)) return true; // bare reference/store number
-  if (/^\d{3}[-.]?\d{3}[-.]?\d{4}$/.test(token)) return true; // phone number
+  if (isPhoneNumber(token)) return true;
   if (/^#\d+$/.test(token)) return true; // store number ("#4506")
   if (token.length === 2 && STATE_CODES.has(token.toUpperCase())) return true; // trailing state code
   if (/\.[A-Za-z]{2,4}(\/\S*)?$/.test(token)) return true; // domain-like ("SCFB.ORG")
@@ -32,7 +42,7 @@ const LEGAL_SUFFIX = /^(LLC|L\.L\.C\.?|INC\.?|CORP\.?|LTD\.?)$/i;
 function isUnambiguousNoiseToken(token: string): boolean {
   return (
     /^#\d+$/.test(token) ||
-    /^\d{3}[-.]?\d{3}[-.]?\d{4}$/.test(token) ||
+    isPhoneNumber(token) ||
     // A phone number split by spaces: "(803)" and "555-1212".
     /^\(\d{3}\)$/.test(token) ||
     /^\d{3}-\d{4}$/.test(token)
@@ -74,12 +84,22 @@ function splitGluedNumber(token: string): string[] {
   return m ? [m[1], m[2]] : [token];
 }
 
-// Card processors put their own short code in front of the merchant:
-// "SQ *" (Square), "TST*" (Toast), "SP *" (Shopify), "PY *", "DD *"
-// (DoorDash), "GOOGLE *". Everything up to the first star near the start
-// is that code, not the name.
+// Payment processors and marketplaces that put their own name or code in
+// front of the actual merchant, "CODE*MERCHANT": Square, Toast, Shopify,
+// PayPal, DoorDash's marketplace, Google, Priceline, Amazon, Microsoft...
+// Only these get dropped -- for anything else, the part before the "*" is
+// the brand itself ("TMOBILE*AUTO PAY", "PELOTON* MEMBERSHIP", "GEICO
+// *AUTO"), so both halves are kept.
+const PROCESSOR_PREFIXES = new Set([
+  "SQ", "TST", "SP", "PY", "DD", "PP", "PAYPAL", "GOOGLE", "PRICELN", "PRICELINE", "AMZN", "MSFT", "APL",
+  "IC", "BT", "FS", "EB", "CKO", "WPY", "PADDLE", "SPO", "STRIPE", "ZETTLE",
+]);
+
 function stripProcessorPrefix(raw: string): string {
-  const stripped = raw.replace(/^\s*[A-Za-z]{1,8}\s*\*\s*/, "");
+  const m = raw.match(/^\s*([A-Za-z]{1,9})\s*\*\s*/);
+  if (!m) return raw;
+  if (!PROCESSOR_PREFIXES.has(m[1].toUpperCase())) return raw.replace(/\s*\*\s*/, " ");
+  const stripped = raw.slice(m[0].length);
   return stripped.trim() ? stripped : raw;
 }
 
@@ -251,13 +271,16 @@ function cleanMerchantText(raw: string): string {
   // "PRICELN*AMERICAN" -> keep only what's after the last "*": the
   // aggregator/platform name before it is noise, not the actual merchant.
   // ...unless what follows the "*" is an order code ("PRIME*2K4AB1234"),
-  // in which case the name is the part before it.
+  // in which case the name is the part before it. A brand that isn't a
+  // known aggregator keeps both halves.
   tokens = tokens
-    .map((t) => {
+    .flatMap((t) => {
       const starIndex = t.lastIndexOf("*");
-      if (starIndex < 0) return t;
+      if (starIndex < 0) return [t];
+      const before = t.slice(0, starIndex);
       const after = t.slice(starIndex + 1);
-      return after && !isCodeToken(after) ? after : t.slice(0, starIndex);
+      if (!after || isCodeToken(after)) return [before];
+      return PROCESSOR_PREFIXES.has(before.toUpperCase()) || !before ? [after] : [before, after];
     })
     .filter((t) => t.length > 0);
   const withoutCodes = tokens.filter((t) => !isCodeToken(t));
@@ -277,6 +300,9 @@ function cleanMerchantText(raw: string): string {
   ) {
     tokens.pop();
   }
+
+  // "ADOBE *ADOBE" -> "ADOBE": a brand repeated on both sides of the "*".
+  tokens = tokens.filter((t, i) => i === 0 || t.toUpperCase() !== tokens[i - 1].toUpperCase());
 
   return tokens.join(" ") || raw.trim();
 }

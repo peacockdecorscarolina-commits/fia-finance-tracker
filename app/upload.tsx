@@ -372,7 +372,7 @@ export default function UploadScreen() {
                       <Text style={styles.dupMatchEmoji}>{getCategoryStyle(dupMatch.categoryName).emoji}</Text>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.dupMatchMerchant} numberOfLines={1}>
-                          Matches: {dupMatch.merchant}
+                          Matches: {formatMerchantName(dupMatch.merchant)}
                         </Text>
                         <Text style={styles.dupMatchMeta}>
                           {dupMatch.date} · {dupMatch.accountName} · {dupMatch.categoryName}
