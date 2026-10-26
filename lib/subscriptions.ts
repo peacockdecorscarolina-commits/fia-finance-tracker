@@ -21,6 +21,9 @@ export type Recurring = {
   yearlyCost: number;
   lastDate: string;
   nextDate: string;
+  // When it's billed: day of month (1-31) for monthly, "MM-DD" for yearly, null for weekly.
+  billingDay: number | null;
+  billingDate: string | null;
   accountName: string;
   categoryName: string;
   isNew: boolean;
@@ -57,6 +60,54 @@ function median(values: number[]): number {
 // Same price give or take a little: 10% or $2, whichever is looser.
 function similar(a: number, b: number): boolean {
   return Math.abs(a - b) <= Math.max(2, 0.1 * Math.max(a, b));
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+// Same day of the month, allowing a couple of days' posting delay; the
+// last few days of any month count as "the end of the month", so a charge
+// on the 31st, 30th and 28th still lines up.
+function sameDayOfMonth(a: string, b: string): boolean {
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  const aEnd = ad > daysInMonth(ay, am) - 3;
+  const bEnd = bd > daysInMonth(by, bm) - 3;
+  return (aEnd && bEnd) || Math.abs(ad - bd) <= 2;
+}
+
+function monthIndex(date: string): number {
+  const [y, m] = date.split("-").map(Number);
+  return y * 12 + m;
+}
+
+// Charged on the same day in back-to-back months -- monthly even when the
+// day gaps alone are borderline (posting delays around a short February).
+function isSameDayEachMonth(dates: string[]): boolean {
+  if (dates.length < 2) return false;
+  return dates
+    .slice(1)
+    .every((d, i) => monthIndex(d) - monthIndex(dates[i]) === 1 && sameDayOfMonth(dates[i], d));
+}
+
+// The day it's usually billed on: the most common day of the month.
+function usualDay(dates: string[]): number {
+  const counts = new Map<number, number>();
+  for (const d of dates) {
+    const day = Number(d.slice(8, 10));
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+}
+
+// Next month's charge on its usual day (or that month's last day, if shorter).
+function nextMonthlyDate(after: string, day: number): string {
+  const [y, m] = after.split("-").map(Number);
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  const d = Math.min(day, daysInMonth(ny, nm));
+  return `${ny}-${String(nm).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 function classify(gaps: number[]): (typeof RANGES)[number] | null {
@@ -97,7 +148,7 @@ export function detectRecurring(
     const latest = sorted[sorted.length - 1];
     const latestAmount = amounts[amounts.length - 1];
 
-    let range = classify(gaps);
+    let range = classify(gaps) ?? (isSameDayEachMonth(dates) ? RANGES[1] : null);
     if (!override) {
       if (!range) continue;
       // A price change on the latest charge is fine; otherwise the earlier
@@ -112,7 +163,13 @@ export function detectRecurring(
 
     const previous = amounts.length >= 2 ? amounts[amounts.length - 2] : null;
     const priceChanged = previous !== null && Math.abs(previous - latestAmount) >= 0.01;
-    const nextDate = addDays(latest.date, range.days);
+    const billingDay = range.frequency === "monthly" ? usualDay(dates) : null;
+    const nextDate =
+      range.frequency === "monthly"
+        ? nextMonthlyDate(latest.date, billingDay!)
+        : range.frequency === "yearly"
+          ? `${Number(latest.date.slice(0, 4)) + 1}${latest.date.slice(4)}`
+          : addDays(latest.date, range.days);
     const yearlyCost = latestAmount * PER_YEAR[range.frequency];
 
     results.push({
@@ -126,6 +183,8 @@ export function detectRecurring(
       yearlyCost,
       lastDate: latest.date,
       nextDate,
+      billingDay,
+      billingDate: range.frequency === "yearly" ? latest.date.slice(5) : null,
       accountName: latest.accountName,
       categoryName: latest.categoryName,
       isNew: daysBetween(sorted[0].date, today) <= NEW_WITHIN_DAYS,
@@ -135,4 +194,19 @@ export function detectRecurring(
     });
   }
   return results.sort((a, b) => b.monthlyCost - a.monthlyCost);
+}
+
+function ordinal(n: number): string {
+  const suffix = n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th";
+  return `${n}${suffix}`;
+}
+
+// "every month on the 6th", "every year on Nov 1", "every week".
+export function describeSchedule(item: Pick<Recurring, "frequency" | "billingDay" | "billingDate">): string {
+  if (item.frequency === "monthly" && item.billingDay) return `every month on the ${ordinal(item.billingDay)}`;
+  if (item.frequency === "yearly" && item.billingDate) {
+    const [m, d] = item.billingDate.split("-").map(Number);
+    return `every year on ${new Date(2000, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  }
+  return `every ${item.frequency === "weekly" ? "week" : item.frequency === "monthly" ? "month" : "year"}`;
 }

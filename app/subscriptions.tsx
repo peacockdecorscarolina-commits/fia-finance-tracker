@@ -7,7 +7,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "rea
 import { EmptyState } from "../components/EmptyState";
 import { getRecurring, setRecurringOverride } from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
-import type { Recurring } from "../lib/subscriptions";
+import { describeSchedule, type Recurring } from "../lib/subscriptions";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
@@ -75,11 +75,11 @@ export default function SubscriptionsScreen() {
               {formatMerchantName(item.merchant)}
             </Text>
             <Text style={styles.rowMeta} numberOfLines={1}>
-              {item.accountName}
+              {item.accountName} · {describeSchedule(item)}
             </Text>
             <Text style={styles.rowMeta} numberOfLines={1}>
               Last {formatDate(item.lastDate)}
-              {item.isStopped ? "" : ` · next ~${formatDate(item.nextDate)}`}
+              {item.isStopped ? "" : ` · next ${formatDate(item.nextDate)}`}
             </Text>
             <View style={styles.badgeRow}>
               {item.previousAmount !== null && item.amount > item.previousAmount && (

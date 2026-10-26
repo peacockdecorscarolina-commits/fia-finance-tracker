@@ -30,7 +30,7 @@ import {
 import { monthsBetween, periodRange } from "../lib/period";
 import { radius, spacing, tabBarClearance } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
-import type { Recurring } from "../lib/subscriptions";
+import { describeSchedule, type Recurring } from "../lib/subscriptions";
 import { ASSET_TYPES, type Account, type AssetType, type Transaction } from "../lib/types";
 
 const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
@@ -47,7 +47,10 @@ const HERO_GRADIENT = ["#4C1D95", "#312E81"] as const;
 const VIEWS = ["Month", "Year"] as const;
 
 const SUMMARY_RECURRING_LIMIT = 6;
-const FREQUENCY_UNIT: Record<Recurring["frequency"], string> = { weekly: "week", monthly: "month", yearly: "year" };
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 function formatShortDate(date: string): string {
   const [y, m, d] = date.split("-").map(Number);
@@ -646,7 +649,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                           {formatMerchantName(r.merchant)}
                         </Text>
                         <Text style={styles.txMeta} numberOfLines={1}>
-                          {r.kind === "bill" ? "Bill" : "Subscription"} · next ~{formatShortDate(r.nextDate)}
+                          {capitalize(describeSchedule(r))}
                         </Text>
                         {r.previousAmount !== null && r.amount > r.previousAmount ? (
                           <Text style={styles.subFlagUp}>▲ Price went up from {formatMoney(r.previousAmount)}</Text>
@@ -656,7 +659,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                       </View>
                       <View style={{ alignItems: "flex-end" }}>
                         <Text style={styles.txAmount}>{formatMoney(r.amount)}</Text>
-                        <Text style={styles.txCategory}>/ {FREQUENCY_UNIT[r.frequency]}</Text>
+                        <Text style={styles.txCategory}>next {formatShortDate(r.nextDate)}</Text>
                       </View>
                     </Pressable>
                   ))}
