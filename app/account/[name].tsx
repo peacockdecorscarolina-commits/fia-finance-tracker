@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AmountText } from "../../components/AmountText";
 import { CardBenefitsPanel } from "../../components/CardBenefitsPanel";
@@ -15,6 +15,7 @@ import { formatMerchantName } from "../../lib/formatMerchant";
 import {
   deleteTransaction,
   getAccountDailySpend,
+  getAccountBalanceAsOf,
   getAccountLedger,
   getAccountMonthlyTotals,
   getAccounts,
@@ -26,6 +27,7 @@ import {
   getTransactions,
   getTransferCandidates,
   linkTransactions,
+  todayISO,
   setMerchantCategory,
   setTransactionIgnored,
   unlinkTransaction,
@@ -51,6 +53,11 @@ function formatMonthLabel(month: string): string {
 }
 
 const TREND_MONTHS = 6;
+
+function formatShortDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 const VIEWS = ["Month", "Year"] as const;
 
 function formatMonthShort(month: string): string {
@@ -163,6 +170,13 @@ export default function AccountDrillDownScreen() {
   const [monthlyTotals, setMonthlyTotals] = useState<{ month: string; total: number }[]>([]);
   const [summary, setSummary] = useState({ spent: 0, received: 0 });
   const [dailySpend, setDailySpend] = useState<{ date: string; total: number }[]>([]);
+  // Checking and Savings accounts are about the balance, not spending: their
+  // page shows the balance, its change over the period and a balance chart.
+  const [isBank, setIsBank] = useState(false);
+  const [balancePoints, setBalancePoints] = useState<{ label: string; balance: number }[]>([]);
+  const [balanceStart, setBalanceStart] = useState<number | null>(null);
+  const [balanceEnd, setBalanceEnd] = useState<{ balance: number; date: string } | null>(null);
+  const ledgerDefaulted = useRef(false);
 
   const year = month.slice(0, 4);
   const periodKey = view === "Year" ? year : month;
@@ -187,12 +201,63 @@ export default function AccountDrillDownScreen() {
         } else {
           setLedger([]);
         }
+        const bank = found.type === "Checking" || found.type === "Savings";
+        setIsBank(bank);
+        if (bank && found.startingBalance !== null) {
+          // A bank account opens on its running-balance list.
+          if (!ledgerDefaulted.current) {
+            ledgerDefaulted.current = true;
+            setShowLedger(true);
+          }
+          loadBalances(found.id, start, end);
+        } else {
+          setBalancePoints([]);
+          setBalanceStart(null);
+          setBalanceEnd(null);
+        }
       }
     });
     getCategories(db).then(setCategories);
   }, [db, name, periodKey]);
 
   useFocusEffect(load);
+
+  // Balance at the period's start and end (or today, mid-period), plus one
+  // point per month end (Year view) or week end (Month view) for the chart.
+  async function loadBalances(accountId: number, start: string, end: string) {
+    const today = todayISO();
+    const last = end < today ? end : today;
+    const dayBefore = new Date(Date.parse(start) - 86400000).toISOString().slice(0, 10);
+    const opening = await getAccountBalanceAsOf(db, accountId, dayBefore);
+    const closing = await getAccountBalanceAsOf(db, accountId, last);
+    const stops: { label: string; date: string }[] = [];
+    if (/^\d{4}$/.test(periodKey)) {
+      for (let m = 1; m <= 12; m++) {
+        const monthEnd = new Date(Date.UTC(Number(periodKey), m, 0)).toISOString().slice(0, 10);
+        const date = monthEnd < last ? monthEnd : last;
+        stops.push({ label: formatMonthShort(`${periodKey}-${String(m).padStart(2, "0")}`), date });
+        if (date === last) break;
+      }
+    } else {
+      for (const day of [7, 14, 21, 28, 31]) {
+        const [y, mo] = start.split("-").map(Number);
+        const d = Math.min(day, new Date(y, mo, 0).getDate());
+        const date = `${start.slice(0, 8)}${String(d).padStart(2, "0")}`;
+        const capped = date < last ? date : last;
+        if (stops.some((s) => s.date === capped)) break;
+        stops.push({ label: `${start.slice(5, 7)}/${capped.slice(8)}`, date: capped });
+        if (capped === last) break;
+      }
+    }
+    const points: { label: string; balance: number }[] = [];
+    for (const stop of stops) {
+      const value = await getAccountBalanceAsOf(db, accountId, stop.date);
+      if (value !== null) points.push({ label: stop.label, balance: value });
+    }
+    setBalanceStart(opening);
+    setBalanceEnd(closing === null ? null : { balance: closing, date: last });
+    setBalancePoints(points);
+  }
 
   async function handleToggleIgnored(transaction: Transaction) {
     await setTransactionIgnored(db, transaction.id, !transaction.ignored);
@@ -236,6 +301,10 @@ export default function AccountDrillDownScreen() {
   // as a big drop, so that comparison waits until the year is over.
   const showDelta = !isYear || year < currentMonth().slice(0, 4);
   const net = summary.spent - summary.received;
+  // Everything in and out of a bank account, transfers included -- the
+  // balance moves with all of it.
+  const moneyIn = transactions.filter((t) => t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
+  const moneyOut = transactions.filter((t) => t.amount < 0).reduce((sum, t) => sum - t.amount, 0);
   const pace = weeklyPace(dailySpend, month);
 
   // Refunds can leave a category net negative; only actual spending is shown.
@@ -252,6 +321,55 @@ export default function AccountDrillDownScreen() {
         <SegmentedControl options={VIEWS} value={view} onChange={setView} />
       </View>
 
+      {isBank && (
+        <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+          {balanceEnd ? (
+            <>
+              <Text style={styles.heroLabel}>Balance · as of {formatShortDate(balanceEnd.date)}</Text>
+              <Text style={styles.heroValue}>{formatMoney(balanceEnd.balance)}</Text>
+              {balanceStart !== null && (
+                <View style={styles.heroDeltaPill}>
+                  <Text
+                    style={[
+                      styles.heroDeltaText,
+                      { color: balanceEnd.balance - balanceStart >= 0 ? "#86EFAC" : "#FCA5A5" },
+                    ]}
+                  >
+                    {balanceEnd.balance - balanceStart >= 0 ? "▲" : "▼"} {formatMoney(Math.abs(balanceEnd.balance - balanceStart))}
+                  </Text>
+                  <Text style={styles.heroDeltaSub}>since {isYear ? `Jan 1, ${year}` : formatShortDate(periodRange(periodKey).start)}</Text>
+                </View>
+              )}
+              <Text style={[styles.heroDeltaSub, { marginTop: spacing.xs }]}>
+                {formatMoney(moneyIn)} in · {formatMoney(moneyOut)} out in {periodLabel}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.heroLabel}>Balance</Text>
+              <Text style={styles.heroValueMuted}>Not set yet</Text>
+              <Pressable onPress={() => router.push("/net-worth")} style={styles.setBalanceBtn}>
+                <Text style={styles.setBalanceText}>{"Set today's balance"}</Text>
+              </Pressable>
+            </>
+          )}
+        </LinearGradient>
+      )}
+
+      {isBank && balancePoints.length >= 2 && (
+        <View style={styles.paceCard}>
+          <Text style={styles.paceTitle}>Balance over {periodLabel}</Text>
+          <LineChart
+            points={balancePoints.map((p) => p.balance)}
+            labels={balancePoints.map((p) => p.label)}
+            color={colors.accent}
+            width={320}
+            zeroBaseline={false}
+          />
+        </View>
+      )}
+
+      {!isBank && (
       <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
         <View style={styles.heroTopRow}>
           <View style={{ flex: 1 }}>
@@ -269,8 +387,9 @@ export default function AccountDrillDownScreen() {
           {trend.length >= 2 && <HeroTrend points={trend.map((t) => t.total)} />}
         </View>
       </LinearGradient>
+      )}
 
-      {isYear && yearByMonth.filter((m) => m.total > 0).length >= 2 && (
+      {!isBank && isYear && yearByMonth.filter((m) => m.total > 0).length >= 2 && (
         <View style={styles.paceCard}>
           <Text style={styles.paceTitle}>Spending by month</Text>
           <LineChart
@@ -282,7 +401,7 @@ export default function AccountDrillDownScreen() {
         </View>
       )}
 
-      {!isYear && pace.filter((p) => p.total > 0).length >= 2 && (
+      {!isBank && !isYear && pace.filter((p) => p.total > 0).length >= 2 && (
         <View style={styles.paceCard}>
           <Text style={styles.paceTitle}>Spending pace this month</Text>
           <LineChart
@@ -400,24 +519,24 @@ export default function AccountDrillDownScreen() {
           <View style={[styles.footerIcon, { backgroundColor: "#EDE9FE" }]}>
             <Ionicons name="arrow-down" size={14} color="#4C1D95" />
           </View>
-          <Text style={styles.footerLabel}>Total spent</Text>
-          <Text style={styles.footerValue}>{formatMoney(summary.spent)}</Text>
+          <Text style={styles.footerLabel}>{isBank ? "Money out" : "Total spent"}</Text>
+          <Text style={styles.footerValue}>{formatMoney(isBank ? moneyOut : summary.spent)}</Text>
         </View>
         <View style={styles.footerDivider} />
         <View style={styles.footerCol}>
           <View style={[styles.footerIcon, { backgroundColor: "#DCFCE7" }]}>
             <Ionicons name="arrow-up" size={14} color="#16A34A" />
           </View>
-          <Text style={styles.footerLabel}>Total received</Text>
-          <Text style={styles.footerValue}>{formatMoney(summary.received)}</Text>
+          <Text style={styles.footerLabel}>{isBank ? "Money in" : "Total received"}</Text>
+          <Text style={styles.footerValue}>{formatMoney(isBank ? moneyIn : summary.received)}</Text>
         </View>
         <View style={styles.footerDivider} />
         <View style={styles.footerCol}>
           <View style={[styles.footerIcon, { backgroundColor: "#DBEAFE" }]}>
             <Ionicons name="swap-vertical" size={14} color="#2563EB" />
           </View>
-          <Text style={styles.footerLabel}>Net</Text>
-          <Text style={styles.footerValue}>{formatMoney(net)}</Text>
+          <Text style={styles.footerLabel}>{isBank ? "Net change" : "Net"}</Text>
+          <Text style={styles.footerValue}>{formatMoney(isBank ? moneyIn - moneyOut : net)}</Text>
         </View>
       </View>
     ) : null;
@@ -596,6 +715,9 @@ function makeStyles(colors: ThemeColors) {
   monthOptionText: { fontSize: 14, color: colors.textPrimary, fontWeight: "500" },
   monthOptionTextActive: { fontWeight: "700" },
   hero: { borderRadius: radius.card, padding: spacing.md, marginBottom: spacing.md },
+  heroValueMuted: { fontSize: 22, fontWeight: "700", color: "#FFFFFFCC", marginVertical: 4 },
+  setBalanceBtn: { alignSelf: "flex-start", backgroundColor: "#FFFFFF", borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: 8, marginTop: spacing.xs },
+  setBalanceText: { color: "#4C1D95", fontSize: 13, fontWeight: "700" },
   heroTopRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   heroLabel: { fontSize: 13, color: "#FFFFFFCC", fontWeight: "600" },
   heroValue: { fontSize: 28, fontWeight: "700", color: "#FFFFFF", marginTop: 2 },
