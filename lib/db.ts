@@ -194,6 +194,9 @@ export async function initDatabase(db: SQLiteDatabase) {
     "SELECT name, emoji FROM categories WHERE emoji IS NOT NULL"
   );
   loadCategoryEmojiOverrides(emojiOverrides);
+  // Catches transfers in data saved before auto-linking existed, and any
+  // a manual add or restore made linkable since.
+  await autoLinkTransfers(db);
   // No accounts are seeded -- a new user starts empty and adds their own
   // cards, rather than inheriting a hard-coded list.
 }
@@ -949,6 +952,46 @@ export async function dismissTransferMatch(db: SQLiteDatabase, aId: number, bId:
 // marked ignored -- otherwise the same money would show up twice, once as
 // an expense leaving one account and again as a payment on the other.
 // Overwrites whatever `ignored` was previously set to on both sides.
+// Links the obvious transfers without asking -- typically checking paying
+// off a card: the same amount to the cent, money out of one account and in
+// to another, within 5 days either way. Only a pair with no other candidate
+// on either side is linked; anything ambiguous (two $800 payments that week)
+// is left for Find Transfers. Pairs the user dismissed there stay unlinked.
+// Returns how many pairs it linked.
+const AUTO_LINK_MAX_DAYS = 5;
+
+export async function autoLinkTransfers(db: SQLiteDatabase): Promise<number> {
+  const pairs = await db.getAllAsync<{ aId: number; bId: number }>(
+    `SELECT a.id as aId, b.id as bId
+     FROM transactions a
+     JOIN transactions b ON b.id > a.id
+     WHERE a.linked_transaction_id IS NULL
+       AND b.linked_transaction_id IS NULL
+       AND a.account_id != b.account_id
+       AND a.amount != 0
+       AND ABS(a.amount + b.amount) < 0.005
+       AND ABS(JULIANDAY(a.date) - JULIANDAY(b.date)) <= ?
+       AND NOT EXISTS (
+         SELECT 1 FROM dismissed_transfer_matches
+         WHERE dismissed_transfer_matches.a_id = a.id AND dismissed_transfer_matches.b_id = b.id
+       )`,
+    AUTO_LINK_MAX_DAYS
+  );
+  const candidateCount = new Map<number, number>();
+  for (const { aId, bId } of pairs) {
+    candidateCount.set(aId, (candidateCount.get(aId) ?? 0) + 1);
+    candidateCount.set(bId, (candidateCount.get(bId) ?? 0) + 1);
+  }
+  let linked = 0;
+  for (const { aId, bId } of pairs) {
+    if (candidateCount.get(aId) === 1 && candidateCount.get(bId) === 1) {
+      await linkTransactions(db, aId, bId);
+      linked++;
+    }
+  }
+  return linked;
+}
+
 export async function linkTransactions(db: SQLiteDatabase, idA: number, idB: number) {
   const rows = await db.getAllAsync<{ id: number; amount: number }>(
     "SELECT id, amount FROM transactions WHERE id IN (?, ?)",

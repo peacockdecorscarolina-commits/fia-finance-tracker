@@ -10,7 +10,13 @@ import { PdfTextExtractor, type PdfTextExtractorHandle } from "../components/Pdf
 import { getAccountStyle } from "../lib/accountStyle";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import { autoBackup } from "../lib/autoBackup";
-import { getAccounts, getDuplicateLookup, insertExtractedTransactions, setAccountBalanceCheckpoint } from "../lib/db";
+import {
+  autoLinkTransfers,
+  getAccounts,
+  getDuplicateLookup,
+  insertExtractedTransactions,
+  setAccountBalanceCheckpoint,
+} from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { csvLooksReversed, parseCsv } from "../lib/parseCsv";
 import { findStatementEndingBalance, parseStatement } from "../lib/parseStatement";
@@ -59,6 +65,7 @@ export default function UploadScreen() {
   // for banks the PDF reader doesn't understand yet.
   const [isCsv, setIsCsv] = useState(false);
   const [signsFlipped, setSignsFlipped] = useState(false);
+  const [linkedCount, setLinkedCount] = useState(0);
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null;
 
@@ -145,6 +152,7 @@ export default function UploadScreen() {
     if (endingBalance) {
       await setAccountBalanceCheckpoint(db, accountId, endingBalance.balance, endingBalance.date);
     }
+    setLinkedCount(await autoLinkTransfers(db));
     autoBackup(db);
     setStatus("saved");
     setFileName(null);
@@ -283,10 +291,17 @@ export default function UploadScreen() {
                 {formatAmount(endingBalance.balance)} as of {endingBalance.date}, from this statement.
               </Text>
             )}
+            {linkedCount > 0 && (
+              <Text style={styles.balanceUpdatedText}>
+                Linked {linkedCount} transfer{linkedCount === 1 ? "" : "s"} between your accounts (like a card
+                payment from checking), so {linkedCount === 1 ? "it isn't" : "they aren't"} counted as spending.
+              </Text>
+            )}
             <Pressable onPress={() => router.push("/find-transfers")} style={styles.findTransfersLink}>
               <Ionicons name="swap-horizontal-outline" size={14} color={ACCENT} />
               <Text style={styles.findTransfersText}>
-                If this pays off a card on another account you track here, check Find Transfers to link it
+                Transfers with an exact match within 5 days are linked automatically. Check Find Transfers for any
+                that weren{"'"}t clear-cut
               </Text>
             </Pressable>
           </View>
