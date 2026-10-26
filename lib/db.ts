@@ -1,4 +1,12 @@
 import type { SQLiteDatabase } from "expo-sqlite";
+import {
+  benefitStatus,
+  findAnnualFeeCharge,
+  findCard,
+  usedLast12Months,
+  type BenefitStatus,
+  type CatalogCard,
+} from "./cardBenefits";
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
@@ -113,6 +121,13 @@ export async function initDatabase(db: SQLiteDatabase) {
       merchant_key TEXT PRIMARY KEY NOT NULL,
       status TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS benefit_marks (
+      account_id INTEGER NOT NULL REFERENCES accounts(id),
+      benefit_id TEXT NOT NULL,
+      period_key TEXT NOT NULL,
+      amount REAL NOT NULL,
+      PRIMARY KEY (account_id, benefit_id, period_key)
+    );
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT
@@ -161,6 +176,12 @@ export async function initDatabase(db: SQLiteDatabase) {
   // Migration for databases created before per-account balance tracking
   // existed.
   const accountColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(accounts)");
+  if (!accountColumns.some((c) => c.name === "card_product")) {
+    await db.execAsync("ALTER TABLE accounts ADD COLUMN card_product TEXT");
+  }
+  if (!accountColumns.some((c) => c.name === "annual_fee")) {
+    await db.execAsync("ALTER TABLE accounts ADD COLUMN annual_fee REAL");
+  }
   if (!accountColumns.some((c) => c.name === "include_in_savings")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN include_in_savings INTEGER NOT NULL DEFAULT 1");
   }
@@ -443,7 +464,9 @@ export async function getAccounts(db: SQLiteDatabase): Promise<Account[]> {
     `SELECT accounts.id, accounts.name, accounts.type,
        latest.balance as startingBalance,
        latest.date as startingBalanceDate,
-       accounts.include_in_savings as includeInSavings
+       accounts.include_in_savings as includeInSavings,
+       accounts.card_product as cardProduct,
+       accounts.annual_fee as annualFee
      FROM accounts
      LEFT JOIN balance_checkpoints latest ON latest.account_id = accounts.id
        AND latest.date = (
@@ -456,6 +479,85 @@ export async function getAccounts(db: SQLiteDatabase): Promise<Account[]> {
 
 export async function setAccountIncludeInSavings(db: SQLiteDatabase, id: number, include: boolean) {
   await db.runAsync("UPDATE accounts SET include_in_savings = ? WHERE id = ?", include ? 1 : 0, id);
+}
+
+// Which real card an account is (a cardCatalog.json id), or null.
+export async function setAccountCardProduct(db: SQLiteDatabase, id: number, productId: string | null) {
+  await db.runAsync("UPDATE accounts SET card_product = ? WHERE id = ?", productId, id);
+}
+
+// The user's own annual fee for this card; null goes back to the catalog's.
+export async function setAccountAnnualFee(db: SQLiteDatabase, id: number, fee: number | null) {
+  await db.runAsync("UPDATE accounts SET annual_fee = ? WHERE id = ?", fee, id);
+}
+
+// "I used it" / "I used part of it" for one benefit window; null undoes it.
+export async function setBenefitMark(
+  db: SQLiteDatabase,
+  accountId: number,
+  benefitId: string,
+  periodKey: string,
+  amount: number | null
+) {
+  if (amount === null) {
+    await db.runAsync(
+      "DELETE FROM benefit_marks WHERE account_id = ? AND benefit_id = ? AND period_key = ?",
+      accountId,
+      benefitId,
+      periodKey
+    );
+  } else {
+    await db.runAsync(
+      "INSERT OR REPLACE INTO benefit_marks (account_id, benefit_id, period_key, amount) VALUES (?, ?, ?, ?)",
+      accountId,
+      benefitId,
+      periodKey,
+      amount
+    );
+  }
+}
+
+export type CardOverview = {
+  account: Account;
+  card: CatalogCard;
+  annualFee: number;
+  feeLastCharged: string | null;
+  feeNextDue: string | null; // a year after the last fee found on a statement
+  benefits: BenefitStatus[];
+  creditsUsedLast12Months: number;
+};
+
+// Every account set to a real card, with its annual fee and where each
+// benefit stands this period.
+export async function getCardOverviews(db: SQLiteDatabase): Promise<CardOverview[]> {
+  const accounts = (await getAccounts(db)).filter((a) => a.cardProduct);
+  const today = todayISO();
+  const results: CardOverview[] = [];
+  for (const account of accounts) {
+    const card = findCard(account.cardProduct);
+    if (!card) continue;
+    const transactions = await getTransactions(db, { accountId: account.id });
+    const markRows = await db.getAllAsync<{ benefit_id: string; period_key: string; amount: number }>(
+      "SELECT benefit_id, period_key, amount FROM benefit_marks WHERE account_id = ?",
+      account.id
+    );
+    const marks = new Map(markRows.map((r) => [`${r.benefit_id}|${r.period_key}`, r.amount]));
+    const fee = findAnnualFeeCharge(transactions);
+    const anniversaryMonth = fee ? Number(fee.date.slice(5, 7)) : null;
+    results.push({
+      account,
+      card,
+      annualFee: account.annualFee ?? card.annualFee,
+      feeLastCharged: fee?.date ?? null,
+      feeNextDue: fee ? `${Number(fee.date.slice(0, 4)) + 1}${fee.date.slice(4)}` : null,
+      benefits: card.benefits.map((b) => benefitStatus(b, transactions, marks, today, anniversaryMonth)),
+      creditsUsedLast12Months: card.benefits.reduce(
+        (sum, b) => sum + usedLast12Months(b, transactions, marks, today, anniversaryMonth),
+        0
+      ),
+    });
+  }
+  return results;
 }
 
 export type BankAsset = {
@@ -544,6 +646,7 @@ export async function renameAccount(db: SQLiteDatabase, id: number, name: string
 
 export async function deleteAccount(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM transactions WHERE account_id = ?", id);
+  await db.runAsync("DELETE FROM benefit_marks WHERE account_id = ?", id);
   await pruneTags(db);
   await db.runAsync("DELETE FROM balance_checkpoints WHERE account_id = ?", id);
   await db.runAsync("DELETE FROM accounts WHERE id = ?", id);
@@ -1556,7 +1659,9 @@ export async function getPaymentTotal(db: SQLiteDatabase, month: string): Promis
 export type DataSnapshot = {
   version: 1;
   exportedAt: string;
-  accounts: { name: string; type: string }[];
+  // cardProduct/annualFee/benefitMarks are optional so older backups still restore.
+  accounts: { name: string; type: string; cardProduct?: string | null; annualFee?: number | null }[];
+  benefitMarks?: { accountName: string; benefitId: string; periodKey: string; amount: number }[];
   // loanInterestRate is optional so backups from before it existed still restore.
   categories: {
     name: string;
@@ -1587,8 +1692,8 @@ export type DataSnapshot = {
 };
 
 export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
-  const accounts = await db.getAllAsync<{ name: string; type: string }>(
-    "SELECT name, type FROM accounts ORDER BY id"
+  const accounts = await db.getAllAsync<{ name: string; type: string; cardProduct: string | null; annualFee: number | null }>(
+    "SELECT name, type, card_product as cardProduct, annual_fee as annualFee FROM accounts ORDER BY id"
   );
   const categories = await db.getAllAsync<{
     name: string;
@@ -1660,6 +1765,11 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     assets,
     assetBalances,
     userName: await getUserName(db),
+    benefitMarks: await db.getAllAsync<{ accountName: string; benefitId: string; periodKey: string; amount: number }>(
+      `SELECT accounts.name as accountName, benefit_marks.benefit_id as benefitId,
+         benefit_marks.period_key as periodKey, benefit_marks.amount as amount
+       FROM benefit_marks JOIN accounts ON accounts.id = benefit_marks.account_id`
+    ),
     recurringOverrides: await db.getAllAsync<{ merchantKey: string; status: RecurringOverride }>(
       "SELECT merchant_key as merchantKey, status FROM recurring_overrides"
     ),
@@ -1671,7 +1781,7 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
 // for restoring onto a fresh/empty database, not merging.
 export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
   await db.execAsync(
-    "DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
+    "DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
   );
 
   const categoryIds = new Map<string, number>();
@@ -1691,9 +1801,11 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
   const accountIds = new Map<string, number>();
   for (const account of snapshot.accounts) {
     const result = await db.runAsync(
-      "INSERT INTO accounts (name, type) VALUES (?, ?)",
+      "INSERT INTO accounts (name, type, card_product, annual_fee) VALUES (?, ?, ?, ?)",
       account.name,
-      account.type
+      account.type,
+      account.cardProduct ?? null,
+      account.annualFee ?? null
     );
     accountIds.set(account.name, result.lastInsertRowId);
   }
@@ -1746,6 +1858,11 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
 
   if (typeof snapshot.userName === "string") {
     await setUserName(db, snapshot.userName);
+  }
+
+  for (const m of snapshot.benefitMarks ?? []) {
+    const accountId = accountIds.get(m.accountName);
+    if (accountId !== undefined) await setBenefitMark(db, accountId, m.benefitId, m.periodKey, m.amount);
   }
 
   // A backup can predate the cleaned-name keys; re-key whatever it brought.

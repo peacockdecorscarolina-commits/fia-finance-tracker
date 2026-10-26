@@ -5,6 +5,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Dimensions, FlatList, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
+import { BenefitReminder } from "../../components/BenefitReminder";
 import { DataSafetyBanner } from "../../components/DataSafetyBanner";
 import { EmptyState } from "../../components/EmptyState";
 import { Greeting } from "../../components/Greeting";
@@ -293,6 +294,7 @@ export default function TransactionsScreen() {
       </View>
 
       <DataSafetyBanner />
+      <BenefitReminder />
 
       {/* New users start with no accounts -- point them at the first step. */}
       {!loading && accounts.length === 0 && (

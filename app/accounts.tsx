@@ -14,7 +14,9 @@ import {
   insertAccount,
   renameAccount,
   setAccountBalanceCheckpoint,
+  setAccountCardProduct,
 } from "../lib/db";
+import { CARD_CATALOG } from "../lib/cardBenefits";
 import { getPeriodRange } from "../lib/period";
 import { radius, spacing } from "../lib/theme";
 import type { Account } from "../lib/types";
@@ -96,6 +98,12 @@ export default function AccountsScreen() {
     if (editingId === null || !isBalanceInputValid) return;
     await setAccountBalanceCheckpoint(db, editingId, Number(balanceInput), balanceDateInput);
     setEditingBalance(false);
+    load();
+  }
+
+  async function chooseCardProduct(productId: string | null) {
+    if (editingId === null) return;
+    await setAccountCardProduct(db, editingId, productId);
     load();
   }
 
@@ -236,6 +244,25 @@ export default function AccountsScreen() {
               >
                 <Text style={styles.editSaveText}>Save</Text>
               </Pressable>
+            </View>
+
+            <View style={styles.balanceSection}>
+              <Text style={styles.fieldLabel}>Which card is this?</Text>
+              <Text style={styles.cardHint}>Picking the real card adds its benefits and annual fee.</Text>
+              <View style={styles.cardChoiceRow}>
+                {[{ id: null, name: "Not listed / none" }, ...CARD_CATALOG].map((c) => {
+                  const active = (editingAccount.cardProduct ?? null) === c.id;
+                  return (
+                    <Pressable
+                      key={c.id ?? "none"}
+                      onPress={() => chooseCardProduct(c.id)}
+                      style={[styles.cardChoice, active && styles.cardChoiceActive]}
+                    >
+                      <Text style={[styles.cardChoiceText, active && styles.cardChoiceTextActive]}>{c.name}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
 
             <View style={styles.balanceSection}>
@@ -408,6 +435,19 @@ function makeStyles(colors: ThemeColors) {
   editCancelText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
   editSaveBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: ACCENT },
   editSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+  cardHint: { fontSize: 12, color: colors.textSecondary },
+  cardChoiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  cardChoice: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  cardChoiceActive: { borderColor: ACCENT, backgroundColor: "#EDE9FE" },
+  cardChoiceText: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
+  cardChoiceTextActive: { color: ACCENT },
   balanceSection: {
     gap: spacing.sm,
     paddingTop: spacing.sm,

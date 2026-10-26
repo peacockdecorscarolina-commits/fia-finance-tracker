@@ -21,12 +21,14 @@ import {
   getCategorySummary,
   getNeedsReviewCount,
   getPaymentTotal,
+  getCardOverviews,
   getRecurring,
   getSetting,
   setSetting,
   getTransactionMonthBounds,
   getTransactions,
   type AccountTotal,
+  type CardOverview,
   type CategoryTotal,
 } from "../lib/db";
 import { monthsBetween, periodRange } from "../lib/period";
@@ -274,6 +276,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const [loading, setLoading] = useState(true);
   // Active subscriptions and bills -- always "right now", not tied to the picked period.
   const [recurring, setRecurring] = useState<Recurring[]>([]);
+  const [cards, setCards] = useState<CardOverview[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -328,6 +331,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
       getTransactionMonthBounds(db).then(setMonthBounds);
       if (section === "spending") {
         getRecurring(db).then(setRecurring);
+        getCardOverviews(db).then(setCards);
       }
       getAssetSummaries(db).then(setAssets);
       Promise.all(ASSET_TYPES.map((type) => getAssetTypeHistory(db, type).then((history) => [type, history] as const))).then(
@@ -371,6 +375,18 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const activeRecurring = recurring.filter((r) => !r.isStopped);
   const recurringMonthly = activeRecurring.reduce((sum, r) => sum + r.monthlyCost, 0);
   const stoppedCount = recurring.length - activeRecurring.length;
+  // Card credits still unused this period, soonest to reset first, and
+  // annual fees posting in the next 45 days.
+  const creditsLeft = cards
+    .flatMap((c) => c.benefits.map((b) => ({ card: c, status: b })))
+    .filter(({ status }) => status.left > 0 && Number.isFinite(status.daysLeft))
+    .sort((a, b) => a.status.daysLeft - b.status.daysLeft);
+  const creditsLeftTotal = creditsLeft.reduce((sum, c) => sum + c.status.left, 0);
+  const feesDueSoon = cards.filter((c) => {
+    if (!c.feeNextDue || c.annualFee <= 0) return false;
+    const days = (Date.parse(c.feeNextDue) - Date.now()) / 86400000;
+    return days >= -3 && days <= 45;
+  });
 
   // The current month is always offered, even before any statement covers it,
   // and so is the selected one. String compare works since months are "YYYY-MM".
@@ -734,6 +750,76 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                 </>
               )}
             </View>
+            )}
+          </View>
+        )}
+
+        {section === "spending" && (
+          <View>
+            {sectionHeader("cardBenefits", "Card benefits", `${formatMoney(creditsLeftTotal)} left`)}
+            {!collapsed.cardBenefits && (
+              <View style={[styles.sectionCard, { marginTop: spacing.sm }]}>
+                {cards.length === 0 ? (
+                  <EmptyState
+                    icon="💳"
+                    title="No cards set up yet"
+                    subtitle="In Manage accounts, pick which real card each account is to track its credits and annual fee."
+                  />
+                ) : creditsLeft.length === 0 && feesDueSoon.length === 0 ? (
+                  <Text style={styles.txMeta}>All card credits used for this period ✓</Text>
+                ) : (
+                  <>
+                    {feesDueSoon.map((c) => (
+                      <Pressable
+                        key={`fee-${c.account.id}`}
+                        style={styles.txRow}
+                        onPress={() => router.push({ pathname: "/account/[name]", params: { name: c.account.name } })}
+                      >
+                        <View style={[styles.subIcon, { backgroundColor: "#FEF3C7" }]}>
+                          <Ionicons name="card-outline" size={15} color="#B45309" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.txName} numberOfLines={1}>
+                            {c.account.name} annual fee
+                          </Text>
+                          <Text style={styles.txMeta}>
+                            Posts ~{formatShortDate(c.feeNextDue!)} · {formatMoney(c.creditsUsedLast12Months)} in credits used
+                          </Text>
+                        </View>
+                        <Text style={styles.txAmount}>{formatMoney(c.annualFee)}</Text>
+                      </Pressable>
+                    ))}
+                    {creditsLeft.slice(0, SUMMARY_RECURRING_LIMIT).map(({ card, status }) => (
+                      <Pressable
+                        key={`${card.account.id}-${status.benefit.id}`}
+                        style={styles.txRow}
+                        onPress={() => router.push({ pathname: "/account/[name]", params: { name: card.account.name } })}
+                      >
+                        <View style={styles.subIcon}>
+                          <Ionicons name="gift-outline" size={15} color="#4C1D95" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.txName} numberOfLines={1}>
+                            {status.benefit.name}
+                          </Text>
+                          <Text style={styles.txMeta} numberOfLines={1}>
+                            {card.account.name}
+                          </Text>
+                          {status.daysLeft <= 7 && (
+                            <Text style={styles.subFlagUp}>
+                              Resets in {status.daysLeft} day{status.daysLeft === 1 ? "" : "s"}
+                            </Text>
+                          )}
+                        </View>
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text style={styles.txAmount}>{formatMoney(status.left)}</Text>
+                          <Text style={styles.txCategory}>left</Text>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </>
+                )}
+              </View>
             )}
           </View>
         )}

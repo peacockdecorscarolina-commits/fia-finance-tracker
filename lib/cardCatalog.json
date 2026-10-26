@@ -1,0 +1,124 @@
+{
+  "_readme": "Card benefits by card product. Edit amounts here when an issuer changes terms, bump checkedOn, then push. matchAny: words to look for in a transaction on that card (a statement credit line or a qualifying purchase) to detect a use. period: monthly | semiannual (Jan-Jun / Jul-Dec) | yearly (calendar year) | cardYear (resets on the card's anniversary, from its annual-fee charge; calendar year until one is found) | every4Years.",
+  "version": 1,
+  "checkedOn": "2026-10",
+  "cards": [
+    {
+      "id": "amex-blue-cash-everyday",
+      "name": "Amex Blue Cash Everyday",
+      "issuer": "American Express",
+      "annualFee": 0,
+      "benefits": [
+        {
+          "id": "disney-streaming",
+          "name": "Disney streaming credit",
+          "detail": "Disney+, Hulu or ESPN on this card. Enroll in your Amex account first.",
+          "amount": 7,
+          "period": "monthly",
+          "matchAny": ["DISNEY", "HULU", "ESPN"]
+        },
+        {
+          "id": "home-chef",
+          "name": "Home Chef credit",
+          "detail": "Home Chef meal kits on this card. Enroll in your Amex account first.",
+          "amount": 15,
+          "period": "monthly",
+          "matchAny": ["HOME CHEF", "HOMECHEF"]
+        }
+      ]
+    },
+    {
+      "id": "amex-classic-green",
+      "name": "Amex Classic Green Card",
+      "issuer": "American Express",
+      "annualFee": 150,
+      "benefits": [
+        {
+          "id": "clear-plus",
+          "name": "CLEAR+ credit",
+          "detail": "CLEAR+ membership paid with this card.",
+          "amount": 219,
+          "period": "yearly",
+          "matchAny": ["CLEARME", "CLEAR SECURE", "CLEAR PLUS", "CLEAR+"]
+        }
+      ]
+    },
+    {
+      "id": "chase-sapphire-preferred",
+      "name": "Chase Sapphire Preferred",
+      "issuer": "Chase",
+      "annualFee": 95,
+      "benefits": [
+        {
+          "id": "chase-travel-hotel",
+          "name": "Chase Travel hotel credit",
+          "detail": "Hotel booked through Chase Travel with this card.",
+          "amount": 100,
+          "period": "cardYear",
+          "matchAny": ["CHASE TRAVEL", "HOTEL CREDIT"]
+        },
+        {
+          "id": "doordash-monthly",
+          "name": "DoorDash credit",
+          "detail": "Groceries or everyday essentials on DoorDash. Needs DashPass activated with this card.",
+          "amount": 10,
+          "period": "monthly",
+          "matchAny": ["DOORDASH", "DD *DOORDASH"]
+        },
+        {
+          "id": "trusted-traveler",
+          "name": "Global Entry / TSA PreCheck / NEXUS credit",
+          "detail": "Application fee paid with this card.",
+          "amount": 120,
+          "period": "every4Years",
+          "matchAny": ["GLOBAL ENTRY", "TSA PRE", "TSA PRECHECK", "NEXUS", "CBP", "IDEMIA", "TELOS"]
+        }
+      ]
+    },
+    {
+      "id": "bilt-palladium",
+      "name": "Bilt Palladium",
+      "issuer": "Bilt",
+      "annualFee": 495,
+      "benefits": [
+        {
+          "id": "bilt-hotel-h",
+          "name": "Bilt Travel hotel credit",
+          "detail": "Hotel stay of 2+ nights booked through the Bilt Travel portal.",
+          "amount": 200,
+          "period": "semiannual",
+          "matchAny": ["BILT TRAVEL", "BILT HOTEL"]
+        },
+        {
+          "id": "bilt-cash",
+          "name": "Bilt Cash",
+          "detail": "Added to your Bilt account every January 1. Over $100 left at year end expires.",
+          "amount": 200,
+          "period": "yearly",
+          "matchAny": []
+        }
+      ]
+    },
+    {
+      "id": "citi-aadvantage-platinum-select",
+      "name": "Citi / AAdvantage Platinum Select",
+      "issuer": "Citi",
+      "annualFee": 99,
+      "benefits": []
+    },
+    {
+      "id": "capital-one-savor",
+      "name": "Capital One Savor",
+      "issuer": "Capital One",
+      "annualFee": 0,
+      "benefits": []
+    },
+    {
+      "id": "wells-fargo-active-cash",
+      "name": "Wells Fargo Active Cash",
+      "issuer": "Wells Fargo",
+      "annualFee": 0,
+      "benefits": []
+    }
+  ]
+}

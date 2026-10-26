@@ -5,6 +5,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AmountText } from "../../components/AmountText";
+import { CardBenefitsPanel } from "../../components/CardBenefitsPanel";
 import { LineChart } from "../../components/LineChart";
 import { SegmentedControl } from "../../components/SegmentedControl";
 import { TransactionRow } from "../../components/TransactionRow";
@@ -19,6 +20,7 @@ import {
   getAccounts,
   getAccountSpendSummary,
   getCategories,
+  getCardOverviews,
   getCategorySummary,
   getTransactionMonthBounds,
   getTransactions,
@@ -27,6 +29,7 @@ import {
   setMerchantCategory,
   setTransactionIgnored,
   unlinkTransaction,
+  type CardOverview,
   type CategoryTotal,
   type TransactionWithBalance,
 } from "../../lib/db";
@@ -155,6 +158,7 @@ export default function AccountDrillDownScreen() {
   });
   const [monthBounds, setMonthBounds] = useState<{ first: string; last: string } | null>(null);
   const [categoryTotals, setCategoryTotals] = useState<CategoryTotal[]>([]);
+  const [cardOverview, setCardOverview] = useState<CardOverview | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [monthlyTotals, setMonthlyTotals] = useState<{ month: string; total: number }[]>([]);
   const [summary, setSummary] = useState({ spent: 0, received: 0 });
@@ -171,6 +175,8 @@ export default function AccountDrillDownScreen() {
         const { start, end } = periodRange(periodKey);
         getTransactions(db, { accountId: found.id, start, end }).then(setTransactions);
         getCategorySummary(db, periodKey, found.id).then(setCategoryTotals);
+        // Benefits are about right now, not the picked period.
+        getCardOverviews(db).then((all) => setCardOverview(all.find((o) => o.account.id === found.id) ?? null));
         // Long enough to cover last year in full for the Year comparison.
         getAccountMonthlyTotals(db, found.id, 36).then(setMonthlyTotals);
         getAccountSpendSummary(db, found.id, start, end).then(setSummary);
@@ -313,6 +319,12 @@ export default function AccountDrillDownScreen() {
               </Pressable>
             );
           })}
+        </View>
+      )}
+
+      {cardOverview && (
+        <View style={{ marginBottom: spacing.md }}>
+          <CardBenefitsPanel overview={cardOverview} onChanged={load} />
         </View>
       )}
 

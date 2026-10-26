@@ -8,6 +8,10 @@ export type Account = {
   startingBalanceDate: string | null;
   // Checking/Savings accounts count toward Savings & Investments unless turned off.
   includeInSavings: boolean;
+  // Which real card this is (an id in cardCatalog.json), for its benefits.
+  cardProduct: string | null;
+  // The user's own annual fee, when it differs from the catalog's (null = use the catalog's).
+  annualFee: number | null;
 };
 
 export type Category = {
