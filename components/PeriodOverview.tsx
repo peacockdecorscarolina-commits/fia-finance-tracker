@@ -20,7 +20,8 @@ import {
   getAssetTypeHistory,
   getCategorySummary,
   getNeedsReviewCount,
-  getPaymentTotal,
+  getCardPaymentsTotal,
+  getCardsOwed,
   getCardOverviews,
   getRecurring,
   getSetting,
@@ -57,6 +58,11 @@ const COLLAPSED_SECTIONS_KEY = "collapsed_sections";
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function formatShortDate(date: string): string {
@@ -271,6 +277,11 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [prevTotal, setPrevTotal] = useState(0);
   const [paymentTotal, setPaymentTotal] = useState(0);
+  const [cardsOwed, setCardsOwed] = useState<{ total: number; cards: { id: number; name: string; owed: number }[]; missing: string[] }>({
+    total: 0,
+    cards: [],
+    missing: [],
+  });
   const [recent, setRecent] = useState<Transaction[]>([]);
   const [reviewCount, setReviewCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -350,7 +361,9 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         getCategorySummary(db, key).then(setCategoryTotals),
         getAccountSummary(db, key).then(setAccountTotals),
         getCategorySummary(db, prevKey).then((rows) => setPrevTotal(rows.reduce((sum, r) => sum + r.total, 0))),
-        getPaymentTotal(db, key).then(setPaymentTotal),
+        getCardPaymentsTotal(db, start, end).then(setPaymentTotal),
+        // Owed as of the period's end, or today while it's still going.
+        getCardsOwed(db, end < todayIso() ? end : todayIso()).then(setCardsOwed),
         getTransactions(db, { start, end }).then((list) => setRecent(list.slice(0, 5))),
         getAccounts(db).then(setAccounts),
         getAccountBalances(db, end).then(setAccountBalances),
@@ -370,7 +383,6 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   // A year still in progress against a full previous year would always read
   // as a big drop, so the change is only shown once the year is over.
   const showDelta = prevTotal > 0 && (view === "Month" || year < currentMonth().slice(0, 4));
-  const remaining = Math.max(total - paymentTotal, 0);
   // Subscriptions & bills are about "right now", not the picked period.
   const activeRecurring = recurring.filter((r) => !r.isStopped);
   const recurringMonthly = activeRecurring.reduce((sum, r) => sum + r.monthlyCost, 0);
@@ -514,19 +526,28 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
             </View>
             <View style={styles.heroDivider} />
             <View>
-              <Text style={styles.heroLabel}>Total paid</Text>
+              <Text style={styles.heroLabel}>Paid to cards</Text>
               <Text style={styles.heroValueSm}>{formatMoney(paymentTotal)}</Text>
             </View>
           </View>
-          <View style={styles.heroBottomRow}>
-            <View>
-              <Text style={styles.heroLabel}>Remaining to pay</Text>
-              <Text style={styles.heroValueSm}>{formatMoney(remaining)}</Text>
+          <Pressable style={styles.heroBottomRow} onPress={() => router.push("/balances")}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroLabel}>Owed on cards{view === "Year" || month < currentMonth() ? ` · end of ${view === "Year" ? year : formatMonthLabel(month)}` : ""}</Text>
+              <Text style={styles.heroValueSm}>
+                {cardsOwed.cards.length === 0 ? "—" : formatMoney(cardsOwed.total)}
+              </Text>
+              {cardsOwed.missing.length > 0 && (
+                <Text style={styles.heroMissing} numberOfLines={2}>
+                  {cardsOwed.cards.length === 0
+                    ? "Upload a card statement to see what you owe"
+                    : `Not counting ${cardsOwed.missing.length} card${cardsOwed.missing.length === 1 ? "" : "s"} with no balance yet`}
+                </Text>
+              )}
             </View>
             <View style={styles.heroIcon}>
               <Text style={{ fontSize: 20 }}>💳</Text>
             </View>
-          </View>
+          </Pressable>
         </LinearGradient>
         )}
 
@@ -626,10 +647,12 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
                       <Text style={styles.accountRowAmount}>
-                        {balance !== undefined ? formatMoney(balance) : formatMoney(a.total)}
+                        {balance === undefined
+                          ? formatMoney(a.total)
+                          : formatMoney(account?.type === "Credit Card" ? -balance : balance)}
                       </Text>
                       <Text style={styles.accountRowSub}>
-                        {balance !== undefined ? `balance as of ${periodKey}` : periodWord}
+                        {balance === undefined ? periodWord : account?.type === "Credit Card" ? "owed" : `balance as of ${periodKey}`}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
@@ -940,6 +963,7 @@ function makeStyles(colors: ThemeColors) {
   heroDivider: { width: 1, backgroundColor: "#FFFFFF33", marginHorizontal: spacing.md, alignSelf: "stretch" },
   heroLabel: { fontSize: 12, color: "#FFFFFFCC", fontWeight: "600" },
   heroValue: { fontSize: 28, fontWeight: "700", color: "#FFFFFF", marginTop: 2 },
+  heroMissing: { fontSize: 11, color: "#FFFFFFB3", marginTop: 2 },
   heroValueSm: { fontSize: 18, fontWeight: "700", color: "#FFFFFF", marginTop: 2 },
   heroDelta: { fontSize: 12, fontWeight: "700", marginTop: 4 },
   heroBottomRow: {

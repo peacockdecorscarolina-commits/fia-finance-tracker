@@ -91,7 +91,9 @@ export default function AccountsScreen() {
     setEditingName(account.name);
     setConfirmingDeleteId(null);
     setEditingBalance(false);
-    setBalanceInput(account.startingBalance !== null ? String(account.startingBalance) : "");
+    // Cards are edited as the amount owed; it's kept as a negative balance.
+    const shown = account.startingBalance === null ? null : account.type === "Credit Card" ? -account.startingBalance : account.startingBalance;
+    setBalanceInput(shown !== null ? String(shown) : "");
     setBalanceDateInput(account.startingBalanceDate ?? new Date().toISOString().slice(0, 10));
   }
 
@@ -107,7 +109,9 @@ export default function AccountsScreen() {
 
   async function saveBalance() {
     if (editingId === null || !isBalanceInputValid) return;
-    await setAccountBalanceCheckpoint(db, editingId, Number(balanceInput), balanceDateInput);
+    const value = Number(balanceInput);
+    const isCard = accounts.find((a) => a.id === editingId)?.type === "Credit Card";
+    await setAccountBalanceCheckpoint(db, editingId, isCard ? -value : value, balanceDateInput);
     setEditingBalance(false);
     load();
   }
@@ -253,9 +257,11 @@ export default function AccountsScreen() {
                       </View>
                       <View style={{ alignItems: "flex-end" }}>
                         <Text style={styles.accountRowAmount}>
-                          {balance !== undefined ? formatMoney(balance) : formatMoney(spend)}
+                          {balance === undefined ? formatMoney(spend) : formatMoney(a.type === "Credit Card" ? -balance : balance)}
                         </Text>
-                        <Text style={styles.accountRowSub}>{balance !== undefined ? "balance" : "this month"}</Text>
+                        <Text style={styles.accountRowSub}>
+                          {balance === undefined ? "this month" : a.type === "Credit Card" ? "owed" : "balance"}
+                        </Text>
                       </View>
                       <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
                     </LinearGradient>
@@ -316,7 +322,7 @@ export default function AccountsScreen() {
             <View style={styles.balanceSection}>
               {editingBalance ? (
                 <>
-                  <Text style={styles.fieldLabel}>Balance</Text>
+                  <Text style={styles.fieldLabel}>{editingAccount.type === "Credit Card" ? "Amount owed" : "Balance"}</Text>
                   <View style={styles.inputRow}>
                     <TextInput
                       value={balanceInput}
@@ -354,9 +360,13 @@ export default function AccountsScreen() {
                 <Pressable onPress={() => setEditingBalance(true)} style={styles.balanceLink}>
                   <Ionicons name="wallet-outline" size={14} color={ACCENT} />
                   <Text style={styles.balanceLinkText}>
-                    {editingAccount.startingBalance !== null
-                      ? `Balance: ${formatMoney(balanceByAccount[editingAccount.id] ?? editingAccount.startingBalance)} — edit`
-                      : "Set a starting balance to track this account's running balance"}
+                    {editingAccount.type === "Credit Card"
+                      ? editingAccount.startingBalance !== null
+                        ? `Owed: ${formatMoney(-(balanceByAccount[editingAccount.id] ?? editingAccount.startingBalance))} — edit`
+                        : "Set what you owe on this card (from its statement) to track its balance"
+                      : editingAccount.startingBalance !== null
+                        ? `Balance: ${formatMoney(balanceByAccount[editingAccount.id] ?? editingAccount.startingBalance)} — edit`
+                        : "Set a starting balance to track this account's running balance"}
                   </Text>
                 </Pressable>
               )}

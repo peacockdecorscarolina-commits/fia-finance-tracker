@@ -177,6 +177,9 @@ export default function AccountDrillDownScreen() {
   const [balanceStart, setBalanceStart] = useState<number | null>(null);
   const [balanceEnd, setBalanceEnd] = useState<{ balance: number; date: string } | null>(null);
   const ledgerDefaulted = useRef(false);
+  // What's owed on a credit card right now (null = no balance known yet).
+  const [cardOwed, setCardOwed] = useState<number | null>(null);
+  const [isCreditCard, setIsCreditCard] = useState(false);
 
   const year = month.slice(0, 4);
   const periodKey = view === "Year" ? year : month;
@@ -200,6 +203,10 @@ export default function AccountDrillDownScreen() {
           getAccountLedger(db, found.id, start, end).then(setLedger);
         } else {
           setLedger([]);
+        }
+        setIsCreditCard(found.type === "Credit Card");
+        if (found.type === "Credit Card") {
+          getAccountBalanceAsOf(db, found.id, todayISO()).then((b) => setCardOwed(b === null ? null : -b));
         }
         const bank = found.type === "Checking" || found.type === "Savings";
         setIsBank(bank);
@@ -375,6 +382,13 @@ export default function AccountDrillDownScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.heroLabel}>Spent in {periodLabel}</Text>
             <Text style={styles.heroValue}>{formatMoney(summary.spent)}</Text>
+            {isCreditCard && (
+              <Pressable onPress={() => router.push("/accounts")}>
+                <Text style={styles.heroOwed}>
+                  {cardOwed === null ? "What you owe: not set yet — set it" : `You owe ${formatMoney(cardOwed)} today`}
+                </Text>
+              </Pressable>
+            )}
             {showDelta && (
               <View style={styles.heroDeltaPill}>
                 <Text style={[styles.heroDeltaText, { color: delta <= 0 ? "#86EFAC" : "#FCA5A5" }]}>
@@ -715,6 +729,7 @@ function makeStyles(colors: ThemeColors) {
   monthOptionText: { fontSize: 14, color: colors.textPrimary, fontWeight: "500" },
   monthOptionTextActive: { fontWeight: "700" },
   hero: { borderRadius: radius.card, padding: spacing.md, marginBottom: spacing.md },
+  heroOwed: { fontSize: 13, fontWeight: "700", color: "#FFFFFFE6", marginTop: 2, marginBottom: 4 },
   heroValueMuted: { fontSize: 22, fontWeight: "700", color: "#FFFFFFCC", marginVertical: 4 },
   setBalanceBtn: { alignSelf: "flex-start", backgroundColor: "#FFFFFF", borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: 8, marginTop: spacing.xs },
   setBalanceText: { color: "#4C1D95", fontSize: 13, fontWeight: "700" },

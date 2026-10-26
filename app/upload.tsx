@@ -4,7 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { formatAmount } from "../components/AmountText";
 import { PdfTextExtractor, type PdfTextExtractorHandle } from "../components/PdfTextExtractor";
 import { getAccountStyle } from "../lib/accountStyle";
@@ -19,7 +19,7 @@ import {
 } from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { csvLooksReversed, parseCsv } from "../lib/parseCsv";
-import { findStatementEndingBalance, parseStatement } from "../lib/parseStatement";
+import { findStatementCardBalance, findStatementEndingBalance, parseStatement } from "../lib/parseStatement";
 import { radius, spacing } from "../lib/theme";
 import type { Account, ExtractedTransaction, Transaction } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -37,6 +37,11 @@ const YEAR_OPTIONS = ["Auto", THIS_YEAR, THIS_YEAR - 1, THIS_YEAR - 2] as const;
 
 // Where "Report this bank" emails go. Empty hides the link.
 const SUPPORT_EMAIL = "";
+
+function formatMoney(value: number): string {
+  const sign = value < 0 ? "-" : "";
+  return `${sign}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 function negateAll(rows: ExtractedTransaction[]): ExtractedTransaction[] {
   return rows.map((t) => ({ ...t, amount: -t.amount }));
@@ -68,6 +73,37 @@ export default function UploadScreen() {
   const [linkedCount, setLinkedCount] = useState(0);
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null;
+  // A card's statement balance is what's owed; a bank account's is money held.
+  const isCard = selectedAccount?.type === "Credit Card";
+  const [editingBalance, setEditingBalance] = useState(false);
+  const [balanceAmountInput, setBalanceAmountInput] = useState("");
+  const [balanceDateInput, setBalanceDateInput] = useState("");
+
+  // The balance a statement prints (owed, for a card), as of its closing
+  // date -- or, if no closing date is printed, its last transaction's date.
+  function readBalance(text: string, rows: ExtractedTransaction[], year?: number) {
+    if (isCard) {
+      const lastDate = rows.map((r) => r.date).sort().pop() ?? null;
+      const card = findStatementCardBalance(text, lastDate);
+      return card ? { balance: card.owed, date: card.date } : null;
+    }
+    return findStatementEndingBalance(text, year);
+  }
+
+  function startEditingBalance() {
+    setBalanceAmountInput(endingBalance ? String(endingBalance.balance) : "");
+    setBalanceDateInput(endingBalance?.date ?? extracted.map((r) => r.date).sort().pop() ?? "");
+    setEditingBalance(true);
+  }
+
+  function saveBalanceEdit() {
+    const amount = Number(balanceAmountInput.replace(/[$,\s]/g, ""));
+    if (balanceAmountInput.trim() === "") setEndingBalance(null);
+    else if (Number.isFinite(amount) && /^\d{4}-\d{2}-\d{2}$/.test(balanceDateInput)) {
+      setEndingBalance({ balance: amount, date: balanceDateInput });
+    } else return;
+    setEditingBalance(false);
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -118,7 +154,8 @@ export default function UploadScreen() {
       ]);
       setExtracted(rows);
       setDuplicateLookup(lookup);
-      setEndingBalance(findStatementEndingBalance(text, year));
+      setEndingBalance(readBalance(text, rows, year));
+      setEditingBalance(false);
       setStatus("preview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read that file.");
@@ -131,8 +168,9 @@ export default function UploadScreen() {
     const text = statementTextRef.current;
     if (status !== "preview" || !text) return;
     const year = option === "Auto" ? undefined : option;
-    setExtracted(parseStatement(text, year));
-    setEndingBalance(findStatementEndingBalance(text, year));
+    const rows = parseStatement(text, year);
+    setExtracted(rows);
+    setEndingBalance(readBalance(text, rows, year));
   }
 
   function flipSigns() {
@@ -150,7 +188,9 @@ export default function UploadScreen() {
     if (!accountId) return;
     await insertExtractedTransactions(db, accountId, extracted);
     if (endingBalance) {
-      await setAccountBalanceCheckpoint(db, accountId, endingBalance.balance, endingBalance.date);
+      // Card balances are kept as negative money (charges are negative), so
+      // what's owed goes in with its sign flipped.
+      await setAccountBalanceCheckpoint(db, accountId, isCard ? -endingBalance.balance : endingBalance.balance, endingBalance.date);
     }
     setLinkedCount(await autoLinkTransfers(db));
     autoBackup(db);
@@ -287,8 +327,9 @@ export default function UploadScreen() {
             </View>
             {endingBalance && (
               <Text style={styles.balanceUpdatedText}>
-                Updated {selectedAccount?.name ?? "this account"}'s balance to{" "}
-                {formatAmount(endingBalance.balance)} as of {endingBalance.date}, from this statement.
+                {isCard
+                  ? `Updated ${selectedAccount?.name ?? "this card"}: you owe ${formatMoney(endingBalance.balance)} as of ${endingBalance.date}, from this statement.`
+                  : `Updated ${selectedAccount?.name ?? "this account"}'s balance to ${formatAmount(endingBalance.balance)} as of ${endingBalance.date}, from this statement.`}
               </Text>
             )}
             {linkedCount > 0 && (
@@ -314,6 +355,67 @@ export default function UploadScreen() {
                 Found {extracted.length} transactions for {selectedAccount?.name ?? "this account"} — review, then
                 save
               </Text>
+            )}
+            {extracted.length > 0 && (
+              <View style={styles.balanceBox}>
+                {editingBalance ? (
+                  <>
+                    <Text style={styles.balanceBoxLabel}>
+                      {isCard ? "Statement balance (what you owe)" : "Ending balance"}
+                    </Text>
+                    <View style={styles.balanceEditRow}>
+                      <View style={[styles.balanceInputWrap, { flex: 1.2 }]}>
+                        <Text style={styles.balanceDollar}>$</Text>
+                        <TextInput
+                          value={balanceAmountInput}
+                          onChangeText={setBalanceAmountInput}
+                          keyboardType="decimal-pad"
+                          placeholder="e.g. 1240.18"
+                          placeholderTextColor={colors.textSecondary}
+                          style={styles.balanceInput}
+                          autoFocus
+                        />
+                      </View>
+                      <View style={[styles.balanceInputWrap, { flex: 1 }]}>
+                        <TextInput
+                          value={balanceDateInput}
+                          onChangeText={setBalanceDateInput}
+                          placeholder="YYYY-MM-DD"
+                          placeholderTextColor={colors.textSecondary}
+                          style={styles.balanceInput}
+                        />
+                      </View>
+                      <Pressable onPress={saveBalanceEdit} style={styles.balanceSaveBtn}>
+                        <Text style={styles.balanceSaveText}>OK</Text>
+                      </Pressable>
+                    </View>
+                    <Text style={styles.balanceHint}>
+                      {isCard
+                        ? "Copy it from the statement's summary box (often \"New Balance\"), and its closing date. Leave the amount empty to skip."
+                        : "Leave the amount empty to skip."}
+                    </Text>
+                  </>
+                ) : endingBalance ? (
+                  <View style={styles.balanceFoundRow}>
+                    <Text style={styles.balanceFoundText}>
+                      {isCard ? "Statement balance found: " : "Ending balance found: "}
+                      <Text style={{ fontWeight: "800" }}>{formatMoney(endingBalance.balance)}</Text> as of {endingBalance.date}
+                    </Text>
+                    <Pressable onPress={startEditingBalance}>
+                      <Text style={styles.balanceEditLink}>Edit</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={styles.balanceFoundRow}>
+                    <Text style={styles.balanceFoundText}>
+                      {isCard ? "Couldn't find the statement balance." : "No ending balance found."}
+                    </Text>
+                    <Pressable onPress={startEditingBalance}>
+                      <Text style={styles.balanceEditLink}>Add it</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
             )}
             {isCsv && extracted.length > 0 && (
               <View style={styles.flipRow}>
@@ -581,6 +683,25 @@ function makeStyles(colors: ThemeColors) {
   reviewChipText: { fontSize: 11, fontWeight: "600", color: "#B45309" },
   previewAmount: { fontSize: 13, fontWeight: "700" },
   previewActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+  balanceBox: { backgroundColor: ACCENT_LIGHT, borderRadius: radius.chip, padding: spacing.sm, gap: 6, marginBottom: spacing.xs },
+  balanceBoxLabel: { fontSize: 12, fontWeight: "700", color: ACCENT },
+  balanceFoundRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  balanceFoundText: { flex: 1, fontSize: 13, color: ACCENT },
+  balanceEditLink: { fontSize: 13, fontWeight: "700", color: ACCENT, textDecorationLine: "underline" },
+  balanceEditRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  balanceInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderRadius: radius.chip,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+  },
+  balanceDollar: { fontSize: 14, color: colors.textSecondary, marginRight: 2 },
+  balanceInput: { flex: 1, fontSize: 14, color: colors.textPrimary, minWidth: 0 },
+  balanceSaveBtn: { backgroundColor: ACCENT, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 9 },
+  balanceSaveText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+  balanceHint: { fontSize: 11, color: ACCENT, lineHeight: 16 },
   flipRow: {
     flexDirection: "row",
     alignItems: "center",
