@@ -2,12 +2,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSQLiteContext } from "expo-sqlite";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { CATALOG_CHECKED_ON, PERIOD_LABEL, type BenefitStatus } from "../lib/cardBenefits";
-import { setAccountAnnualFee, setBenefitMark, type CardOverview } from "../lib/db";
+import { CATALOG_CHECKED_ON, PERIOD_LABEL, type BenefitPeriod, type BenefitStatus } from "../lib/cardBenefits";
+import { addCustomBenefit, deleteCustomBenefit, setAccountAnnualFee, setBenefitMark, type CardOverview } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
 const ACCENT = "#4C1D95";
+const NEW_BENEFIT_PERIODS: { value: BenefitPeriod; label: string }[] = [
+  { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "semiannual", label: "Every 6 months" },
+  { value: "yearly", label: "Yearly" },
+];
 const SUCCESS = "#16A34A";
 
 function formatMoney(value: number): string {
@@ -36,11 +42,40 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
   const [feeInput, setFeeInput] = useState("");
   const [partialFor, setPartialFor] = useState<string | null>(null);
   const [partialInput, setPartialInput] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newAmount, setNewAmount] = useState("");
+  const [newPeriod, setNewPeriod] = useState<BenefitPeriod>("monthly");
+  const [newMatch, setNewMatch] = useState("");
+  const newAmountValue = Number(newAmount.replace(/[$,\s]/g, ""));
+  const canAdd = newName.trim() !== "" && Number.isFinite(newAmountValue) && newAmountValue > 0;
+
+  async function saveNewBenefit() {
+    if (!canAdd) return;
+    await addCustomBenefit(db, account.id, {
+      name: newName,
+      amount: newAmountValue,
+      period: newPeriod,
+      matchWords: newMatch.split(","),
+    });
+    setAdding(false);
+    setNewName("");
+    setNewAmount("");
+    setNewPeriod("monthly");
+    setNewMatch("");
+    onChanged();
+  }
+
+  async function removeBenefit(status: BenefitStatus) {
+    if (status.benefit.customId === undefined) return;
+    await deleteCustomBenefit(db, status.benefit.customId);
+    onChanged();
+  }
 
   async function saveFee() {
     const value = Number(feeInput.replace(/[$,\s]/g, ""));
     if (!Number.isFinite(value) || value < 0) return;
-    await setAccountAnnualFee(db, account.id, value === card.annualFee ? null : value);
+    await setAccountAnnualFee(db, account.id, value === (card?.annualFee ?? 0) ? null : value);
     setEditingFee(false);
     onChanged();
   }
@@ -96,7 +131,7 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                 ? `Last charged ${formatDate(feeLastCharged)} · next ~${formatDate(feeNextDue!)}`
                 : "The fee date shows once it's on an uploaded statement"}
             </Text>
-            {card.benefits.length > 0 && (
+            {benefits.length > 0 && (
               <View style={styles.valueRow}>
                 <Text style={styles.meta}>Credits used, last 12 months: {formatMoney(creditsUsedLast12Months)}</Text>
                 <Text style={[styles.valueText, { color: valueVsFee >= 0 ? SUCCESS : "#B45309" }]}>
@@ -110,9 +145,77 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
         )}
       </View>
 
-      {benefits.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.title}>🎁 Benefits</Text>
+      <View style={styles.card}>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>🎁 Benefits</Text>
+            {!adding && (
+              <Pressable onPress={() => setAdding(true)}>
+                <Text style={styles.link}>+ Add a benefit</Text>
+              </Pressable>
+            )}
+          </View>
+          {benefits.length === 0 && !adding && (
+            <Text style={styles.meta}>
+              {card
+                ? "This card has no credits to track."
+                : "Pick the real card in Manage accounts to load its benefits, or add your own."}
+            </Text>
+          )}
+          {adding && (
+            <View style={styles.addForm}>
+              <TextInput
+                value={newName}
+                onChangeText={setNewName}
+                placeholder="Name, e.g. Uber credit"
+                placeholderTextColor={colors.textSecondary}
+                style={[styles.inputRow, styles.input]}
+                autoFocus
+              />
+              <View style={styles.inputRow}>
+                <Text style={styles.dollar}>$</Text>
+                <TextInput
+                  value={newAmount}
+                  onChangeText={setNewAmount}
+                  keyboardType="decimal-pad"
+                  placeholder="Amount"
+                  placeholderTextColor={colors.textSecondary}
+                  style={styles.input}
+                />
+              </View>
+              <View style={styles.actions}>
+                {NEW_BENEFIT_PERIODS.map((p) => (
+                  <Pressable
+                    key={p.value}
+                    onPress={() => setNewPeriod(p.value)}
+                    style={[styles.actionBtn, newPeriod === p.value && styles.periodActive]}
+                  >
+                    <Text style={[styles.actionText, newPeriod !== p.value && { color: colors.textSecondary }]}>
+                      {p.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <TextInput
+                value={newMatch}
+                onChangeText={setNewMatch}
+                placeholder="Shows on statement as (optional), e.g. UBER"
+                placeholderTextColor={colors.textSecondary}
+                style={[styles.inputRow, styles.input]}
+                autoCapitalize="characters"
+              />
+              <Text style={styles.meta}>
+                With that word, uses are spotted on this card automatically. Without it, mark them with I used it.
+              </Text>
+              <View style={styles.inlineRow}>
+                <Pressable onPress={() => setAdding(false)} style={[styles.actionBtn, { flex: 1, justifyContent: "center" }]}>
+                  <Text style={[styles.actionText, { color: colors.textSecondary }]}>Cancel</Text>
+                </Pressable>
+                <Pressable onPress={saveNewBenefit} disabled={!canAdd} style={[styles.smallBtn, { flex: 1, opacity: canAdd ? 1 : 0.5 }]}>
+                  <Text style={[styles.smallBtnText, { textAlign: "center" }]}>Add</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
           {benefits.map((s) => {
             const pct = s.benefit.amount > 0 ? (s.used / s.benefit.amount) * 100 : 0;
             const fullyUsed = s.left === 0;
@@ -188,18 +291,25 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                         <Text style={[styles.actionText, { color: colors.textSecondary }]}>Undo</Text>
                       </Pressable>
                     )}
+                    {s.benefit.customId !== undefined && (
+                      <Pressable onPress={() => removeBenefit(s)} style={styles.actionBtn}>
+                        <Ionicons name="trash-outline" size={14} color="#DC2626" />
+                        <Text style={[styles.actionText, { color: "#DC2626" }]}>Remove</Text>
+                      </Pressable>
+                    )}
                   </View>
                 )}
               </View>
             );
           })}
-        </View>
-      )}
+      </View>
 
+      {card && (
       <Text style={styles.footnote}>
         {card.name} benefits checked {formatCheckedOn(CATALOG_CHECKED_ON)}. Issuers change terms, so confirm with
         {"your card's current benefits."}
       </Text>
+      )}
     </View>
   );
 }
@@ -247,6 +357,8 @@ function makeStyles(colors: ThemeColors) {
     input: { flex: 1, fontSize: 14, color: colors.textPrimary },
     smallBtn: { backgroundColor: ACCENT, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 10 },
     smallBtnText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+    addForm: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
+    periodActive: { borderWidth: 1.5, borderColor: ACCENT, backgroundColor: "#EDE9FE" },
     footnote: { fontSize: 11, color: colors.textSecondary, textAlign: "center", lineHeight: 16 },
   });
 }

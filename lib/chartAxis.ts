@@ -30,3 +30,36 @@ export function formatAxisLabel(value: number, useK: boolean): string {
   }
   return `${Math.round(value)}`;
 }
+
+// Which x-axis labels to draw. Every point used to get one, so dense or
+// same-month points ("Oct", "Oct") overlapped into unreadable text. This
+// skips a label that repeats the one before it or would sit too close to
+// it, always keeps the last point's (where the line ends), and keeps the
+// tapped point's so it's clear which one the tooltip belongs to.
+export function visibleLabelIndexes(
+  labels: string[],
+  xs: number[],
+  selected: number | null,
+  minSpacing: number
+): Set<number> {
+  const shown: number[] = [];
+  for (let i = 0; i < labels.length; i++) {
+    const prev = shown[shown.length - 1];
+    if (prev !== undefined && (labels[prev] === labels[i] || xs[i] - xs[prev] < minSpacing)) continue;
+    shown.push(i);
+  }
+  const last = labels.length - 1;
+  if (shown[shown.length - 1] !== last && labels[shown[shown.length - 1]] !== labels[last]) {
+    // Make room for the last label by dropping whatever it would collide with.
+    while (shown.length > 0 && xs[last] - xs[shown[shown.length - 1]] < minSpacing) shown.pop();
+    shown.push(last);
+  }
+  const result = new Set(shown);
+  if (selected !== null) {
+    for (const i of shown) {
+      if (i !== selected && Math.abs(xs[i] - xs[selected]) < minSpacing) result.delete(i);
+    }
+    result.add(selected);
+  }
+  return result;
+}
