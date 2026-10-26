@@ -33,8 +33,9 @@ import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 import { describeSchedule, type Recurring } from "../lib/subscriptions";
 import { ASSET_TYPES, type Account, type AssetType, type Transaction } from "../lib/types";
 
-const NET_WORTH_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
+const NET_WORTH_ICON: Record<AssetType, string> = { Checking: "🏧", Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
 const NET_WORTH_TINT: Record<AssetType, string> = {
+  Checking: "#E0F2FE",
   Savings: "#EDE9FE",
   Investment: "#DCFCE7",
   "401k": "#DBEAFE",

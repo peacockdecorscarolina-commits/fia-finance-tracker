@@ -5,7 +5,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { LineChart } from "../../components/LineChart";
-import { addAssetBalance, deleteAsset, deleteAssetBalance, getAssetBalances, getAssets, renameAsset } from "../../lib/db";
+import { addAssetBalance, deleteAsset, deleteAssetBalance, getAssetBalances, getAssets, renameAsset, todayISO } from "../../lib/db";
 import { radius, spacing } from "../../lib/theme";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
 import type { Asset, AssetBalanceEntry, AssetType } from "../../lib/types";
@@ -30,11 +30,8 @@ function formatEntryDate(date: string): string {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-const TYPE_ICON: Record<AssetType, string> = { Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
+const TYPE_ICON: Record<AssetType, string> = { Checking: "🏧", Savings: "💰", Investment: "📈", "401k": "🏦", Cash: "💵", Home: "🏡" };
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export default function AssetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
