@@ -72,3 +72,47 @@ describe("a benefit the user added", () => {
     expect(s.used).toBe(0);
   });
 });
+
+describe("credits used inside an app (Uber Cash)", () => {
+  const uberCash = findCard("amex-gold")!.benefits.find((b) => b.id === "uber-cash")!;
+
+  it("is marked as in-app in the catalog", () => {
+    expect(uberCash.appliedAs).toBe("inApp");
+  });
+
+  it("counts any Uber charge as the full credit, since Uber uses it first", () => {
+    // A $10.99 ride with $10 Uber Cash only charges the card $0.99.
+    const s = benefitStatus(uberCash, [tx("2026-10-14", "UBER TRIP", -0.99)], new Map(), TODAY, null);
+    expect([s.used, s.left]).toEqual([10, 0]);
+  });
+
+  it("can't see a fully covered ride, so it waits for the user", () => {
+    const s = benefitStatus(uberCash, [], new Map(), TODAY, null);
+    expect(s.used).toBe(0);
+    expect(benefitStatus(uberCash, [], new Map([["uber-cash|2026-10", 10]]), TODAY, null).used).toBe(10);
+  });
+
+  it("leaves statement credits counting what was spent", () => {
+    const dunkin = findCard("amex-gold")!.benefits.find((b) => b.id === "dunkin")!;
+    expect(benefitStatus(dunkin, [tx("2026-10-02", "DUNKIN #1234", -3.5)], new Map(), TODAY, null).used).toBe(3.5);
+  });
+});
+
+describe("the user's word over detection", () => {
+  const bce = findCard("amex-blue-cash-everyday")!;
+  const disney = bce.benefits.find((b) => b.id === "disney-streaming")!;
+  const found = [tx("2026-10-05", "AMEX DISNEY STREAMING CREDIT", 7)];
+
+  it("can mark a detected use as unused", () => {
+    const s = benefitStatus(disney, found, new Map([["disney-streaming|2026-10", 0]]), TODAY, null);
+    expect([s.used, s.left, s.detectedAmount]).toEqual([0, 7, 7]);
+  });
+
+  it("can lower a detected amount", () => {
+    expect(benefitStatus(disney, found, new Map([["disney-streaming|2026-10", 3]]), TODAY, null).used).toBe(3);
+  });
+
+  it("goes back to detection when the mark is undone", () => {
+    expect(benefitStatus(disney, found, new Map(), TODAY, null).used).toBe(7);
+  });
+});

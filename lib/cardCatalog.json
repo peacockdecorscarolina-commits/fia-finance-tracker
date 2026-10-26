@@ -1,5 +1,5 @@
 {
-  "_readme": "Card benefits by card product. Edit amounts here when an issuer changes terms, bump checkedOn, then push. matchAny: words to look for in a transaction on that card (a statement credit line or a qualifying purchase) to detect a use. period: monthly | quarterly (Jan-Mar, Apr-Jun...) | semiannual (Jan-Jun / Jul-Dec) | yearly (calendar year) | cardYear (resets on the card's anniversary, from its annual-fee charge; calendar year until one is found) | every4Years.",
+  "_readme": "Card benefits by card product. Edit amounts here when an issuer changes terms, bump checkedOn, then push. matchAny: words to look for in a transaction on that card (a statement credit line or a qualifying purchase) to detect a use. period: monthly | quarterly (Jan-Mar, Apr-Jun...) | semiannual (Jan-Jun / Jul-Dec) | yearly (calendar year) | cardYear (resets on the card's anniversary, from its annual-fee charge; calendar year until one is found) | every4Years. appliedAs: \"inApp\" for credits spent inside the merchant's app before the card is charged (Uber Cash, DoorDash) -- any charge there then counts as the full credit used; omit for statement credits.",
   "version": 1,
   "checkedOn": "2026-10",
   "cards": [
@@ -89,7 +89,8 @@
           "period": "monthly",
           "matchAny": [
             "UBER"
-          ]
+          ],
+          "appliedAs": "inApp"
         },
         {
           "id": "dining",
@@ -142,7 +143,8 @@
           "period": "monthly",
           "matchAny": [
             "UBER"
-          ]
+          ],
+          "appliedAs": "inApp"
         },
         {
           "id": "uber-one",
@@ -340,7 +342,8 @@
           "matchAny": [
             "DOORDASH",
             "DD *DOORDASH"
-          ]
+          ],
+          "appliedAs": "inApp"
         },
         {
           "id": "trusted-traveler",

@@ -47,6 +47,7 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
   const [newAmount, setNewAmount] = useState("");
   const [newPeriod, setNewPeriod] = useState<BenefitPeriod>("monthly");
   const [newMatch, setNewMatch] = useState("");
+  const [newAppliedAs, setNewAppliedAs] = useState<"statementCredit" | "inApp">("statementCredit");
   const newAmountValue = Number(newAmount.replace(/[$,\s]/g, ""));
   const canAdd = newName.trim() !== "" && Number.isFinite(newAmountValue) && newAmountValue > 0;
 
@@ -57,12 +58,14 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
       amount: newAmountValue,
       period: newPeriod,
       matchWords: newMatch.split(","),
+      appliedAs: newAppliedAs,
     });
     setAdding(false);
     setNewName("");
     setNewAmount("");
     setNewPeriod("monthly");
     setNewMatch("");
+    setNewAppliedAs("statementCredit");
     onChanged();
   }
 
@@ -195,6 +198,23 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                   </Pressable>
                 ))}
               </View>
+              <Text style={styles.meta}>How is it applied?</Text>
+              <View style={styles.actions}>
+                {(
+                  [
+                    ["statementCredit", "Credited back on the statement"],
+                    ["inApp", "Used inside the app (like Uber Cash)"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Pressable
+                    key={value}
+                    onPress={() => setNewAppliedAs(value)}
+                    style={[styles.actionBtn, newAppliedAs === value && styles.periodActive]}
+                  >
+                    <Text style={[styles.actionText, newAppliedAs !== value && { color: colors.textSecondary }]}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <TextInput
                 value={newMatch}
                 onChangeText={setNewMatch}
@@ -233,15 +253,22 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                   <View style={[styles.fill, { width: `${pct}%`, backgroundColor: fullyUsed ? SUCCESS : ACCENT }]} />
                 </View>
                 <Text style={[styles.status, fullyUsed && { color: SUCCESS }]}>
-                  {s.detectedAmount > 0 && s.detectedAmount >= (s.markedAmount ?? 0)
-                    ? `✅ ${fullyUsed ? "Used" : `${formatMoney(s.used)} used`} · found on statement ${s.detectedDate ? formatDate(s.detectedDate) : ""}`
+                  {s.markedAmount === 0
+                    ? `✋ You marked it unused${s.detectedAmount > 0 ? " (a matching charge was found)" : ""}`
                     : s.markedAmount !== null
                       ? `✋ Marked by you: ${formatMoney(s.used)} used`
-                      : s.benefit.period === "every4Years"
+                      : s.detectedAmount > 0
+                        ? `✅ ${fullyUsed ? "Used" : `${formatMoney(s.used)} used`} · found on statement ${s.detectedDate ? formatDate(s.detectedDate) : ""}`
+                        : s.benefit.period === "every4Years"
                         ? "Available — not used in the last 4 years"
                         : `${formatMoney(s.left)} left · ${s.daysLeft} day${s.daysLeft === 1 ? "" : "s"} left`}
                   {!fullyUsed && s.used > 0 ? ` · ${formatMoney(s.left)} left` : ""}
                 </Text>
+                {s.benefit.appliedAs === "inApp" && s.used === 0 && (
+                  <Text style={styles.meta}>
+                    {"Fully covered rides or orders don't show on your statement. Used it in the app? Tap I used it."}
+                  </Text>
+                )}
                 {partialFor === key ? (
                   <View style={styles.inlineRow}>
                     <View style={styles.inputRow}>
@@ -259,7 +286,7 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                     <Pressable
                       onPress={() => {
                         const v = Number(partialInput.replace(/[$,\s]/g, ""));
-                        if (Number.isFinite(v) && v > 0) mark(s, Math.min(v, s.benefit.amount));
+                        if (Number.isFinite(v) && v >= 0) mark(s, Math.min(v, s.benefit.amount));
                       }}
                       style={styles.smallBtn}
                     >
@@ -274,7 +301,7 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                         <Text style={styles.actionText}>I used it</Text>
                       </Pressable>
                     )}
-                    {!fullyUsed && (
+                    {(!fullyUsed || (s.markedAmount === null && s.detectedAmount > 0)) && (
                       <Pressable
                         onPress={() => {
                           setPartialFor(key);
@@ -282,7 +309,13 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                         }}
                         style={styles.actionBtn}
                       >
-                        <Text style={styles.actionText}>I used part</Text>
+                        <Text style={styles.actionText}>{fullyUsed ? "Set amount used" : "I used part"}</Text>
+                      </Pressable>
+                    )}
+                    {s.markedAmount === null && s.detectedAmount > 0 && (
+                      <Pressable onPress={() => mark(s, 0)} style={styles.actionBtn}>
+                        <Ionicons name="close-circle-outline" size={14} color={colors.textSecondary} />
+                        <Text style={[styles.actionText, { color: colors.textSecondary }]}>Not right? Mark unused</Text>
                       </Pressable>
                     )}
                     {s.markedAmount !== null && (
