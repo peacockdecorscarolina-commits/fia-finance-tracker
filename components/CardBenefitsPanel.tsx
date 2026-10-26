@@ -253,11 +253,13 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                   <View style={[styles.fill, { width: `${pct}%`, backgroundColor: fullyUsed ? SUCCESS : ACCENT }]} />
                 </View>
                 <Text style={[styles.status, fullyUsed && { color: SUCCESS }]}>
-                  {s.detectedAmount > 0 && s.detectedAmount >= (s.markedAmount ?? 0)
-                    ? `✅ ${fullyUsed ? "Used" : `${formatMoney(s.used)} used`} · found on statement ${s.detectedDate ? formatDate(s.detectedDate) : ""}`
+                  {s.markedAmount === 0
+                    ? `✋ You marked it unused${s.detectedAmount > 0 ? " (a matching charge was found)" : ""}`
                     : s.markedAmount !== null
                       ? `✋ Marked by you: ${formatMoney(s.used)} used`
-                      : s.benefit.period === "every4Years"
+                      : s.detectedAmount > 0
+                        ? `✅ ${fullyUsed ? "Used" : `${formatMoney(s.used)} used`} · found on statement ${s.detectedDate ? formatDate(s.detectedDate) : ""}`
+                        : s.benefit.period === "every4Years"
                         ? "Available — not used in the last 4 years"
                         : `${formatMoney(s.left)} left · ${s.daysLeft} day${s.daysLeft === 1 ? "" : "s"} left`}
                   {!fullyUsed && s.used > 0 ? ` · ${formatMoney(s.left)} left` : ""}
@@ -284,7 +286,7 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                     <Pressable
                       onPress={() => {
                         const v = Number(partialInput.replace(/[$,\s]/g, ""));
-                        if (Number.isFinite(v) && v > 0) mark(s, Math.min(v, s.benefit.amount));
+                        if (Number.isFinite(v) && v >= 0) mark(s, Math.min(v, s.benefit.amount));
                       }}
                       style={styles.smallBtn}
                     >
@@ -299,7 +301,7 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                         <Text style={styles.actionText}>I used it</Text>
                       </Pressable>
                     )}
-                    {!fullyUsed && (
+                    {(!fullyUsed || (s.markedAmount === null && s.detectedAmount > 0)) && (
                       <Pressable
                         onPress={() => {
                           setPartialFor(key);
@@ -307,7 +309,13 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                         }}
                         style={styles.actionBtn}
                       >
-                        <Text style={styles.actionText}>I used part</Text>
+                        <Text style={styles.actionText}>{fullyUsed ? "Set amount used" : "I used part"}</Text>
+                      </Pressable>
+                    )}
+                    {s.markedAmount === null && s.detectedAmount > 0 && (
+                      <Pressable onPress={() => mark(s, 0)} style={styles.actionBtn}>
+                        <Ionicons name="close-circle-outline" size={14} color={colors.textSecondary} />
+                        <Text style={[styles.actionText, { color: colors.textSecondary }]}>Not right? Mark unused</Text>
                       </Pressable>
                     )}
                     {s.markedAmount !== null && (

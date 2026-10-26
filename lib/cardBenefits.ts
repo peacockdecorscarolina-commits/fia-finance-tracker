@@ -92,7 +92,7 @@ export type BenefitStatus = {
   window: PeriodWindow;
   detectedAmount: number;
   detectedDate: string | null;
-  markedAmount: number | null; // what the user said they used, if anything
+  markedAmount: number | null; // what the user said they used, if anything -- overrides detection
   used: number; // capped at the benefit's amount
   left: number;
   daysLeft: number;
@@ -137,7 +137,9 @@ export function benefitStatus(
   const window = currentWindow(benefit.period, today, anniversaryMonth);
   const detected = detectUse(benefit, cardTransactions, window);
   const marked = marks.get(`${benefit.id}|${window.key}`) ?? null;
-  const used = Math.min(benefit.amount, Math.max(detected.amount, marked ?? 0));
+  // The user's word wins over detection either way -- "I used it" when the
+  // app missed it, or a lower amount (even 0) when it guessed wrong.
+  const used = Math.min(benefit.amount, marked ?? detected.amount);
   const end = benefit.period === "every4Years" ? null : window.end;
   return {
     benefit,
@@ -186,8 +188,8 @@ export function usedLast12Months(
     seen.add(window.key);
     const clipped = { ...window, start: window.start < yearAgo ? yearAgo : window.start };
     const detected = detectUse(benefit, cardTransactions, clipped).amount;
-    const marked = marks.get(`${benefit.id}|${window.key}`) ?? 0;
-    total += Math.min(benefit.amount, Math.max(detected, marked));
+    const marked = marks.get(`${benefit.id}|${window.key}`);
+    total += Math.min(benefit.amount, marked ?? detected);
   }
   return total;
 }

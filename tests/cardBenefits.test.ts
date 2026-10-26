@@ -97,3 +97,22 @@ describe("credits used inside an app (Uber Cash)", () => {
     expect(benefitStatus(dunkin, [tx("2026-10-02", "DUNKIN #1234", -3.5)], new Map(), TODAY, null).used).toBe(3.5);
   });
 });
+
+describe("the user's word over detection", () => {
+  const bce = findCard("amex-blue-cash-everyday")!;
+  const disney = bce.benefits.find((b) => b.id === "disney-streaming")!;
+  const found = [tx("2026-10-05", "AMEX DISNEY STREAMING CREDIT", 7)];
+
+  it("can mark a detected use as unused", () => {
+    const s = benefitStatus(disney, found, new Map([["disney-streaming|2026-10", 0]]), TODAY, null);
+    expect([s.used, s.left, s.detectedAmount]).toEqual([0, 7, 7]);
+  });
+
+  it("can lower a detected amount", () => {
+    expect(benefitStatus(disney, found, new Map([["disney-streaming|2026-10", 3]]), TODAY, null).used).toBe(3);
+  });
+
+  it("goes back to detection when the mark is undone", () => {
+    expect(benefitStatus(disney, found, new Map(), TODAY, null).used).toBe(7);
+  });
+});
