@@ -39,6 +39,9 @@ export type Transaction = {
   linkedAmount: number | null;
   linkedDate: string | null;
   linkedAccountName: string | null;
+  // Free-text note and free-form tags (lowercase, no "#") the user adds.
+  note: string | null;
+  tags: string[];
 };
 
 // Shape returned by the extraction step (currently on-device, rule-based —

@@ -7,7 +7,7 @@ function csvField(value: string | number): string {
 }
 
 export function transactionsToCsv(transactions: Transaction[]): string {
-  const header = ["Date", "Merchant", "Amount", "Account", "Category", "Ignored"];
+  const header = ["Date", "Merchant", "Amount", "Account", "Category", "Ignored", "Note", "Tags"];
   const rows = transactions.map((t) => [
     t.date,
     csvField(t.merchant),
@@ -15,6 +15,8 @@ export function transactionsToCsv(transactions: Transaction[]): string {
     csvField(t.accountName),
     csvField(t.categoryName),
     t.ignored ? "Yes" : "No",
+    csvField(t.note ?? ""),
+    csvField(t.tags.map((tag) => `#${tag}`).join(" ")),
   ]);
   return [header.join(","), ...rows.map((r) => r.join(","))].join("\n");
 }

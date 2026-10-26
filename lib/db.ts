@@ -88,6 +88,15 @@ export async function initDatabase(db: SQLiteDatabase) {
       date TEXT NOT NULL,
       balance REAL NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE IF NOT EXISTS transaction_tags (
+      transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+      tag_id INTEGER NOT NULL REFERENCES tags(id),
+      PRIMARY KEY (transaction_id, tag_id)
+    );
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT
@@ -103,6 +112,9 @@ export async function initDatabase(db: SQLiteDatabase) {
   // the $800 withdrawal on a checking statement that pays off a credit
   // card, paired with that same $800 showing as a payment credit on the
   // card's own statement -- two transactions, one real transfer).
+  if (!columns.some((c) => c.name === "note")) {
+    await db.execAsync("ALTER TABLE transactions ADD COLUMN note TEXT");
+  }
   if (!columns.some((c) => c.name === "linked_transaction_id")) {
     await db.execAsync(
       "ALTER TABLE transactions ADD COLUMN linked_transaction_id INTEGER REFERENCES transactions(id)"
@@ -340,6 +352,7 @@ export async function renameAccount(db: SQLiteDatabase, id: number, name: string
 
 export async function deleteAccount(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM transactions WHERE account_id = ?", id);
+  await pruneTags(db);
   await db.runAsync("DELETE FROM balance_checkpoints WHERE account_id = ?", id);
   await db.runAsync("DELETE FROM accounts WHERE id = ?", id);
 }
@@ -705,7 +718,11 @@ const TRANSACTION_SELECT = `
     linked_tx.merchant as linkedMerchant,
     linked_tx.amount as linkedAmount,
     linked_tx.date as linkedDate,
-    linked_account.name as linkedAccountName
+    linked_account.name as linkedAccountName,
+    transactions.note as note,
+    (SELECT group_concat(tags.name, char(31)) FROM transaction_tags
+       JOIN tags ON tags.id = transaction_tags.tag_id
+       WHERE transaction_tags.transaction_id = transactions.id) as tagList
   FROM transactions
   JOIN accounts ON accounts.id = transactions.account_id
   JOIN categories ON categories.id = transactions.category_id
@@ -713,13 +730,65 @@ const TRANSACTION_SELECT = `
   LEFT JOIN accounts AS linked_account ON linked_account.id = linked_tx.account_id
 `;
 
-type TransactionRow = Omit<Transaction, "needsReview" | "ignored"> & {
+type TransactionRow = Omit<Transaction, "needsReview" | "ignored" | "tags"> & {
   needsReview: number;
   ignored: number;
+  // Tag names joined with the ASCII unit separator (char 31), or null.
+  tagList: string | null;
 };
 
-function toTransaction(row: TransactionRow): Transaction {
-  return { ...row, needsReview: row.needsReview === 1, ignored: row.ignored === 1 };
+function toTransaction({ tagList, ...row }: TransactionRow): Transaction {
+  return {
+    ...row,
+    needsReview: row.needsReview === 1,
+    ignored: row.ignored === 1,
+    tags: tagList ? tagList.split("\u001f").sort() : [],
+  };
+}
+
+// "#Work Trip " -> "work-trip": one spelling per tag, so they group and search reliably.
+export function normalizeTag(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^#+/, "")
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9_-]/g, "");
+}
+
+// Replaces a transaction's note and full tag list.
+export async function setTransactionNote(db: SQLiteDatabase, id: number, note: string, tags: string[]) {
+  const trimmed = note.trim();
+  await db.runAsync("UPDATE transactions SET note = ? WHERE id = ?", trimmed || null, id);
+  await db.runAsync("DELETE FROM transaction_tags WHERE transaction_id = ?", id);
+  for (const name of new Set(tags.map(normalizeTag).filter(Boolean))) {
+    await db.runAsync("INSERT OR IGNORE INTO tags (name) VALUES (?)", name);
+    await db.runAsync(
+      "INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) SELECT ?, id FROM tags WHERE name = ?",
+      id,
+      name
+    );
+  }
+  await pruneTags(db);
+}
+
+// Every tag in use, most-used first -- for suggestions and Search's tag filter.
+export async function getAllTags(db: SQLiteDatabase): Promise<{ name: string; count: number }[]> {
+  return db.getAllAsync<{ name: string; count: number }>(
+    `SELECT tags.name as name, COUNT(*) as count FROM transaction_tags
+     JOIN tags ON tags.id = transaction_tags.tag_id
+     GROUP BY tags.id ORDER BY count DESC, tags.name`
+  );
+}
+
+// Drops links to deleted transactions and tags nothing uses. Matters beyond
+// tidiness: SQLite can hand a deleted transaction's id to the next insert,
+// which would otherwise inherit the old transaction's tags.
+async function pruneTags(db: SQLiteDatabase) {
+  await db.execAsync(`
+    DELETE FROM transaction_tags WHERE transaction_id NOT IN (SELECT id FROM transactions);
+    DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM transaction_tags);
+  `);
 }
 
 export async function setTransactionIgnored(db: SQLiteDatabase, id: number, ignored: boolean) {
@@ -950,6 +1019,7 @@ export async function deleteTransactions(
     params.start,
     params.end
   );
+  await pruneTags(db);
   return result.changes;
 }
 
@@ -957,6 +1027,7 @@ export async function deleteTransactions(
 // row) without having to go through the bulk account/date-range tool.
 export async function deleteTransaction(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM transactions WHERE id = ?", id);
+  await pruneTags(db);
 }
 
 // Ignoring a transaction is how you tell the review queue "I've looked at
@@ -1270,6 +1341,9 @@ export type DataSnapshot = {
     categoryName: string;
     needsReview: boolean;
     ignored: boolean;
+    // Optional so backups from before notes and tags existed still restore.
+    note?: string | null;
+    tags?: string[];
   }[];
   assets: { name: string; type: AssetType }[];
   assetBalances: { assetName: string; date: string; balance: number }[];
@@ -1315,8 +1389,14 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     categoryName: string;
     needsReview: number;
     ignored: number;
+    note: string | null;
+    tagList: string | null;
   }>(
     `SELECT
+       transactions.note as note,
+       (SELECT group_concat(tags.name, char(31)) FROM transaction_tags
+          JOIN tags ON tags.id = transaction_tags.tag_id
+          WHERE transaction_tags.transaction_id = transactions.id) as tagList,
        accounts.name as accountName,
        transactions.date as date,
        transactions.merchant as merchant,
@@ -1336,10 +1416,11 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     accounts,
     categories,
     merchantCategoryMap,
-    transactions: transactions.map((t) => ({
+    transactions: transactions.map(({ tagList, ...t }) => ({
       ...t,
       needsReview: t.needsReview === 1,
       ignored: t.ignored === 1,
+      tags: tagList ? tagList.split("\u001f") : [],
     })),
     assets,
     assetBalances,
@@ -1352,7 +1433,7 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
 // for restoring onto a fresh/empty database, not merging.
 export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
   await db.execAsync(
-    "DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
+    "DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
   );
 
   const categoryIds = new Map<string, number>();
@@ -1393,7 +1474,7 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     const accountId = accountIds.get(t.accountName);
     const categoryId = categoryIds.get(t.categoryName);
     if (accountId === undefined || categoryId === undefined) continue;
-    await db.runAsync(
+    const inserted = await db.runAsync(
       "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, ?, ?)",
       accountId,
       t.date,
@@ -1403,6 +1484,9 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
       t.needsReview ? 1 : 0,
       t.ignored ? 1 : 0
     );
+    if (t.note || t.tags?.length) {
+      await setTransactionNote(db, inserted.lastInsertRowId, t.note ?? "", t.tags ?? []);
+    }
   }
 
   const assetIds = new Map<string, number>();

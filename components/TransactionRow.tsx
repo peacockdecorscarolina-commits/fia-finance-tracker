@@ -1,7 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { router } from "expo-router";
+import { useSQLiteContext } from "expo-sqlite";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
+import { getAllTags, normalizeTag, setTransactionNote } from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -48,6 +51,62 @@ export function TransactionRow({
   const [linkCandidates, setLinkCandidates] = useState<Transaction[] | null>(null);
   const categoryStyle = getCategoryStyle(transaction.categoryName);
 
+  // Notes and tags save straight from the row, so every list that shows
+  // transactions gets them without its own handler. Local copies show the
+  // saved values right away; they resync whenever the parent reloads.
+  const db = useSQLiteContext();
+  const [note, setNote] = useState(transaction.note);
+  const [tags, setTags] = useState(transaction.tags);
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [tagsDraft, setTagsDraft] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [knownTags, setKnownTags] = useState<string[]>([]);
+  const tagsKey = transaction.tags.join(",");
+  useEffect(() => {
+    setNote(transaction.note);
+    setTags(transaction.tags);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transaction.note, tagsKey]);
+
+  function openNoteEditor() {
+    if (editingNote) {
+      setEditingNote(false);
+      return;
+    }
+    setNoteDraft(note ?? "");
+    setTagsDraft(tags);
+    setTagInput("");
+    setEditingNote(true);
+    getAllTags(db).then((all) => setKnownTags(all.map((t) => t.name)));
+  }
+
+  function addTag(raw: string) {
+    const tag = normalizeTag(raw);
+    if (tag && !tagsDraft.includes(tag)) setTagsDraft([...tagsDraft, tag]);
+    setTagInput("");
+  }
+
+  // Typing a space or comma finishes a tag, like most tag fields.
+  function handleTagInput(text: string) {
+    if (/[\s,]$/.test(text)) addTag(text);
+    else setTagInput(text);
+  }
+
+  async function saveNote() {
+    // A half-typed tag still counts when they hit Save.
+    const finalTags = tagInput.trim() ? [...tagsDraft, normalizeTag(tagInput)].filter(Boolean) : tagsDraft;
+    await setTransactionNote(db, transaction.id, noteDraft, finalTags);
+    setNote(noteDraft.trim() || null);
+    setTags([...new Set(finalTags)].sort());
+    setEditingNote(false);
+  }
+
+  const typed = normalizeTag(tagInput);
+  const suggestions = knownTags
+    .filter((t) => !tagsDraft.includes(t) && (!typed || t.startsWith(typed)))
+    .slice(0, 8);
+
   async function togglePickingLink() {
     if (pickingLink) {
       setPickingLink(false);
@@ -82,7 +141,18 @@ export function TransactionRow({
             {transaction.needsReview && <Chip label="review" tone="warning" />}
             {transaction.ignored && <Chip label="ignored" />}
             {transaction.linkedTransactionId && <Chip label="transfer" tone="warning" />}
+            {tags.map((tag) => (
+              <Pressable
+                key={tag}
+                onPress={() => router.push({ pathname: "/all-transactions", params: { search: "1", tag } })}
+                style={styles.tagChip}
+                accessibilityLabel={`Show all transactions tagged ${tag}`}
+              >
+                <Text style={styles.tagChipText}>#{tag}</Text>
+              </Pressable>
+            ))}
           </View>
+          {note ? <Text style={styles.noteText}>{note}</Text> : null}
         </View>
         <AmountText amount={transaction.amount} />
       </View>
@@ -104,6 +174,10 @@ export function TransactionRow({
             <Text style={styles.actionLinkText}>{pickingCategory ? "Cancel" : "Category"}</Text>
           </Pressable>
         )}
+        <Pressable onPress={openNoteEditor} style={styles.actionBtn}>
+          <Ionicons name="create-outline" size={13} color={colors.accent} />
+          <Text style={styles.actionLinkText}>{editingNote ? "Cancel" : note || tags.length ? "Edit note" : "Note"}</Text>
+        </Pressable>
         {onToggleIgnored && (
           <Pressable onPress={() => onToggleIgnored(transaction)} style={styles.actionBtn}>
             <Ionicons
@@ -127,6 +201,62 @@ export function TransactionRow({
           </Pressable>
         )}
       </View>
+
+      {editingNote && (
+        <View style={styles.noteEditor}>
+          <TextInput
+            value={noteDraft}
+            onChangeText={setNoteDraft}
+            placeholder="Add a note, e.g. Work trip — get reimbursed"
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.noteInput, styles.noteInputMultiline]}
+            multiline
+            autoFocus
+          />
+          <View style={styles.tagEditorRow}>
+            {tagsDraft.map((tag) => (
+              <Pressable
+                key={tag}
+                onPress={() => setTagsDraft(tagsDraft.filter((t) => t !== tag))}
+                style={[styles.tagChip, styles.tagChipEditing]}
+                accessibilityLabel={`Remove tag ${tag}`}
+              >
+                <Text style={styles.tagChipText}>#{tag}</Text>
+                <Ionicons name="close" size={12} color={colors.accent} />
+              </Pressable>
+            ))}
+            <TextInput
+              value={tagInput}
+              onChangeText={handleTagInput}
+              onSubmitEditing={() => addTag(tagInput)}
+              placeholder={tagsDraft.length ? "Add another tag" : "Add tags, e.g. work-trip"}
+              placeholderTextColor={colors.textSecondary}
+              style={[styles.noteInput, styles.tagInput]}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              blurOnSubmit={false}
+            />
+          </View>
+          {suggestions.length > 0 && (
+            <View style={styles.tagEditorRow}>
+              {suggestions.map((tag) => (
+                <Pressable key={tag} onPress={() => addTag(tag)} style={styles.suggestionChip}>
+                  <Text style={styles.suggestionText}>+ #{tag}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          <View style={styles.noteActions}>
+            <Pressable onPress={() => setEditingNote(false)} style={styles.noteCancelBtn}>
+              <Text style={styles.noteCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable onPress={saveNote} style={styles.noteSaveBtn}>
+              <Text style={styles.noteSaveText}>Save</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       {pickingLink && (
         <View style={styles.categoryRow}>
@@ -251,5 +381,50 @@ function makeStyles(colors: ThemeColors) {
       borderColor: colors.border,
     },
     categoryOptionText: { color: colors.textPrimary, fontWeight: "600", fontSize: 13 },
+    tagChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+      backgroundColor: "#EDE9FE",
+    },
+    tagChipEditing: { paddingVertical: 5 },
+    tagChipText: { fontSize: 12, fontWeight: "700", color: "#4C1D95" },
+    noteText: { fontSize: 12, color: colors.textSecondary, marginTop: 6, fontStyle: "italic", lineHeight: 17 },
+    noteEditor: { gap: spacing.sm, marginTop: spacing.xs },
+    noteInput: {
+      backgroundColor: colors.background,
+      borderRadius: radius.chip,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 8,
+      fontSize: 14,
+      color: colors.textPrimary,
+    },
+    noteInputMultiline: { minHeight: 60, textAlignVertical: "top" },
+    tagEditorRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
+    tagInput: { flexGrow: 1, minWidth: 150 },
+    suggestionChip: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    suggestionText: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
+    noteActions: { flexDirection: "row", gap: spacing.sm },
+    noteCancelBtn: {
+      flex: 1,
+      alignItems: "center",
+      paddingVertical: 10,
+      borderRadius: radius.pill,
+      backgroundColor: colors.background,
+    },
+    noteCancelText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
+    noteSaveBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: "#4C1D95" },
+    noteSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
   });
 }
