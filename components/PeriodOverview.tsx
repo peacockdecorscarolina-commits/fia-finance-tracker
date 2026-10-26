@@ -21,6 +21,7 @@ import {
   getCategorySummary,
   getNeedsReviewCount,
   getPaymentTotal,
+  getRecurring,
   getTransactionMonthBounds,
   getTransactions,
   type AccountTotal,
@@ -254,6 +255,8 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const [recent, setRecent] = useState<Transaction[]>([]);
   const [reviewCount, setReviewCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  // Active subscriptions and bills -- always "right now", not tied to the picked period.
+  const [recurring, setRecurring] = useState<{ count: number; monthly: number }>({ count: 0, monthly: 0 });
   const [assets, setAssets] = useState<{ id: number; name: string; type: AssetType; balance: number }[]>([]);
   const [assetHistories, setAssetHistories] = useState<Record<AssetType, { date: string; total: number }[]>>(
     {} as Record<AssetType, { date: string; total: number }[]>
@@ -263,6 +266,12 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
     useCallback(() => {
       getNeedsReviewCount(db).then(setReviewCount);
       getTransactionMonthBounds(db).then(setMonthBounds);
+      if (section === "spending") {
+        getRecurring(db).then((list) => {
+          const active = list.filter((r) => !r.isStopped);
+          setRecurring({ count: active.length, monthly: active.reduce((sum, r) => sum + r.monthlyCost, 0) });
+        });
+      }
       getAssetSummaries(db).then(setAssets);
       Promise.all(ASSET_TYPES.map((type) => getAssetTypeHistory(db, type).then((history) => [type, history] as const))).then(
         (entries) => setAssetHistories(Object.fromEntries(entries) as Record<AssetType, { date: string; total: number }[]>)
@@ -285,7 +294,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         getAccounts(db).then(setAccounts),
         getAccountBalances(db, end).then(setAccountBalances),
       ]).then(() => setLoading(false));
-    }, [db, month, view])
+    }, [db, month, view, section])
   );
 
   if (month === null) {
@@ -310,6 +319,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
 
   const moreItems: MoreItem[] = [
     { icon: "search-outline", label: "Search", onPress: () => router.push({ pathname: "/all-transactions", params: { search: "1" } }) },
+    { icon: "repeat-outline", label: "Subscriptions", onPress: () => router.push("/subscriptions") },
     { icon: "card-outline", label: "Manage accounts", onPress: () => router.push("/accounts") },
     { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
     { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },
@@ -441,6 +451,26 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
             </View>
           </View>
         </LinearGradient>
+        )}
+
+        {section === "spending" && (
+          <Pressable style={styles.assetCard} onPress={() => router.push("/subscriptions")}>
+            <View style={[styles.assetCardIcon, { backgroundColor: "#EDE9FE" }]}>
+              <Ionicons name="repeat" size={16} color="#4C1D95" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.assetCardLabel}>Subscriptions & bills</Text>
+              <Text style={styles.assetCardValue}>
+                {recurring.count > 0 ? `${formatMoney(recurring.monthly)} / month` : "None found yet"}
+              </Text>
+              {recurring.count > 0 && (
+                <Text style={styles.assetCardLabel}>
+                  {recurring.count} active · {formatMoney(recurring.monthly * 12)} a year
+                </Text>
+              )}
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+          </Pressable>
         )}
 
         {section === "accounts" && (

@@ -4,7 +4,8 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getAllTags, normalizeTag, setTransactionNote } from "../lib/db";
+import { getAllTags, getRecurringOverride, normalizeTag, setRecurringOverride, setTransactionNote } from "../lib/db";
+import type { RecurringOverride } from "../lib/subscriptions";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -102,6 +103,26 @@ export function TransactionRow({
     setEditingNote(false);
   }
 
+  // The user's call on whether this merchant is a subscription, loaded when
+  // the panel opens rather than for every row in a long list.
+  const [pickingRecurring, setPickingRecurring] = useState(false);
+  const [recurringChoice, setRecurringChoice] = useState<RecurringOverride | null>(null);
+
+  async function toggleRecurringPanel() {
+    if (pickingRecurring) {
+      setPickingRecurring(false);
+      return;
+    }
+    setRecurringChoice(await getRecurringOverride(db, transaction.merchant));
+    setPickingRecurring(true);
+  }
+
+  async function chooseRecurring(choice: RecurringOverride | null) {
+    await setRecurringOverride(db, transaction.merchant, choice);
+    setRecurringChoice(choice);
+    setPickingRecurring(false);
+  }
+
   const typed = normalizeTag(tagInput);
   const suggestions = knownTags
     .filter((t) => !tagsDraft.includes(t) && (!typed || t.startsWith(typed)))
@@ -178,6 +199,10 @@ export function TransactionRow({
           <Ionicons name="create-outline" size={13} color={colors.accent} />
           <Text style={styles.actionLinkText}>{editingNote ? "Cancel" : note || tags.length ? "Edit note" : "Note"}</Text>
         </Pressable>
+        <Pressable onPress={toggleRecurringPanel} style={styles.actionBtn}>
+          <Ionicons name="repeat" size={13} color={colors.accent} />
+          <Text style={styles.actionLinkText}>{pickingRecurring ? "Cancel" : "Subscription"}</Text>
+        </Pressable>
         {onToggleIgnored && (
           <Pressable onPress={() => onToggleIgnored(transaction)} style={styles.actionBtn}>
             <Ionicons
@@ -201,6 +226,36 @@ export function TransactionRow({
           </Pressable>
         )}
       </View>
+
+      {pickingRecurring && (
+        <View style={styles.noteEditor}>
+          <Text style={styles.meta}>
+            Is {formatMerchantName(transaction.merchant)} a subscription? This applies to all its charges.
+          </Text>
+          <View style={styles.categoryRow}>
+            {(
+              [
+                ["subscription", "Yes, track it"],
+                ["not", "No, never"],
+                [null, "Let the app decide"],
+              ] as const
+            ).map(([choice, label]) => (
+              <Pressable
+                key={label}
+                onPress={() => chooseRecurring(choice)}
+                style={[styles.categoryOption, recurringChoice === choice && styles.recurringOptionActive]}
+              >
+                <Text style={[styles.categoryOptionText, recurringChoice === choice && styles.recurringOptionTextActive]}>
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable onPress={() => router.push("/subscriptions")}>
+            <Text style={styles.actionLinkText}>See all subscriptions →</Text>
+          </Pressable>
+        </View>
+      )}
 
       {editingNote && (
         <View style={styles.noteEditor}>
@@ -391,6 +446,8 @@ function makeStyles(colors: ThemeColors) {
       backgroundColor: "#EDE9FE",
     },
     tagChipEditing: { paddingVertical: 5 },
+    recurringOptionActive: { borderColor: "#4C1D95", backgroundColor: "#EDE9FE" },
+    recurringOptionTextActive: { color: "#4C1D95" },
     tagChipText: { fontSize: 12, fontWeight: "700", color: "#4C1D95" },
     noteText: { fontSize: 12, color: colors.textSecondary, marginTop: 6, fontStyle: "italic", lineHeight: 17 },
     noteEditor: { gap: spacing.sm, marginTop: spacing.xs },

@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
+import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
 import type { Account, Asset, AssetBalanceEntry, AssetType, Category, ExtractedTransaction, Transaction } from "./types";
 import { loadCategoryEmojiOverrides, setCategoryEmojiOverride } from "./categoryStyle";
@@ -97,6 +98,10 @@ export async function initDatabase(db: SQLiteDatabase) {
       tag_id INTEGER NOT NULL REFERENCES tags(id),
       PRIMARY KEY (transaction_id, tag_id)
     );
+    CREATE TABLE IF NOT EXISTS recurring_overrides (
+      merchant_key TEXT PRIMARY KEY NOT NULL,
+      status TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT
@@ -191,6 +196,53 @@ export async function initDatabase(db: SQLiteDatabase) {
   loadCategoryEmojiOverrides(emojiOverrides);
   // No accounts are seeded -- a new user starts empty and adds their own
   // cards, rather than inheriting a hard-coded list.
+}
+
+// The user's own calls on subscription detection, per merchant (same key
+// as merchant memory): "subscription" counts it even after one charge,
+// "not" hides it for good. null clears the choice.
+export async function setRecurringOverride(db: SQLiteDatabase, merchant: string, status: RecurringOverride | null) {
+  const key = normalizeMerchantKey(merchant);
+  if (status === null) {
+    await db.runAsync("DELETE FROM recurring_overrides WHERE merchant_key = ?", key);
+  } else {
+    await db.runAsync("INSERT OR REPLACE INTO recurring_overrides (merchant_key, status) VALUES (?, ?)", key, status);
+  }
+}
+
+export async function getRecurringOverride(db: SQLiteDatabase, merchant: string): Promise<RecurringOverride | null> {
+  const row = await db.getFirstAsync<{ status: RecurringOverride }>(
+    "SELECT status FROM recurring_overrides WHERE merchant_key = ?",
+    normalizeMerchantKey(merchant)
+  );
+  return row?.status ?? null;
+}
+
+// Subscriptions and recurring bills found in spending -- leaving out
+// income, card payments, tracked loans (a car payment isn't a
+// subscription), linked transfers and ignored transactions.
+export async function getRecurring(db: SQLiteDatabase): Promise<Recurring[]> {
+  const [transactions, categories, overrideRows] = await Promise.all([
+    getTransactions(db),
+    getCategories(db),
+    db.getAllAsync<{ merchant_key: string; status: RecurringOverride }>("SELECT merchant_key, status FROM recurring_overrides"),
+  ]);
+  const excluded = new Set(
+    categories
+      .filter((c) => c.loanAmount !== null || [INCOME_CATEGORY_NAME, PAYMENT_CATEGORY_NAME].includes(c.name))
+      .map((c) => c.name.toLowerCase())
+  );
+  const spending = transactions.filter(
+    (t) => !t.ignored && t.linkedTransactionId === null && !excluded.has(t.categoryName.toLowerCase())
+  );
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return detectRecurring(
+    spending,
+    normalizeMerchantKey,
+    new Map(overrideRows.map((r) => [r.merchant_key, r.status])),
+    today
+  );
 }
 
 // Small key/value store for per-device preferences. null = never set.
@@ -1353,6 +1405,7 @@ export type DataSnapshot = {
   assetBalances: { assetName: string; date: string; balance: number }[];
   // Optional so backups made before the name setting existed still restore.
   userName?: string | null;
+  recurringOverrides?: { merchantKey: string; status: RecurringOverride }[];
 };
 
 export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
@@ -1429,6 +1482,9 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     assets,
     assetBalances,
     userName: await getUserName(db),
+    recurringOverrides: await db.getAllAsync<{ merchantKey: string; status: RecurringOverride }>(
+      "SELECT merchant_key as merchantKey, status FROM recurring_overrides"
+    ),
   };
 }
 
@@ -1512,6 +1568,17 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
 
   if (typeof snapshot.userName === "string") {
     await setUserName(db, snapshot.userName);
+  }
+
+  if (snapshot.recurringOverrides) {
+    await db.runAsync("DELETE FROM recurring_overrides");
+    for (const o of snapshot.recurringOverrides) {
+      await db.runAsync(
+        "INSERT OR REPLACE INTO recurring_overrides (merchant_key, status) VALUES (?, ?)",
+        o.merchantKey,
+        o.status
+      );
+    }
   }
 }
 
