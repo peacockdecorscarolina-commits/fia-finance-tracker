@@ -6,6 +6,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AmountText } from "../../components/AmountText";
 import { CardBenefitsPanel } from "../../components/CardBenefitsPanel";
+import { StatementStatusCard } from "../../components/StatementStatusCard";
 import { LineChart } from "../../components/LineChart";
 import { SegmentedControl } from "../../components/SegmentedControl";
 import { TransactionRow } from "../../components/TransactionRow";
@@ -180,6 +181,7 @@ export default function AccountDrillDownScreen() {
   // What's owed on a credit card right now (null = no balance known yet).
   const [cardOwed, setCardOwed] = useState<number | null>(null);
   const [isCreditCard, setIsCreditCard] = useState(false);
+  const [accountId, setAccountId] = useState<number | null>(null);
 
   const year = month.slice(0, 4);
   const periodKey = view === "Year" ? year : month;
@@ -188,6 +190,7 @@ export default function AccountDrillDownScreen() {
     getTransactionMonthBounds(db).then(setMonthBounds);
     getAccounts(db).then((accounts) => {
       const found = accounts.find((a) => a.name === name) ?? null;
+      setAccountId(found?.id ?? null);
       if (found) {
         const { start, end } = periodRange(periodKey);
         getTransactions(db, { accountId: found.id, start, end }).then(setTransactions);
@@ -454,6 +457,8 @@ export default function AccountDrillDownScreen() {
           })}
         </View>
       )}
+
+      {accountId !== null && <StatementStatusCard accountId={accountId} />}
 
       {cardOverview && (
         <View style={{ marginBottom: spacing.md }}>

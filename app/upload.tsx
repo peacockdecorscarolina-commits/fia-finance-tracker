@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -113,13 +113,19 @@ export default function UploadScreen() {
     setEditingBalance(false);
   }
 
+  // A statement reminder opens this on its account.
+  const { accountId: accountParam } = useLocalSearchParams<{ accountId?: string }>();
+  const accountParamUsed = useRef(false);
+
   useFocusEffect(
     useCallback(() => {
       getAccounts(db).then((list) => {
         setAccounts(list);
-        setAccountId((current) => current ?? list[0]?.id ?? null);
+        const fromReminder = accountParamUsed.current ? undefined : list.find((a) => String(a.id) === accountParam)?.id;
+        accountParamUsed.current = true;
+        setAccountId((current) => fromReminder ?? current ?? list[0]?.id ?? null);
       });
-    }, [db])
+    }, [db, accountParam])
   );
 
   async function pickFile() {
