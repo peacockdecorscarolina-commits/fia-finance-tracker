@@ -14,7 +14,7 @@ const MAX_ROWS = 3;
 
 // Home's nudge for statements that are out but not uploaded yet, or months
 // that were skipped -- either way, totals for that account are short.
-export function StatementReminder() {
+export function StatementReminder({ onChanged }: { onChanged?: () => void }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
@@ -45,6 +45,7 @@ export function StatementReminder() {
     const month = monthToSkip(s);
     if (month) await skipStatementMonth(db, s.accountId, month);
     load();
+    onChanged?.();
   }
 
   async function later(s: StatementStatus) {

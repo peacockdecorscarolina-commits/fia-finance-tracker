@@ -6,6 +6,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Dimensions, FlatList, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { BenefitReminder } from "../../components/BenefitReminder";
+import { CheckInCard } from "../../components/CheckInCard";
 import { StatementReminder } from "../../components/StatementReminder";
 import { DataSafetyBanner } from "../../components/DataSafetyBanner";
 import { EmptyState } from "../../components/EmptyState";
@@ -174,6 +175,8 @@ export default function TransactionsScreen() {
   const [panelPage, setPanelPage] = useState(0);
   const panelScrollRef = useRef<ScrollView>(null);
   const [reviewCount, setReviewCount] = useState(0);
+  // Bumped when the statement reminder marks a month, so the check-in card recounts.
+  const [checkInKey, setCheckInKey] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -243,6 +246,7 @@ export default function TransactionsScreen() {
   const moreItems: MoreItem[] = [
     { icon: "search-outline", label: "Search", onPress: () => router.push({ pathname: "/all-transactions", params: { search: "1" } }) },
     { icon: "repeat-outline", label: "Subscriptions", onPress: () => router.push("/subscriptions") },
+    { icon: "calendar-outline", label: "Monthly check-in", onPress: () => router.push("/check-in") },
     { icon: "card-outline", label: "Manage accounts", onPress: () => router.push("/accounts") },
     { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
     { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },
@@ -296,8 +300,9 @@ export default function TransactionsScreen() {
       </View>
 
       <DataSafetyBanner />
+      <CheckInCard key={checkInKey} />
       <BenefitReminder />
-      <StatementReminder />
+      <StatementReminder onChanged={() => setCheckInKey((k) => k + 1)} />
 
       {/* New users start with no accounts -- point them at the first step. */}
       {!loading && accounts.length === 0 && (
