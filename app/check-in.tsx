@@ -91,7 +91,10 @@ export default function CheckInScreen() {
   const streak = checkInStreak(doneMonths, month);
   const reviewDone = reviewCount === 0;
 
+  // Statements have to be in -- that's what makes the month's numbers right,
+  // so the streak can't be kept without them. Sorting is optional.
   async function finish() {
+    if (!statementsIn) return;
     await markCheckInDone(db, month);
     load();
   }
@@ -212,10 +215,12 @@ export default function CheckInScreen() {
             </>
           )}
           {!finished && (
-            <Pressable onPress={finish} style={styles.finishWrap}>
+            <Pressable onPress={finish} disabled={!statementsIn} style={[styles.finishWrap, !statementsIn && { opacity: 0.5 }]}>
               <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.finishBtn}>
-                <Ionicons name="checkmark-circle-outline" size={16} color="#FFFFFF" />
-                <Text style={styles.finishText}>Finish {label} check-in</Text>
+                <Ionicons name={statementsIn ? "checkmark-circle-outline" : "lock-closed-outline"} size={16} color="#FFFFFF" />
+                <Text style={styles.finishText}>
+                  {statementsIn ? `Finish ${label} check-in` : "Upload your statements to finish"}
+                </Text>
               </LinearGradient>
             </Pressable>
           )}
