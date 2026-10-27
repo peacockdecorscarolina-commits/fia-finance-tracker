@@ -247,6 +247,7 @@ export default function TransactionsScreen() {
     { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },
     { icon: "swap-horizontal-outline", label: "Move", onPress: () => router.push("/move-transactions") },
     { icon: "trash-outline", label: "Delete", onPress: () => router.push("/delete-transactions") },
+    { icon: "chatbubble-ellipses-outline", label: "Send feedback", onPress: () => router.push({ pathname: "/feedback", params: { from: "Menu" } }) },
     ...(Platform.OS === "web"
       ? [
           { icon: "cloud-outline" as const, label: "Sync", onPress: () => router.push("/sync") },
