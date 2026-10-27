@@ -18,6 +18,7 @@ import { PressScale } from "../../components/PressScale";
 import { SegmentedControl } from "../../components/SegmentedControl";
 import { Shimmer } from "../../components/Shimmer";
 import { SyncButton } from "../../components/SyncButton";
+import { StreakBadge } from "../../components/StreakBadge";
 import { TransactionRow } from "../../components/TransactionRow";
 import {
   deleteTransaction,
@@ -284,6 +285,7 @@ export default function TransactionsScreen() {
           <Pressable onPress={toggleTheme} style={styles.headerIconBtn}>
             <Ionicons name={mode === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.textPrimary} />
           </Pressable>
+          <StreakBadge style={styles.headerIconBtn} />
           <SyncButton style={styles.headerIconBtn} />
           <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
             <Ionicons name="ellipsis-horizontal" size={20} color={colors.textPrimary} />
