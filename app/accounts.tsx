@@ -194,6 +194,9 @@ export default function AccountsScreen() {
                   );
                 })}
               </View>
+              <Pressable onPress={() => router.push({ pathname: "/feedback", params: { type: "card", from: "Add account" } })}>
+                <Text style={styles.requestCardLink}>{"Don't see your card? Request it"}</Text>
+              </Pressable>
             </>
           )}
 
@@ -493,6 +496,7 @@ function makeStyles(colors: ThemeColors) {
   editCancelText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
   editSaveBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: radius.pill, backgroundColor: ACCENT },
   editSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+  requestCardLink: { fontSize: 13, fontWeight: "600", color: colors.accent, marginTop: 2 },
   cardHint: { fontSize: 12, color: colors.textSecondary },
   useNameBtn: {
     flexDirection: "row",

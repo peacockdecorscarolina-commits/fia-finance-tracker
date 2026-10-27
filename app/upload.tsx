@@ -4,7 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { formatAmount } from "../components/AmountText";
 import { PdfTextExtractor, type PdfTextExtractorHandle } from "../components/PdfTextExtractor";
 import { getAccountStyle } from "../lib/accountStyle";
@@ -17,6 +17,7 @@ import {
   insertExtractedTransactions,
   setAccountBalanceCheckpoint,
 } from "../lib/db";
+import { setStatementForFeedback } from "../lib/feedback";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { csvLooksReversed, parseCsv } from "../lib/parseCsv";
 import { findStatementCardBalance, findStatementEndingBalance, parseStatement } from "../lib/parseStatement";
@@ -34,9 +35,6 @@ const GRADIENT = ["#4C1D95", "#312E81"] as const;
 // a statement older than that is unlikely to be uploaded.
 const THIS_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = ["Auto", THIS_YEAR, THIS_YEAR - 1, THIS_YEAR - 2] as const;
-
-// Where "Report this bank" emails go. Empty hides the link.
-const SUPPORT_EMAIL = "";
 
 function formatMoney(value: number): string {
   const sign = value < 0 ? "-" : "";
@@ -73,6 +71,16 @@ export default function UploadScreen() {
   const [linkedCount, setLinkedCount] = useState(0);
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null;
+
+  // Opens the feedback page about this statement, with its text on hand in
+  // case the person chooses to include it.
+  function reportStatement() {
+    setStatementForFeedback(isCsv ? "" : (statementTextRef.current ?? ""));
+    router.push({
+      pathname: "/feedback",
+      params: { type: "bank", bank: selectedAccount?.name ?? "", from: "Upload", statement: isCsv ? "0" : "1" },
+    });
+  }
   // A card's statement balance is what's owed; a bank account's is money held.
   const isCard = selectedAccount?.type === "Credit Card";
   const [editingBalance, setEditingBalance] = useState(false);
@@ -499,20 +507,9 @@ export default function UploadScreen() {
                   <Pressable onPress={reset} style={[styles.cancelBtn, styles.noResultsBtn]}>
                     <Text style={styles.cancelBtnText}>Choose another file</Text>
                   </Pressable>
-                  {SUPPORT_EMAIL !== "" && !isCsv && (
-                    <Pressable
-                      onPress={() =>
-                        Linking.openURL(
-                          `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
-                            `Bank not supported: ${selectedAccount?.name ?? ""}`
-                          )}&body=${encodeURIComponent("Which bank is this statement from?\n\n")}`
-                        )
-                      }
-                      style={[styles.cancelBtn, styles.noResultsBtn]}
-                    >
-                      <Text style={styles.cancelBtnText}>Report this bank</Text>
-                    </Pressable>
-                  )}
+                  <Pressable onPress={reportStatement} style={[styles.cancelBtn, styles.noResultsBtn]}>
+                    <Text style={styles.cancelBtnText}>Report this bank</Text>
+                  </Pressable>
                 </View>
               </View>
             ) : !confirmingSave ? (
@@ -556,6 +553,11 @@ export default function UploadScreen() {
                 </View>
               </View>
             )}
+            {extracted.length > 0 && (
+              <Pressable onPress={reportStatement} style={styles.reportLink}>
+                <Text style={styles.reportLinkText}>Something look wrong? Tell us</Text>
+              </Pressable>
+            )}
           </View>
         )}
       </ScrollView>
@@ -566,6 +568,8 @@ export default function UploadScreen() {
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
+  reportLink: { alignSelf: "center", paddingVertical: spacing.xs },
+  reportLinkText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, textDecorationLine: "underline" },
   container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerBtn: {

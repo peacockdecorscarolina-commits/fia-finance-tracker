@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
@@ -339,10 +340,20 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
 
       {card && (
       <Text style={styles.footnote}>
-        {card.name} benefits checked {formatCheckedOn(CATALOG_CHECKED_ON)}. Issuers change terms, so confirm with
+        {card.name} benefits checked {formatCheckedOn(CATALOG_CHECKED_ON)}. Issuers change terms, so confirm with{" "}
         {"your card's current benefits."}
       </Text>
       )}
+      <Pressable
+        onPress={() =>
+          router.push({
+            pathname: "/feedback",
+            params: { type: "problem", card: card?.name ?? account.name, from: "Card benefits" },
+          })
+        }
+      >
+        <Text style={[styles.link, styles.reportLink]}>A benefit wrong or missing? Tell us</Text>
+      </Pressable>
     </View>
   );
 }
@@ -353,6 +364,7 @@ function makeStyles(colors: ThemeColors) {
     titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
     title: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
     link: { fontSize: 13, fontWeight: "600", color: colors.accent },
+    reportLink: { textAlign: "center", paddingVertical: spacing.xs },
     bigValue: { fontSize: 20, fontWeight: "700", color: colors.textPrimary },
     meta: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
     valueRow: { gap: 2, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs },
