@@ -387,6 +387,23 @@ export async function snoozeStatementReminder(db: SQLiteDatabase, accountId: num
   await setSetting(db, STATEMENT_SNOOZE_KEY, JSON.stringify({ ...snoozes, [accountId]: until }));
 }
 
+// Months whose monthly check-in was finished (YYYY-MM), for the streak.
+const CHECK_INS_DONE_KEY = "check_ins_done";
+
+export async function getCheckInsDone(db: SQLiteDatabase): Promise<string[]> {
+  try {
+    return JSON.parse((await getSetting(db, CHECK_INS_DONE_KEY)) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export async function markCheckInDone(db: SQLiteDatabase, month: string) {
+  const done = new Set(await getCheckInsDone(db));
+  done.add(month);
+  await setSetting(db, CHECK_INS_DONE_KEY, JSON.stringify([...done].sort()));
+}
+
 const MERCHANT_KEYS_VERSION_KEY = "merchant_keys_version";
 const LINKED_BOTH_IGNORED_KEY = "linked_both_ignored";
 
@@ -1961,6 +1978,7 @@ export type DataSnapshot = {
   // Optional so backups from before they were included still restore.
   balanceCheckpoints?: { accountName: string; date: string; balance: number }[];
   statementSkips?: { accountName: string; month: string }[];
+  checkInsDone?: string[];
   benefitMarks?: { accountName: string; benefitId: string; periodKey: string; amount: number }[];
   customBenefits?: {
     accountName: string;
@@ -2122,6 +2140,7 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
        FROM balance_checkpoints JOIN accounts ON accounts.id = balance_checkpoints.account_id
        ORDER BY balance_checkpoints.date`
     ),
+    checkInsDone: await getCheckInsDone(db),
     statementSkips: await db.getAllAsync<{ accountName: string; month: string }>(
       `SELECT accounts.name as accountName, statement_skips.month as month
        FROM statement_skips JOIN accounts ON accounts.id = statement_skips.account_id`
@@ -2173,6 +2192,7 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
       if (accountId !== undefined) await setAccountBalanceCheckpoint(db, accountId, c.balance, c.date);
     }
   }
+  for (const month of snapshot.checkInsDone ?? []) await markCheckInDone(db, month);
   for (const s of snapshot.statementSkips ?? []) {
     const accountId = accountIds.get(s.accountName);
     if (accountId !== undefined) await skipStatementMonth(db, accountId, s.month);
