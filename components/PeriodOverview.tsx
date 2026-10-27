@@ -8,6 +8,7 @@ import { EmptyState } from "./EmptyState";
 import { Greeting } from "./Greeting";
 import { SegmentedControl } from "./SegmentedControl";
 import { SyncButton } from "./SyncButton";
+import { StreakBadge } from "./StreakBadge";
 import { getAccountCardColor } from "../lib/accountStyle";
 import { darken } from "../lib/color";
 import { getCategoryStyle } from "../lib/categoryStyle";
@@ -445,6 +446,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
             <Pressable onPress={toggleTheme} style={styles.headerIconBtn}>
               <Ionicons name={mode === "dark" ? "sunny-outline" : "moon-outline"} size={20} color={colors.textPrimary} />
             </Pressable>
+            <StreakBadge style={styles.headerIconBtn} />
             <SyncButton style={styles.headerIconBtn} />
             <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
               <Ionicons name="ellipsis-horizontal" size={20} color={colors.textPrimary} />
