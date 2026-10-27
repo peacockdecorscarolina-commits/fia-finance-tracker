@@ -10,6 +10,7 @@ import {
   type CatalogCard,
 } from "./cardBenefits";
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
+import { statementStatus, type StatementStatus } from "./statementReminders";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { merchantMatchText } from "./formatMerchant";
@@ -142,6 +143,12 @@ export async function initDatabase(db: SQLiteDatabase) {
     -- Transfer matching looks up "the opposite of this amount" (see
     -- TRANSFER_PAIRS), which is a full scan of every pair without this.
     CREATE INDEX IF NOT EXISTS transactions_amount ON transactions(amount);
+    -- "No statement this month" for an account (month = YYYY-MM).
+    CREATE TABLE IF NOT EXISTS statement_skips (
+      account_id INTEGER NOT NULL REFERENCES accounts(id),
+      month TEXT NOT NULL,
+      PRIMARY KEY (account_id, month)
+    );
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT
@@ -206,6 +213,9 @@ export async function initDatabase(db: SQLiteDatabase) {
   }
   if (!accountColumns.some((c) => c.name === "include_in_savings")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN include_in_savings INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!accountColumns.some((c) => c.name === "statement_reminders")) {
+    await db.execAsync("ALTER TABLE accounts ADD COLUMN statement_reminders INTEGER NOT NULL DEFAULT 1");
   }
   if (!accountColumns.some((c) => c.name === "starting_balance")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN starting_balance REAL");
@@ -318,6 +328,63 @@ export async function getSetting(db: SQLiteDatabase, key: string): Promise<strin
 
 export async function setSetting(db: SQLiteDatabase, key: string, value: string) {
   await db.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, value);
+}
+
+// Statement reminders (see lib/statementReminders.ts), for every account
+// with anything uploaded. Saved statement balances' dates stand in for
+// closing dates.
+export async function getStatementStatuses(db: SQLiteDatabase, today: string): Promise<StatementStatus[]> {
+  const accounts = await db.getAllAsync<{ id: number; name: string; remindersOn: number }>(
+    "SELECT id, name, statement_reminders as remindersOn FROM accounts ORDER BY name"
+  );
+  const txDates = await db.getAllAsync<{ accountId: number; date: string }>(
+    "SELECT DISTINCT account_id as accountId, date FROM transactions ORDER BY date"
+  );
+  const closings = await db.getAllAsync<{ accountId: number; date: string }>(
+    "SELECT account_id as accountId, date FROM balance_checkpoints ORDER BY date"
+  );
+  const skips = await db.getAllAsync<{ accountId: number; month: string }>(
+    "SELECT account_id as accountId, month FROM statement_skips"
+  );
+  const byAccount = <T extends { accountId: number }>(rows: T[], id: number) => rows.filter((r) => r.accountId === id);
+  return accounts.map((a) =>
+    statementStatus(
+      {
+        accountId: a.id,
+        accountName: a.name,
+        transactionDates: byAccount(txDates, a.id).map((r) => r.date),
+        statementDates: byAccount(closings, a.id).map((r) => r.date),
+        skippedMonths: byAccount(skips, a.id).map((r) => r.month),
+        remindersOn: a.remindersOn === 1,
+      },
+      today
+    )
+  );
+}
+
+export async function setStatementReminders(db: SQLiteDatabase, accountId: number, on: boolean) {
+  await db.runAsync("UPDATE accounts SET statement_reminders = ? WHERE id = ?", on ? 1 : 0, accountId);
+}
+
+export async function skipStatementMonth(db: SQLiteDatabase, accountId: number, month: string) {
+  await db.runAsync("INSERT OR IGNORE INTO statement_skips (account_id, month) VALUES (?, ?)", accountId, month);
+}
+
+// "Remind me later" -- per account, until a date. Device-only, like a
+// dismissed banner, so it isn't in backups.
+const STATEMENT_SNOOZE_KEY = "statement_snooze";
+
+export async function getStatementSnoozes(db: SQLiteDatabase): Promise<Record<string, string>> {
+  try {
+    return JSON.parse((await getSetting(db, STATEMENT_SNOOZE_KEY)) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+export async function snoozeStatementReminder(db: SQLiteDatabase, accountId: number, until: string) {
+  const snoozes = await getStatementSnoozes(db);
+  await setSetting(db, STATEMENT_SNOOZE_KEY, JSON.stringify({ ...snoozes, [accountId]: until }));
 }
 
 const MERCHANT_KEYS_VERSION_KEY = "merchant_keys_version";
@@ -759,6 +826,7 @@ export async function deleteAccount(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM custom_benefits WHERE account_id = ?", id);
   await pruneTags(db);
   await db.runAsync("DELETE FROM balance_checkpoints WHERE account_id = ?", id);
+  await db.runAsync("DELETE FROM statement_skips WHERE account_id = ?", id);
   await db.runAsync("DELETE FROM accounts WHERE id = ?", id);
 }
 
@@ -1882,7 +1950,17 @@ export type DataSnapshot = {
   version: 1;
   exportedAt: string;
   // cardProduct/annualFee/benefitMarks are optional so older backups still restore.
-  accounts: { name: string; type: string; cardProduct?: string | null; annualFee?: number | null }[];
+  accounts: {
+    name: string;
+    type: string;
+    cardProduct?: string | null;
+    annualFee?: number | null;
+    includeInSavings?: boolean;
+    statementReminders?: boolean;
+  }[];
+  // Optional so backups from before they were included still restore.
+  balanceCheckpoints?: { accountName: string; date: string; balance: number }[];
+  statementSkips?: { accountName: string; month: string }[];
   benefitMarks?: { accountName: string; benefitId: string; periodKey: string; amount: number }[];
   customBenefits?: {
     accountName: string;
@@ -1925,9 +2003,23 @@ export type DataSnapshot = {
 };
 
 export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
-  const accounts = await db.getAllAsync<{ name: string; type: string; cardProduct: string | null; annualFee: number | null }>(
-    "SELECT name, type, card_product as cardProduct, annual_fee as annualFee FROM accounts ORDER BY id"
+  const accountRows = await db.getAllAsync<{
+    name: string;
+    type: string;
+    cardProduct: string | null;
+    annualFee: number | null;
+    includeInSavings: number;
+    statementReminders: number;
+  }>(
+    `SELECT name, type, card_product as cardProduct, annual_fee as annualFee,
+       include_in_savings as includeInSavings, statement_reminders as statementReminders
+     FROM accounts ORDER BY id`
   );
+  const accounts = accountRows.map((a) => ({
+    ...a,
+    includeInSavings: a.includeInSavings === 1,
+    statementReminders: a.statementReminders === 1,
+  }));
   const categories = await db.getAllAsync<{
     name: string;
     loanAmount: number | null;
@@ -2025,6 +2117,15 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     recurringOverrides: await db.getAllAsync<{ merchantKey: string; status: RecurringOverride }>(
       "SELECT merchant_key as merchantKey, status FROM recurring_overrides"
     ),
+    balanceCheckpoints: await db.getAllAsync<{ accountName: string; date: string; balance: number }>(
+      `SELECT accounts.name as accountName, balance_checkpoints.date as date, balance_checkpoints.balance as balance
+       FROM balance_checkpoints JOIN accounts ON accounts.id = balance_checkpoints.account_id
+       ORDER BY balance_checkpoints.date`
+    ),
+    statementSkips: await db.getAllAsync<{ accountName: string; month: string }>(
+      `SELECT accounts.name as accountName, statement_skips.month as month
+       FROM statement_skips JOIN accounts ON accounts.id = statement_skips.account_id`
+    ),
   };
 }
 
@@ -2033,7 +2134,7 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
 // for restoring onto a fresh/empty database, not merging.
 export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
   await db.execAsync(
-    "DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
+    "DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
   );
 
   const categoryIds = new Map<string, number>();
@@ -2053,13 +2154,28 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
   const accountIds = new Map<string, number>();
   for (const account of snapshot.accounts) {
     const result = await db.runAsync(
-      "INSERT INTO accounts (name, type, card_product, annual_fee) VALUES (?, ?, ?, ?)",
+      "INSERT INTO accounts (name, type, card_product, annual_fee, include_in_savings, statement_reminders) VALUES (?, ?, ?, ?, ?, ?)",
       account.name,
       account.type,
       account.cardProduct ?? null,
-      account.annualFee ?? null
+      account.annualFee ?? null,
+      account.includeInSavings === false ? 0 : 1,
+      account.statementReminders === false ? 0 : 1
     );
     accountIds.set(account.name, result.lastInsertRowId);
+  }
+
+  // Older backups have no balances; then whatever this device has stays.
+  if (snapshot.balanceCheckpoints) {
+    await db.runAsync("DELETE FROM balance_checkpoints");
+    for (const c of snapshot.balanceCheckpoints) {
+      const accountId = accountIds.get(c.accountName);
+      if (accountId !== undefined) await setAccountBalanceCheckpoint(db, accountId, c.balance, c.date);
+    }
+  }
+  for (const s of snapshot.statementSkips ?? []) {
+    const accountId = accountIds.get(s.accountName);
+    if (accountId !== undefined) await skipStatementMonth(db, accountId, s.month);
   }
 
   for (const entry of snapshot.merchantCategoryMap) {
