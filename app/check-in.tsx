@@ -227,7 +227,7 @@ export default function CheckInScreen() {
           <Ionicons name="calendar-outline" size={20} color={colors.accent} />
           <View style={{ flex: 1 }}>
             <Text style={styles.calendarTitle}>Add a monthly reminder to your calendar</Text>
-            <Text style={styles.stepText}>On the 5th of every month at 9 AM, with a link back here.</Text>
+            <Text style={styles.stepText}>On the 2nd of every month at 9 AM, with a link back here.</Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
         </Pressable>

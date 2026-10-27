@@ -13,11 +13,11 @@ const status = (readyMonths: string[], missingMonths: string[] = []): StatementS
 });
 
 describe("checkInMonth", () => {
-  it("opens last month's check-in on the 5th", () => {
-    expect(checkInMonth("2026-11-04")).toBe("2026-09");
-    expect(checkInMonth("2026-11-05")).toBe("2026-10");
+  it("opens last month's check-in on the 2nd", () => {
+    expect(checkInMonth("2026-11-01")).toBe("2026-09");
+    expect(checkInMonth("2026-11-02")).toBe("2026-10");
     expect(checkInMonth("2027-01-20")).toBe("2026-12");
-    expect(checkInMonth("2027-01-02")).toBe("2026-11");
+    expect(checkInMonth("2027-01-01")).toBe("2026-11");
   });
 });
 

@@ -3,7 +3,7 @@
 // iPhone offer "Add to Calendar" -- a file made in the browser just
 // downloads. Fia has no server-side reminders, so the person's own
 // calendar does the reminding.
-const DAY = 5;
+const DAY = 2;
 
 function pad(n) {
   return String(n).padStart(2, "0");
@@ -11,7 +11,7 @@ function pad(n) {
 
 module.exports = function handler(req, res) {
   const now = new Date();
-  // The next 5th from today.
+  // The next 2nd from today.
   let start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), DAY));
   if (start <= now) start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, DAY));
   const date = `${start.getUTCFullYear()}${pad(start.getUTCMonth() + 1)}${pad(start.getUTCDate())}`;

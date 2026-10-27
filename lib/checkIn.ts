@@ -2,10 +2,10 @@ import type { StatementStatus } from "./statementReminders";
 
 // The monthly check-in: once last month's statements are out, upload them,
 // clear the review pile, see the month's recap. Month M's check-in opens on
-// the 5th of the month after (most statements are out by then) and stays
-// the open one until the next opens.
+// the 2nd of the month after -- early, so it's there while statements come
+// in -- and stays the open one until the next opens.
 
-export const CHECK_IN_DAY = 5;
+export const CHECK_IN_DAY = 2;
 
 function shift(month: string, by: number): string {
   const [y, m] = month.split("-").map(Number);
