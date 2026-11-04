@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkInMonth, checkInStreak, monthEndStatementNeeded, statementsDone } from "../lib/checkIn";
+import { accountMonthState, checkInMonth, checkInStreak, monthEndStatementNeeded, statementsDone } from "../lib/checkIn";
 import type { StatementStatus } from "../lib/statementReminders";
 
 const status = (readyMonths: string[], missingMonths: string[] = [], over: Partial<StatementStatus> = {}): StatementStatus => ({
@@ -7,6 +7,8 @@ const status = (readyMonths: string[], missingMonths: string[] = [], over: Parti
   accountName: "Card",
   remindersOn: true,
   statementDay: null,
+  statementDates: [],
+  firstDate: "2026-01-01",
   lastStatementDate: null,
   nextExpected: null,
   readyMonths,
@@ -61,5 +63,26 @@ describe("statements closing mid-month", () => {
 
   it("goes by months when the statement day isn't known", () => {
     expect(statementsDone([status([], [], { nextExpected: "2026-11-15" })], "2026-10")).toBe(true);
+  });
+});
+
+describe("accountMonthState", () => {
+  const today = "2026-11-04";
+  it("says where each account stands for the month", () => {
+    const closed = status([], [], { statementDates: ["2026-09-15", "2026-10-15"], nextExpected: "2026-11-15" });
+    expect(accountMonthState(closed, "2026-10", today)).toEqual({ kind: "closed", line: "Statement closed Oct 15" });
+    expect(accountMonthState(status([], ["2026-10"]), "2026-10", today)?.kind).toBe("missing");
+    expect(accountMonthState(status(["2026-10"]), "2026-10", today)?.line).toBe("October statement is ready to upload");
+    const split = status([], [], { statementDay: 15, statementDates: ["2026-10-15"], nextExpected: "2026-11-15" });
+    expect(accountMonthState(split, "2026-10", today)).toEqual({
+      kind: "waiting",
+      line: "Waiting for the Nov 15 statement (has the rest of October) · out around Nov 20",
+    });
+    expect(accountMonthState(status([], [], { nextExpected: "2026-11-20" }), "2026-10", today)?.kind).toBe("upToDate");
+  });
+
+  it("leaves out accounts that started later or have reminders off", () => {
+    expect(accountMonthState(status([], [], { firstDate: "2026-11-01" }), "2026-10", today)).toBeNull();
+    expect(accountMonthState(status([], [], { remindersOn: false }), "2026-10", today)).toBeNull();
   });
 });
