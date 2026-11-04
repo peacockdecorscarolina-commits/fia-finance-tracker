@@ -298,7 +298,7 @@ export function CardBenefitsPanel({ overview, onChanged }: { overview: CardOverv
                   <View style={styles.actions}>
                     {!fullyUsed && (
                       <Pressable onPress={() => mark(s, s.benefit.amount)} style={styles.actionBtn}>
-                        <Ionicons name="checkmark-circle-outline" size={14} color={ACCENT} />
+                        <Ionicons name="checkmark-circle-outline" size={14} color={colors.accent} />
                         <Text style={styles.actionText}>I used it</Text>
                       </Pressable>
                     )}
@@ -385,7 +385,7 @@ function makeStyles(colors: ThemeColors) {
       borderRadius: radius.pill,
       backgroundColor: colors.background,
     },
-    actionText: { fontSize: 12, fontWeight: "700", color: ACCENT },
+    actionText: { fontSize: 12, fontWeight: "700", color: colors.accent },
     inlineRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
     inputRow: {
       flex: 1,
