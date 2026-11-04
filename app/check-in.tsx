@@ -72,6 +72,8 @@ export default function CheckInScreen() {
   const [doneMonths, setDoneMonths] = useState<string[]>([]);
   const [recap, setRecap] = useState<Recap | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // The per-account list can be long; it stays folded behind a summary.
+  const [statementsOpen, setStatementsOpen] = useState(false);
 
   const load = useCallback(async () => {
     const statuses = await getStatementStatuses(db, today);
@@ -197,8 +199,14 @@ export default function CheckInScreen() {
         <>
         <View style={styles.stepCard}>
           <StepTitle done={statementsIn} title={`1. ${label} statements`} styles={styles} />
-          {statementsIn && <Text style={styles.stepText}>Every account is in for {label}.</Text>}
-          {accountStates.map(({ status, state }) => {
+          <Pressable onPress={() => setStatementsOpen((v) => !v)} style={styles.summaryRow}>
+            <Text style={[styles.stepText, { flex: 1 }]}>
+              {statementsIn ? `Every account is in for ${label}` : statementSummary(accountStates.map((a) => a.state))}
+            </Text>
+            <Text style={styles.summaryToggle}>{statementsOpen ? "Hide" : `Show ${accountStates.length}`}</Text>
+            <Ionicons name={statementsOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.accent} />
+          </Pressable>
+          {statementsOpen && accountStates.map(({ status, state }) => {
             const icon = STATE_ICON[state.kind];
             const needsUpload = state.kind === "missing" || state.kind === "ready" || state.kind === "waiting";
             return (
@@ -361,6 +369,21 @@ export default function CheckInScreen() {
   );
 }
 
+// "2 in · 1 waiting · 1 missing" for the folded statements list.
+function statementSummary(states: AccountMonthState[]): string {
+  const count = (kinds: AccountMonthState["kind"][]) => states.filter((s) => kinds.includes(s.kind)).length;
+  const parts = [
+    [count(["closed", "upToDate"]), "in"],
+    [count(["waiting"]), "waiting"],
+    [count(["ready"]), "ready to upload"],
+    [count(["missing"]), "missing"],
+  ] as const;
+  return parts
+    .filter(([n]) => n > 0)
+    .map(([n, what]) => `${n} ${what}`)
+    .join(" · ");
+}
+
 function StepTitle({ done, title, styles }: { done: boolean; title: string; styles: ReturnType<typeof makeStyles> }) {
   return (
     <View style={styles.stepTitleRow}>
@@ -422,6 +445,8 @@ function makeStyles(colors: ThemeColors) {
   barTrack: { height: 6, borderRadius: 3, backgroundColor: colors.background, overflow: "hidden" },
   barFill: { height: 6, borderRadius: 3 },
   biggestMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  summaryRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  summaryToggle: { fontSize: 13, fontWeight: "700", color: colors.accent },
   monthSwitch: {
     flexDirection: "row",
     alignItems: "center",
