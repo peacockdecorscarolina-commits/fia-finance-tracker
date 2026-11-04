@@ -248,6 +248,7 @@ export default function TransactionsScreen() {
     { icon: "search-outline", label: "Search", onPress: () => router.push({ pathname: "/all-transactions", params: { search: "1" } }) },
     { icon: "repeat-outline", label: "Subscriptions", onPress: () => router.push("/subscriptions") },
     { icon: "calendar-outline", label: "Monthly check-in", onPress: () => router.push("/check-in") },
+    { icon: "cash-outline", label: "Income", onPress: () => router.push("/income") },
     { icon: "card-outline", label: "Manage accounts", onPress: () => router.push("/accounts") },
     { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
     { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },
@@ -353,7 +354,12 @@ export default function TransactionsScreen() {
             style={styles.statBox}
             onPress={() => {
               const { start, end } = getPeriodRange(period);
-              router.push({ pathname: "/all-transactions", params: { start, end, categoryName: "Income", ...accountParam } });
+              // One account picked: its income list. Otherwise income by source.
+              if (selectedAccountId !== "all") {
+                router.push({ pathname: "/all-transactions", params: { start, end, mode: "income", ...accountParam } });
+              } else {
+                router.push({ pathname: "/income", params: { period: period === "Year" ? start.slice(0, 4) : start.slice(0, 7) } });
+              }
             }}
           >
             <View style={styles.statTopRow}>

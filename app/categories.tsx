@@ -3,9 +3,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { deleteCategory, getCategories, insertCategory, renameCategory, setCategoryEmoji } from "../lib/db";
+import { deleteCategory, getCategories, INCOME_CATEGORY_NAME, insertCategory, renameCategory, setCategoryEmoji, setCategoryIncome } from "../lib/db";
 import { radius, spacing } from "../lib/theme";
 import type { Category } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -142,6 +142,26 @@ export default function CategoriesScreen() {
                     </View>
                   </View>
                   {error && <Text style={styles.errorText}>{error}</Text>}
+                  <View style={styles.incomeRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.incomeLabel}>Counts as income</Text>
+                      <Text style={styles.incomeHint}>
+                        {item.name.toLowerCase() === INCOME_CATEGORY_NAME.toLowerCase()
+                          ? "Income always does."
+                          : "For pay sorted into its own category, like Salary or Rental."}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={item.isIncome}
+                      disabled={item.name.toLowerCase() === INCOME_CATEGORY_NAME.toLowerCase()}
+                      onValueChange={async (v) => {
+                        await setCategoryIncome(db, item.id, v);
+                        load();
+                      }}
+                      trackColor={{ true: "#16A34A", false: colors.border }}
+                      thumbColor="#FFFFFF"
+                    />
+                  </View>
                   <View style={styles.editActions}>
                     <Pressable onPress={() => setEditingId(null)} style={styles.editCancelBtn}>
                       <Text style={styles.editCancelText}>Cancel</Text>
@@ -193,6 +213,7 @@ export default function CategoriesScreen() {
                     {item.name}
                   </Text>
                   {item.loanAmount ? <Text style={styles.loanBadge}>Loan</Text> : null}
+                  {item.isIncome ? <Text style={[styles.loanBadge, styles.incomeBadge]}>Income</Text> : null}
                   <Pressable
                     onPress={() => startEditing(item)}
                     hitSlop={8}
@@ -222,6 +243,10 @@ function makeStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
     },
+    incomeRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs },
+    incomeLabel: { fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+    incomeHint: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+    incomeBadge: { color: "#15803D", backgroundColor: "#DCFCE7" },
     loanBadge: {
       fontSize: 11,
       fontWeight: "700",

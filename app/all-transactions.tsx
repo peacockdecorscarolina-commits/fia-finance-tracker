@@ -15,7 +15,6 @@ import {
   getCategories,
   getTransactions,
   getTransferCandidates,
-  INCOME_CATEGORY_NAME,
   linkTransactions,
   PAYMENT_CATEGORY_NAME,
   setMerchantCategory,
@@ -74,7 +73,9 @@ export default function AllTransactionsScreen() {
       start,
       end,
       categoryName,
-      excludeCategoryNames: mode === "expenses" ? [INCOME_CATEGORY_NAME, PAYMENT_CATEGORY_NAME] : undefined,
+      excludeCategoryNames: mode === "expenses" ? [PAYMENT_CATEGORY_NAME] : undefined,
+      excludeIncome: mode === "expenses",
+      incomeOnly: mode === "income",
       paymentCategoriesOnly: mode === "payments",
     }).then((list) => {
       setTransactions(list);
@@ -157,6 +158,8 @@ export default function AllTransactionsScreen() {
       ? "Expenses"
       : mode === "payments"
         ? "Payments"
+        : mode === "income"
+          ? "Income"
         : search === "1"
           ? "Search"
           : "All Transactions");

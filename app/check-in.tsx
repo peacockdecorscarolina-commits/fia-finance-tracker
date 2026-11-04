@@ -11,10 +11,10 @@ import {
   getCategorySummary,
   getCheckInsDone,
   getIncomeExpenseTotals,
+  getIncomeSources,
   getNeedsReviewCount,
   getStatementStatuses,
   getTransactions,
-  INCOME_CATEGORY_NAME,
   markCheckInDone,
   PAYMENT_CATEGORY_NAME,
   todayISO,
@@ -53,6 +53,7 @@ type Recap = {
   count: number;
   top: (CategoryTotal & { before: number })[];
   biggest: { id: number; merchant: string; accountName: string; date: string; amount: number }[];
+  incomeSources: { key: string; name: string; total: number }[];
 };
 
 export default function CheckInScreen() {
@@ -100,13 +101,14 @@ export default function CheckInScreen() {
     setDoneMonths(await getCheckInsDone(db));
     const { start, end } = periodRange(month);
     const before = periodRange(previousMonth(month));
-    const [totals, totalsBefore, paidToCards, categories, categoriesBefore, transactions] = await Promise.all([
+    const [totals, totalsBefore, paidToCards, categories, categoriesBefore, transactions, sources] = await Promise.all([
       getIncomeExpenseTotals(db, { start, end }),
       getIncomeExpenseTotals(db, { start: before.start, end: before.end }),
       getCardPaymentsTotal(db, start, end),
       getCategorySummary(db, month),
       getCategorySummary(db, previousMonth(month)),
-      getTransactions(db, { start, end, excludeCategoryNames: [INCOME_CATEGORY_NAME, PAYMENT_CATEGORY_NAME] }),
+      getTransactions(db, { start, end, excludeIncome: true, excludeCategoryNames: [PAYMENT_CATEGORY_NAME] }),
+      getIncomeSources(db, start, end, today),
     ]);
     const beforeByName = new Map(categoriesBefore.map((c) => [c.categoryName, c.total]));
     const spending = transactions
@@ -124,6 +126,7 @@ export default function CheckInScreen() {
         .slice(0, 5)
         .map((c) => ({ ...c, before: beforeByName.get(c.categoryName) ?? 0 })),
       biggest: spending.sort((a, b) => b.amount - a.amount).slice(0, 3),
+      incomeSources: sources.filter((s) => s.total > 0).map((s) => ({ key: s.key, name: s.name, total: s.total })),
     });
     setLoaded(true);
   }, [db, month, today]);
@@ -314,6 +317,23 @@ export default function CheckInScreen() {
                   <Text style={styles.recapValue}>{recap.count.toLocaleString()}</Text>
                 </View>
               </View>
+              {recap.incomeSources.length > 1 && (
+                <>
+                  <Text style={styles.recapSubtitle}>Where income came from</Text>
+                  {recap.incomeSources.slice(0, 3).map((s) => (
+                    <Pressable
+                      key={s.key}
+                      onPress={() => router.push({ pathname: "/income", params: { period: month } })}
+                      style={styles.topRow}
+                    >
+                      <Text style={styles.topName} numberOfLines={1}>
+                        💵 {s.name}
+                      </Text>
+                      <Text style={styles.topAmount}>{formatMoney(s.total)}</Text>
+                    </Pressable>
+                  ))}
+                </>
+              )}
               {recap.top.length > 0 && (
                 <>
                   <Text style={styles.recapSubtitle}>Where it went</Text>

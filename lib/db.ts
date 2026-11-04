@@ -11,9 +11,10 @@ import {
 } from "./cardBenefits";
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
 import { closingOnOrAfter, statementStatus, type StatementStatus } from "./statementReminders";
+import { groupIncomeSources, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
-import { merchantMatchText } from "./formatMerchant";
+import { formatMerchantName, merchantMatchText } from "./formatMerchant";
 import type { Account, Asset, AssetBalanceEntry, AssetType, Category, ExtractedTransaction, Transaction } from "./types";
 import { loadCategoryEmojiOverrides, setCategoryEmojiOverride } from "./categoryStyle";
 
@@ -143,6 +144,12 @@ export async function initDatabase(db: SQLiteDatabase) {
     -- Transfer matching looks up "the opposite of this amount" (see
     -- TRANSFER_PAIRS), which is a full scan of every pair without this.
     CREATE INDEX IF NOT EXISTS transactions_amount ON transactions(amount);
+    -- The user's nickname and type for an income source (who paid it),
+    -- as JSON {name, kind}, keyed like merchant memory.
+    CREATE TABLE IF NOT EXISTS income_sources (
+      merchant_key TEXT PRIMARY KEY NOT NULL,
+      label TEXT NOT NULL
+    );
     -- Closing dates of uploaded statements (read off the statement, or
     -- worked out from the account's statement day).
     CREATE TABLE IF NOT EXISTS statement_closings (
@@ -203,6 +210,11 @@ export async function initDatabase(db: SQLiteDatabase) {
   }
   if (!categoryColumns.some((c) => c.name === "emoji")) {
     await db.execAsync("ALTER TABLE categories ADD COLUMN emoji TEXT");
+  }
+  // Categories that count as income (Salary, Side gig, Rental...). "Income"
+  // itself always does.
+  if (!categoryColumns.some((c) => c.name === "is_income")) {
+    await db.execAsync("ALTER TABLE categories ADD COLUMN is_income INTEGER NOT NULL DEFAULT 0");
   }
 
   // Migration for databases created before per-account balance tracking
@@ -267,6 +279,8 @@ export async function initDatabase(db: SQLiteDatabase) {
       await db.runAsync("INSERT INTO categories (name) VALUES (?)", "Payment");
     }
   }
+  // After the seed above, so a brand-new database's Income counts too.
+  await db.runAsync("UPDATE categories SET is_income = 1 WHERE LOWER(name) = LOWER(?) AND is_income = 0", INCOME_CATEGORY_NAME);
 
   const emojiOverrides = await db.getAllAsync<{ name: string; emoji: string }>(
     "SELECT name, emoji FROM categories WHERE emoji IS NOT NULL"
@@ -315,7 +329,7 @@ export async function getRecurring(db: SQLiteDatabase): Promise<Recurring[]> {
   ]);
   const excluded = new Set(
     categories
-      .filter((c) => c.loanAmount !== null || [INCOME_CATEGORY_NAME, PAYMENT_CATEGORY_NAME].includes(c.name))
+      .filter((c) => c.loanAmount !== null || c.isIncome || c.name === PAYMENT_CATEGORY_NAME)
       .map((c) => c.name.toLowerCase())
   );
   const spending = transactions.filter(
@@ -392,6 +406,61 @@ export async function setStatementDay(
 
 export async function recordStatementClosing(db: SQLiteDatabase, accountId: number, date: string) {
   await db.runAsync("INSERT OR IGNORE INTO statement_closings (account_id, date) VALUES (?, ?)", accountId, date);
+}
+
+export async function getIncomeLabels(db: SQLiteDatabase): Promise<Map<string, IncomeLabel>> {
+  const rows = await db.getAllAsync<{ merchant_key: string; label: string }>("SELECT merchant_key, label FROM income_sources");
+  const labels = new Map<string, IncomeLabel>();
+  for (const r of rows) {
+    try {
+      const parsed = JSON.parse(r.label);
+      labels.set(r.merchant_key, { name: parsed.name || null, kind: parsed.kind || null });
+    } catch {
+      // A broken label is just dropped.
+    }
+  }
+  return labels;
+}
+
+// Nickname and type for an income source (its key from getIncomeSources);
+// both empty forgets it.
+export async function setIncomeLabel(db: SQLiteDatabase, key: string, name: string | null, kind: IncomeKind | null) {
+  const trimmed = name?.trim() || null;
+  if (!trimmed && !kind) {
+    await db.runAsync("DELETE FROM income_sources WHERE merchant_key = ?", key);
+    return;
+  }
+  await db.runAsync(
+    "INSERT OR REPLACE INTO income_sources (merchant_key, label) VALUES (?, ?)",
+    key,
+    JSON.stringify({ name: trimmed, kind })
+  );
+}
+
+// Income for start..end broken down by source, with paycheck schedules. A
+// paycheck only counts as late once statements past its date are in, so
+// each account's latest uploaded date goes along.
+export async function getIncomeSources(db: SQLiteDatabase, start: string, end: string, today: string): Promise<IncomeSource[]> {
+  const [income, labels, covered] = await Promise.all([
+    getTransactions(db, { incomeOnly: true }),
+    getIncomeLabels(db),
+    db.getAllAsync<{ accountId: number; last: string }>(
+      `SELECT account_id as accountId, MAX(date) as last FROM (
+         SELECT account_id, date FROM transactions
+         UNION ALL SELECT account_id, date FROM balance_checkpoints
+         UNION ALL SELECT account_id, date FROM statement_closings
+       ) GROUP BY account_id`
+    ),
+  ]);
+  return groupIncomeSources(
+    income.filter((t) => t.linkedTransactionId === null),
+    { start, end },
+    normalizeMerchantKey,
+    formatMerchantName,
+    labels,
+    new Map(covered.map((c) => [c.accountId, c.last])),
+    today
+  );
 }
 
 // A closing date on the 28th-31st counts as the same day as a later
@@ -541,6 +610,7 @@ async function migrateMerchantKeys(db: SQLiteDatabase) {
   };
   await remap("merchant_category_map", "category_id");
   await remap("recurring_overrides", "status");
+  await remap("income_sources", "label");
 
   const reviewed = await db.getAllAsync<{ merchant: string; categoryId: number }>(
     `SELECT merchant, category_id as categoryId FROM transactions
@@ -577,8 +647,9 @@ export async function getCategories(db: SQLiteDatabase): Promise<Category[]> {
     loan_kind: LoanKind | null;
     loan_escrow: number | null;
     emoji: string | null;
+    is_income: number;
   }>(
-    "SELECT id, name, loan_amount, loan_as_of_date, loan_interest_rate, loan_kind, loan_escrow, emoji FROM categories ORDER BY name"
+    "SELECT id, name, loan_amount, loan_as_of_date, loan_interest_rate, loan_kind, loan_escrow, emoji, is_income FROM categories ORDER BY name"
   );
   return rows.map((r) => ({
     id: r.id,
@@ -589,7 +660,18 @@ export async function getCategories(db: SQLiteDatabase): Promise<Category[]> {
     loanKind: r.loan_kind,
     loanEscrow: r.loan_escrow,
     emoji: r.emoji,
+    isIncome: r.is_income === 1,
   }));
+}
+
+// Whether a category counts as income. "Income" itself always does.
+export async function setCategoryIncome(db: SQLiteDatabase, id: number, isIncome: boolean) {
+  await db.runAsync(
+    "UPDATE categories SET is_income = ? WHERE id = ? AND LOWER(name) != LOWER(?)",
+    isIncome ? 1 : 0,
+    id,
+    INCOME_CATEGORY_NAME
+  );
 }
 
 // Pass null to stop tracking the category as a loan.
@@ -1588,6 +1670,9 @@ export async function getTransactions(
     end?: string;
     categoryName?: string;
     excludeCategoryNames?: string[];
+    // Every category that counts as income, or none of them.
+    incomeOnly?: boolean;
+    excludeIncome?: boolean;
     // The Payment category, plus any category with loan-payoff tracking
     // turned on (see setCategoryLoan) -- paying down a tracked loan
     // is the same kind of debt transfer as a card Payment. Mirrors the
@@ -1619,6 +1704,8 @@ export async function getTransactions(
     clauses.push(`LOWER(categories.name) NOT IN (${placeholders}) AND categories.loan_amount IS NULL`);
     params.push(...filters.excludeCategoryNames);
   }
+  if (filters?.incomeOnly) clauses.push("categories.is_income = 1");
+  if (filters?.excludeIncome) clauses.push("categories.is_income = 0");
   if (filters?.paymentCategoriesOnly) {
     clauses.push("(LOWER(categories.name) = LOWER(?) OR categories.loan_amount IS NOT NULL)");
     params.push(PAYMENT_CATEGORY_NAME);
@@ -1759,8 +1846,8 @@ export async function getIncomeExpenseTotals(
     payments: number | null;
   }>(
     `SELECT
-       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as income,
-       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       SUM(CASE WHEN (categories.is_income = 1 OR LOWER(categories.name) = LOWER(?)) THEN transactions.amount ELSE 0 END) as income,
+       SUM(CASE WHEN categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
              AND ${NOT_BANK_INFLOW}
            THEN -${SPEND_AMOUNT} ELSE 0 END) as expenses,
@@ -1802,8 +1889,8 @@ export async function getMonthlyTotals(
   const rows = await db.getAllAsync<MonthlyTotal>(
     `SELECT
        substr(transactions.date, 1, 7) as month,
-       SUM(CASE WHEN LOWER(categories.name) = LOWER(?) THEN transactions.amount ELSE 0 END) as income,
-       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       SUM(CASE WHEN (categories.is_income = 1 OR LOWER(categories.name) = LOWER(?)) THEN transactions.amount ELSE 0 END) as income,
+       SUM(CASE WHEN categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
              AND ${NOT_BANK_INFLOW}
            THEN -${SPEND_AMOUNT} ELSE 0 END) as expenses
@@ -1860,7 +1947,7 @@ export async function getAccountMonthlyTotals(
   const rows = await db.getAllAsync<{ month: string; total: number }>(
     `SELECT
        substr(transactions.date, 1, 7) as month,
-       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       SUM(CASE WHEN categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
              AND ${NOT_BANK_INFLOW}
            THEN -${SPEND_AMOUNT} ELSE 0 END) as total
@@ -1890,7 +1977,7 @@ export async function getAccountDailySpend(
   return db.getAllAsync<{ date: string; total: number }>(
     `SELECT
        transactions.date as date,
-       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       SUM(CASE WHEN categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
            THEN -transactions.amount ELSE 0 END) as total
      FROM transactions
@@ -1918,7 +2005,7 @@ export async function getAccountSpendSummary(
 ): Promise<{ spent: number; received: number }> {
   const row = await db.getFirstAsync<{ spent: number | null; received: number | null }>(
     `SELECT
-       SUM(CASE WHEN LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       SUM(CASE WHEN categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
              AND categories.loan_amount IS NULL
              AND ${NOT_BANK_INFLOW}
            THEN -${SPEND_AMOUNT} ELSE 0 END) as spent,
@@ -1963,7 +2050,7 @@ export async function getCategorySummary(
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
-       AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       AND categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
        AND categories.loan_amount IS NULL
        ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}
      GROUP BY categories.name
@@ -2072,6 +2159,7 @@ export type DataSnapshot = {
   balanceCheckpoints?: { accountName: string; date: string; balance: number }[];
   statementSkips?: { accountName: string; month: string }[];
   checkInsDone?: string[];
+  incomeLabels?: { merchantKey: string; label: string }[];
   benefitMarks?: { accountName: string; benefitId: string; periodKey: string; amount: number }[];
   customBenefits?: {
     accountName: string;
@@ -2090,6 +2178,7 @@ export type DataSnapshot = {
     loanInterestRate?: number | null;
     loanKind?: LoanKind | null;
     loanEscrow?: number | null;
+    isIncome?: boolean;
   }[];
   merchantCategoryMap: { merchantKey: string; categoryName: string }[];
   transactions: {
@@ -2134,18 +2223,20 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     includeInSavings: a.includeInSavings === 1,
     statementReminders: a.statementReminders === 1,
   }));
-  const categories = await db.getAllAsync<{
+  const categoryRows = await db.getAllAsync<{
     name: string;
     loanAmount: number | null;
     loanAsOfDate: string | null;
     loanInterestRate: number | null;
     loanKind: LoanKind | null;
     loanEscrow: number | null;
+    isIncome: number;
   }>(
     `SELECT name, loan_amount as loanAmount, loan_as_of_date as loanAsOfDate, loan_interest_rate as loanInterestRate,
-       loan_kind as loanKind, loan_escrow as loanEscrow
+       loan_kind as loanKind, loan_escrow as loanEscrow, is_income as isIncome
      FROM categories ORDER BY id`
   );
+  const categories = categoryRows.map((c) => ({ ...c, isIncome: c.isIncome === 1 }));
   const assets = await db.getAllAsync<{ name: string; type: AssetType }>(
     "SELECT name, type FROM assets ORDER BY id"
   );
@@ -2237,6 +2328,9 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
        ORDER BY balance_checkpoints.date`
     ),
     checkInsDone: await getCheckInsDone(db),
+    incomeLabels: await db.getAllAsync<{ merchantKey: string; label: string }>(
+      "SELECT merchant_key as merchantKey, label FROM income_sources"
+    ),
     statementClosings: await db.getAllAsync<{ accountName: string; date: string }>(
       `SELECT accounts.name as accountName, statement_closings.date as date
        FROM statement_closings JOIN accounts ON accounts.id = statement_closings.account_id`
@@ -2253,19 +2347,20 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
 // for restoring onto a fresh/empty database, not merging.
 export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
   await db.execAsync(
-    "DELETE FROM statement_closings; DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
+    "DELETE FROM income_sources; DELETE FROM statement_closings; DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
   );
 
   const categoryIds = new Map<string, number>();
   for (const category of snapshot.categories) {
     const result = await db.runAsync(
-      "INSERT INTO categories (name, loan_amount, loan_as_of_date, loan_interest_rate, loan_kind, loan_escrow) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO categories (name, loan_amount, loan_as_of_date, loan_interest_rate, loan_kind, loan_escrow, is_income) VALUES (?, ?, ?, ?, ?, ?, ?)",
       category.name,
       category.loanAmount ?? null,
       category.loanAsOfDate ?? null,
       category.loanInterestRate ?? null,
       category.loanKind ?? null,
-      category.loanEscrow ?? null
+      category.loanEscrow ?? null,
+      category.isIncome || category.name.toLowerCase() === INCOME_CATEGORY_NAME.toLowerCase() ? 1 : 0
     );
     categoryIds.set(category.name, result.lastInsertRowId);
   }
@@ -2296,6 +2391,9 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     }
   }
   for (const month of snapshot.checkInsDone ?? []) await markCheckInDone(db, month);
+  for (const l of snapshot.incomeLabels ?? []) {
+    await db.runAsync("INSERT OR REPLACE INTO income_sources (merchant_key, label) VALUES (?, ?)", l.merchantKey, l.label);
+  }
   for (const c of snapshot.statementClosings ?? []) {
     const accountId = accountIds.get(c.accountName);
     if (accountId !== undefined) await recordStatementClosing(db, accountId, c.date);
@@ -2409,7 +2507,7 @@ export async function getAccountSummary(
      JOIN accounts ON accounts.id = transactions.account_id
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
-       AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       AND categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
        AND categories.loan_amount IS NULL
      GROUP BY accounts.name
      ORDER BY total DESC`,
