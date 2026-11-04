@@ -15,12 +15,15 @@ import {
   getAccounts,
   getDuplicateLookup,
   insertExtractedTransactions,
+  learnStatementClosing,
   setAccountBalanceCheckpoint,
+  setStatementDayByUser,
 } from "../lib/db";
 import { setStatementForFeedback } from "../lib/feedback";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { csvLooksReversed, parseCsv } from "../lib/parseCsv";
-import { findStatementCardBalance, findStatementEndingBalance, parseStatement } from "../lib/parseStatement";
+import { findStatementCardBalance, findStatementClosingDate, findStatementEndingBalance, parseStatement } from "../lib/parseStatement";
+import { ordinalDay, READY_AFTER_DAYS } from "../lib/statementReminders";
 import { radius, spacing } from "../lib/theme";
 import type { Account, ExtractedTransaction, Transaction } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -86,6 +89,14 @@ export default function UploadScreen() {
   const [editingBalance, setEditingBalance] = useState(false);
   const [balanceAmountInput, setBalanceAmountInput] = useState("");
   const [balanceDateInput, setBalanceDateInput] = useState("");
+  // After saving: whether to ask which day this account's statements close
+  // (none printed, none known), or to offer the day this one closed on when
+  // it differs from what the user set.
+  const [closingPrompt, setClosingPrompt] = useState<
+    { accountId: number; ask: boolean; differentDay: number | null; currentDay: number | null; fromCsv: boolean } | null
+  >(null);
+  const [closingDayInput, setClosingDayInput] = useState("");
+  const [closingDaySaved, setClosingDaySaved] = useState<number | null>(null);
 
   // The balance a statement prints (owed, for a card), as of its closing
   // date -- or, if no closing date is printed, its last transaction's date.
@@ -201,6 +212,16 @@ export default function UploadScreen() {
   async function save() {
     if (!accountId) return;
     await insertExtractedTransactions(db, accountId, extracted);
+    const account = accounts.find((a) => a.id === accountId);
+    if (account) {
+      const text = statementTextRef.current;
+      const closing = !isCsv && text ? findStatementClosingDate(text, statementYear === "Auto" ? undefined : statementYear) : null;
+      const lastDate = extracted.map((r) => r.date).sort().pop() ?? null;
+      const learned = await learnStatementClosing(db, account, closing, lastDate, isCsv);
+      setClosingPrompt({ accountId, ...learned, currentDay: account.statementDay, fromCsv: isCsv });
+      setClosingDayInput("");
+      setClosingDaySaved(null);
+    }
     if (endingBalance) {
       // Card balances are kept as negative money (charges are negative), so
       // what's owed goes in with its sign flipped.
@@ -344,6 +365,62 @@ export default function UploadScreen() {
                 {isCard
                   ? `Updated ${selectedAccount?.name ?? "this card"}: you owe ${formatMoney(endingBalance.balance)} as of ${endingBalance.date}, from this statement.`
                   : `Updated ${selectedAccount?.name ?? "this account"}'s balance to ${formatAmount(endingBalance.balance)} as of ${endingBalance.date}, from this statement.`}
+              </Text>
+            )}
+            {closingPrompt?.ask && closingDaySaved === null && (
+              <View style={styles.closingBox}>
+                <Text style={styles.closingTitle}>📅 What day does this statement usually close?</Text>
+                <Text style={styles.closingText}>
+                  {"It's on the statement as the closing or statement date. Fia uses it to remind you when the next one is ready."}
+                </Text>
+                <View style={styles.closingRow}>
+                  <TextInput
+                    value={closingDayInput}
+                    onChangeText={(v) => setClosingDayInput(v.replace(/\D/g, "").slice(0, 2))}
+                    placeholder="Day, e.g. 15"
+                    placeholderTextColor={colors.textSecondary}
+                    keyboardType="number-pad"
+                    style={styles.closingInput}
+                  />
+                  <Pressable
+                    onPress={async () => {
+                      const day = Number(closingDayInput);
+                      if (!(day >= 1 && day <= 31)) return;
+                      await setStatementDayByUser(db, closingPrompt.accountId, day, !closingPrompt.fromCsv);
+                      setClosingDaySaved(day);
+                    }}
+                    style={[styles.closingSave, !(Number(closingDayInput) >= 1 && Number(closingDayInput) <= 31) && { opacity: 0.5 }]}
+                  >
+                    <Text style={styles.closingSaveText}>Save</Text>
+                  </Pressable>
+                </View>
+                <Pressable onPress={() => setClosingPrompt(null)}>
+                  <Text style={styles.closingSkip}>{"Not sure — skip"}</Text>
+                </Pressable>
+              </View>
+            )}
+            {closingPrompt?.differentDay != null && closingDaySaved === null && (
+              <View style={styles.closingBox}>
+                <Text style={styles.closingText}>
+                  This statement closed on the {ordinalDay(closingPrompt.differentDay)}, but you set the{" "}
+                  {ordinalDay(closingPrompt.currentDay ?? 0)}.
+                </Text>
+                <Pressable
+                  onPress={async () => {
+                    const day = closingPrompt.differentDay!;
+                    await setStatementDayByUser(db, closingPrompt.accountId, day, false);
+                    setClosingDaySaved(day);
+                  }}
+                  style={styles.closingSave}
+                >
+                  <Text style={styles.closingSaveText}>Use the {ordinalDay(closingPrompt.differentDay)}</Text>
+                </Pressable>
+              </View>
+            )}
+            {closingDaySaved !== null && (
+              <Text style={styles.balanceUpdatedText}>
+                Got it: statements close on the {ordinalDay(closingDaySaved)}. {"You'll"} get a reminder about{" "}
+                {READY_AFTER_DAYS} days later, once the next one is ready.
               </Text>
             )}
             {linkedCount > 0 && (
@@ -575,6 +652,24 @@ function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   reportLink: { alignSelf: "center", paddingVertical: spacing.xs },
+  closingBox: { gap: spacing.sm, padding: spacing.sm, borderRadius: radius.chip, backgroundColor: colors.background },
+  closingTitle: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  closingText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+  closingRow: { flexDirection: "row", gap: spacing.sm },
+  closingInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.chip,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: colors.textPrimary,
+    backgroundColor: colors.card,
+  },
+  closingSave: { backgroundColor: ACCENT, borderRadius: radius.pill, paddingHorizontal: 16, justifyContent: "center", paddingVertical: 8, alignSelf: "flex-start" },
+  closingSaveText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+  closingSkip: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
   reportLinkText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, textDecorationLine: "underline" },
   container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

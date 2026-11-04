@@ -12,6 +12,11 @@ export type Account = {
   cardProduct: string | null;
   // The user's own annual fee, when it differs from the catalog's (null = use the catalog's).
   annualFee: number | null;
+  // Day of the month statements close on (null = not known yet), and
+  // whether a statement or the user set it -- a statement never overwrites
+  // what the user typed.
+  statementDay: number | null;
+  statementDaySetBy: "statement" | "user" | null;
 };
 
 export type Category = {

@@ -5,7 +5,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { checkInMonth, checkInStreak, previousMonth, statementsDone } from "../lib/checkIn";
+import { checkInMonth, checkInStreak, monthEndStatementNeeded, previousMonth, statementsDone } from "../lib/checkIn";
 import {
   getCardPaymentsTotal,
   getCategorySummary,
@@ -18,7 +18,7 @@ import {
   type CategoryTotal,
 } from "../lib/db";
 import { periodRange } from "../lib/period";
-import { describeStatementStatus, monthName, type StatementStatus } from "../lib/statementReminders";
+import { addDays, describeStatementStatus, monthName, READY_AFTER_DAYS, type StatementStatus } from "../lib/statementReminders";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
@@ -56,10 +56,24 @@ export default function CheckInScreen() {
   const load = useCallback(async () => {
     const statuses = await getStatementStatuses(db, today);
     setStatementsIn(statementsDone(statuses, month));
+    const shortDate = (d: string) =>
+      new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
     setWaiting(
-      statuses
-        .filter((s) => [...s.readyMonths, ...s.missingMonths].some((m) => m <= month))
-        .map((s) => ({ status: s, line: describeStatementStatus(s, today) ?? "" }))
+      statuses.flatMap((s) => {
+        if ([...s.readyMonths, ...s.missingMonths].some((m) => m <= month)) {
+          return [{ status: s, line: describeStatementStatus(s, today) ?? "" }];
+        }
+        // Closes mid-month: the month's last days are on the next statement.
+        const needed = monthEndStatementNeeded(s, month);
+        if (!needed) return [];
+        const out = addDays(needed, READY_AFTER_DAYS);
+        const when = out <= today ? "should be out now" : `out around ${shortDate(out)}`;
+        const which =
+          needed.slice(0, 7) === month
+            ? `Its ${monthName(month)} statement closes ${shortDate(needed)}`
+            : `Its ${shortDate(needed)} statement has the rest of ${monthName(month)}`;
+        return [{ status: s, line: `${which} · ${when}` }];
+      })
     );
     setReviewCount(await getNeedsReviewCount(db));
     setDoneMonths(await getCheckInsDone(db));

@@ -10,7 +10,7 @@ import {
   type CatalogCard,
 } from "./cardBenefits";
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
-import { statementStatus, type StatementStatus } from "./statementReminders";
+import { closingOnOrAfter, statementStatus, type StatementStatus } from "./statementReminders";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { merchantMatchText } from "./formatMerchant";
@@ -143,6 +143,13 @@ export async function initDatabase(db: SQLiteDatabase) {
     -- Transfer matching looks up "the opposite of this amount" (see
     -- TRANSFER_PAIRS), which is a full scan of every pair without this.
     CREATE INDEX IF NOT EXISTS transactions_amount ON transactions(amount);
+    -- Closing dates of uploaded statements (read off the statement, or
+    -- worked out from the account's statement day).
+    CREATE TABLE IF NOT EXISTS statement_closings (
+      account_id INTEGER NOT NULL REFERENCES accounts(id),
+      date TEXT NOT NULL,
+      PRIMARY KEY (account_id, date)
+    );
     -- "No statement this month" for an account (month = YYYY-MM).
     CREATE TABLE IF NOT EXISTS statement_skips (
       account_id INTEGER NOT NULL REFERENCES accounts(id),
@@ -213,6 +220,10 @@ export async function initDatabase(db: SQLiteDatabase) {
   }
   if (!accountColumns.some((c) => c.name === "include_in_savings")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN include_in_savings INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!accountColumns.some((c) => c.name === "statement_day")) {
+    await db.execAsync("ALTER TABLE accounts ADD COLUMN statement_day INTEGER");
+    await db.execAsync("ALTER TABLE accounts ADD COLUMN statement_day_set_by TEXT");
   }
   if (!accountColumns.some((c) => c.name === "statement_reminders")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN statement_reminders INTEGER NOT NULL DEFAULT 1");
@@ -334,14 +345,16 @@ export async function setSetting(db: SQLiteDatabase, key: string, value: string)
 // with anything uploaded. Saved statement balances' dates stand in for
 // closing dates.
 export async function getStatementStatuses(db: SQLiteDatabase, today: string): Promise<StatementStatus[]> {
-  const accounts = await db.getAllAsync<{ id: number; name: string; remindersOn: number }>(
-    "SELECT id, name, statement_reminders as remindersOn FROM accounts ORDER BY name"
+  const accounts = await db.getAllAsync<{ id: number; name: string; remindersOn: number; statementDay: number | null }>(
+    "SELECT id, name, statement_reminders as remindersOn, statement_day as statementDay FROM accounts ORDER BY name"
   );
   const txDates = await db.getAllAsync<{ accountId: number; date: string }>(
     "SELECT DISTINCT account_id as accountId, date FROM transactions ORDER BY date"
   );
   const closings = await db.getAllAsync<{ accountId: number; date: string }>(
-    "SELECT account_id as accountId, date FROM balance_checkpoints ORDER BY date"
+    `SELECT account_id as accountId, date FROM balance_checkpoints
+     UNION SELECT account_id as accountId, date FROM statement_closings
+     ORDER BY date`
   );
   const skips = await db.getAllAsync<{ accountId: number; month: string }>(
     "SELECT account_id as accountId, month FROM statement_skips"
@@ -356,10 +369,84 @@ export async function getStatementStatuses(db: SQLiteDatabase, today: string): P
         statementDates: byAccount(closings, a.id).map((r) => r.date),
         skippedMonths: byAccount(skips, a.id).map((r) => r.month),
         remindersOn: a.remindersOn === 1,
+        statementDay: a.statementDay,
       },
       today
     )
   );
+}
+
+export async function setStatementDay(
+  db: SQLiteDatabase,
+  accountId: number,
+  day: number | null,
+  setBy: "statement" | "user"
+) {
+  await db.runAsync(
+    "UPDATE accounts SET statement_day = ?, statement_day_set_by = ? WHERE id = ?",
+    day,
+    day === null ? null : setBy,
+    accountId
+  );
+}
+
+export async function recordStatementClosing(db: SQLiteDatabase, accountId: number, date: string) {
+  await db.runAsync("INSERT OR IGNORE INTO statement_closings (account_id, date) VALUES (?, ?)", accountId, date);
+}
+
+// A closing date on the 28th-31st counts as the same day as a later
+// statement day: a "31st" statement closes Feb 28.
+function sameStatementDay(closing: string, day: number): boolean {
+  const closingDay = Number(closing.slice(8, 10));
+  if (closingDay === day) return true;
+  const monthEnd = new Date(Date.UTC(Number(closing.slice(0, 4)), Number(closing.slice(5, 7)), 0)).getUTCDate();
+  return closingDay === monthEnd && day > closingDay;
+}
+
+// After an upload: learns when this account's statements close. A printed
+// closing date is recorded and sets the day, unless the user typed a
+// different one -- then `differentDay` comes back for the upload screen to
+// offer. With no date printed, a known day works out this statement's
+// closing; with neither, `ask` says to ask the user. A CSV is any span of
+// transactions, not one statement, so no closing is worked out from it.
+export async function learnStatementClosing(
+  db: SQLiteDatabase,
+  account: Account,
+  closing: string | null,
+  lastTransactionDate: string | null,
+  isCsv: boolean
+): Promise<{ ask: boolean; differentDay: number | null }> {
+  if (closing) {
+    await recordStatementClosing(db, account.id, closing);
+    const day = Number(closing.slice(8, 10));
+    if (account.statementDay !== null && sameStatementDay(closing, account.statementDay)) {
+      return { ask: false, differentDay: null };
+    }
+    if (account.statementDaySetBy === "user") return { ask: false, differentDay: day };
+    await setStatementDay(db, account.id, day, "statement");
+    return { ask: false, differentDay: null };
+  }
+  if (account.statementDay === null) return { ask: true, differentDay: null };
+  if (!isCsv && lastTransactionDate) {
+    const derived = closingOnOrAfter(lastTransactionDate, account.statementDay);
+    if (derived <= todayISO()) await recordStatementClosing(db, account.id, derived);
+  }
+  return { ask: false, differentDay: null };
+}
+
+// The user says which day statements close. With `countLatest`, their most
+// recent transactions are taken to be from a statement already uploaded, so
+// the reminder starts from the next one rather than asking for that again.
+export async function setStatementDayByUser(db: SQLiteDatabase, accountId: number, day: number | null, countLatest: boolean) {
+  await setStatementDay(db, accountId, day, "user");
+  if (day === null || !countLatest) return;
+  const row = await db.getFirstAsync<{ last: string | null }>(
+    "SELECT MAX(date) as last FROM transactions WHERE account_id = ?",
+    accountId
+  );
+  if (!row?.last) return;
+  const derived = closingOnOrAfter(row.last, day);
+  if (derived <= todayISO()) await recordStatementClosing(db, accountId, derived);
 }
 
 export async function setStatementReminders(db: SQLiteDatabase, accountId: number, on: boolean) {
@@ -607,7 +694,9 @@ export async function getAccounts(db: SQLiteDatabase): Promise<Account[]> {
        latest.date as startingBalanceDate,
        accounts.include_in_savings as includeInSavings,
        accounts.card_product as cardProduct,
-       accounts.annual_fee as annualFee
+       accounts.annual_fee as annualFee,
+       accounts.statement_day as statementDay,
+       accounts.statement_day_set_by as statementDaySetBy
      FROM accounts
      LEFT JOIN balance_checkpoints latest ON latest.account_id = accounts.id
        AND latest.date = (
@@ -844,6 +933,7 @@ export async function deleteAccount(db: SQLiteDatabase, id: number) {
   await pruneTags(db);
   await db.runAsync("DELETE FROM balance_checkpoints WHERE account_id = ?", id);
   await db.runAsync("DELETE FROM statement_skips WHERE account_id = ?", id);
+  await db.runAsync("DELETE FROM statement_closings WHERE account_id = ?", id);
   await db.runAsync("DELETE FROM accounts WHERE id = ?", id);
 }
 
@@ -1974,7 +2064,10 @@ export type DataSnapshot = {
     annualFee?: number | null;
     includeInSavings?: boolean;
     statementReminders?: boolean;
+    statementDay?: number | null;
+    statementDaySetBy?: "statement" | "user" | null;
   }[];
+  statementClosings?: { accountName: string; date: string }[];
   // Optional so backups from before they were included still restore.
   balanceCheckpoints?: { accountName: string; date: string; balance: number }[];
   statementSkips?: { accountName: string; month: string }[];
@@ -2028,9 +2121,12 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     annualFee: number | null;
     includeInSavings: number;
     statementReminders: number;
+    statementDay: number | null;
+    statementDaySetBy: "statement" | "user" | null;
   }>(
     `SELECT name, type, card_product as cardProduct, annual_fee as annualFee,
-       include_in_savings as includeInSavings, statement_reminders as statementReminders
+       include_in_savings as includeInSavings, statement_reminders as statementReminders,
+       statement_day as statementDay, statement_day_set_by as statementDaySetBy
      FROM accounts ORDER BY id`
   );
   const accounts = accountRows.map((a) => ({
@@ -2141,6 +2237,10 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
        ORDER BY balance_checkpoints.date`
     ),
     checkInsDone: await getCheckInsDone(db),
+    statementClosings: await db.getAllAsync<{ accountName: string; date: string }>(
+      `SELECT accounts.name as accountName, statement_closings.date as date
+       FROM statement_closings JOIN accounts ON accounts.id = statement_closings.account_id`
+    ),
     statementSkips: await db.getAllAsync<{ accountName: string; month: string }>(
       `SELECT accounts.name as accountName, statement_skips.month as month
        FROM statement_skips JOIN accounts ON accounts.id = statement_skips.account_id`
@@ -2153,7 +2253,7 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
 // for restoring onto a fresh/empty database, not merging.
 export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
   await db.execAsync(
-    "DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
+    "DELETE FROM statement_closings; DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
   );
 
   const categoryIds = new Map<string, number>();
@@ -2173,13 +2273,16 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
   const accountIds = new Map<string, number>();
   for (const account of snapshot.accounts) {
     const result = await db.runAsync(
-      "INSERT INTO accounts (name, type, card_product, annual_fee, include_in_savings, statement_reminders) VALUES (?, ?, ?, ?, ?, ?)",
+      `INSERT INTO accounts (name, type, card_product, annual_fee, include_in_savings, statement_reminders,
+         statement_day, statement_day_set_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       account.name,
       account.type,
       account.cardProduct ?? null,
       account.annualFee ?? null,
       account.includeInSavings === false ? 0 : 1,
-      account.statementReminders === false ? 0 : 1
+      account.statementReminders === false ? 0 : 1,
+      account.statementDay ?? null,
+      account.statementDaySetBy ?? null
     );
     accountIds.set(account.name, result.lastInsertRowId);
   }
@@ -2193,6 +2296,10 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     }
   }
   for (const month of snapshot.checkInsDone ?? []) await markCheckInDone(db, month);
+  for (const c of snapshot.statementClosings ?? []) {
+    const accountId = accountIds.get(c.accountName);
+    if (accountId !== undefined) await recordStatementClosing(db, accountId, c.date);
+  }
   for (const s of snapshot.statementSkips ?? []) {
     const accountId = accountIds.get(s.accountName);
     if (accountId !== undefined) await skipStatementMonth(db, accountId, s.month);

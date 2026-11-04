@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findStatementCardBalance } from "../lib/parseStatement";
+import { findStatementCardBalance, findStatementClosingDate } from "../lib/parseStatement";
 
 describe("findStatementCardBalance", () => {
   it.each([
@@ -23,5 +23,18 @@ describe("findStatementCardBalance", () => {
 
   it("falls back to the given date when no closing date is printed", () => {
     expect(findStatementCardBalance("New Balance $50.00", "2026-10-19")).toEqual({ owed: 50, date: "2026-10-19" });
+  });
+});
+
+describe("findStatementClosingDate", () => {
+  it("reads closing dates however they're printed", () => {
+    expect(findStatementClosingDate("Opening/Closing Date 09/26/26 - 10/25/26")).toBe("2026-10-25");
+    expect(findStatementClosingDate("Closing Date 10/15/2026")).toBe("2026-10-15");
+    expect(findStatementClosingDate("Statement Date: Oct 18, 2026")).toBe("2026-10-18");
+    expect(findStatementClosingDate("Ending balance on 10/31 $1,234.56", 2026)).toBe("2026-10-31");
+  });
+
+  it("returns null when the statement prints none", () => {
+    expect(findStatementClosingDate("10/02 STARBUCKS 4.50\n10/05 SHELL 30.00")).toBeNull();
   });
 });

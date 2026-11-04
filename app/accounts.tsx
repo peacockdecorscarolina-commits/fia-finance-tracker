@@ -12,6 +12,7 @@ import {
   getAccounts,
   getAccountSpendSummary,
   insertAccount,
+  setStatementDay,
   renameAccount,
   setAccountBalanceCheckpoint,
   setAccountCardProduct,
@@ -46,6 +47,8 @@ export default function AccountsScreen() {
   const [spendByAccount, setSpendByAccount] = useState<Record<number, number>>({});
   const [balanceByAccount, setBalanceByAccount] = useState<Record<number, number>>({});
   const [name, setName] = useState("");
+  // Optional: the day statements close, for upload reminders.
+  const [newStatementDay, setNewStatementDay] = useState("");
   const [type, setType] = useState<(typeof ACCOUNT_TYPES)[number]["value"]>("Checking");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [newCardProduct, setNewCardProduct] = useState<string | null>(null);
@@ -71,8 +74,11 @@ export default function AccountsScreen() {
 
   async function handleAdd() {
     if (!name.trim()) return;
-    await insertAccount(db, name.trim(), type, type === "Credit Card" ? newCardProduct : null);
+    const id = await insertAccount(db, name.trim(), type, type === "Credit Card" ? newCardProduct : null);
+    const day = Number(newStatementDay);
+    if (day >= 1 && day <= 31) await setStatementDay(db, id, day, "user");
     setName("");
+    setNewStatementDay("");
     setNewCardProduct(null);
     load();
   }
@@ -208,6 +214,19 @@ export default function AccountsScreen() {
               onChangeText={setName}
               placeholder={type === "Credit Card" ? "e.g. Amex Gold" : "e.g. Chase Checking"}
               placeholderTextColor={colors.textSecondary}
+              style={styles.inputText}
+            />
+          </View>
+
+          <Text style={styles.fieldLabel}>Statement closes on day (optional)</Text>
+          <View style={styles.inputRow}>
+            <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+            <TextInput
+              value={newStatementDay}
+              onChangeText={(v) => setNewStatementDay(v.replace(/\D/g, "").slice(0, 2))}
+              placeholder="e.g. 15 -- skip it if you don't know"
+              placeholderTextColor={colors.textSecondary}
+              keyboardType="number-pad"
               style={styles.inputText}
             />
           </View>
