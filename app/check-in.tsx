@@ -5,7 +5,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { accountMonthState, checkInMonth, checkInStreak, previousMonth, statementsDone, type AccountMonthState } from "../lib/checkIn";
+import { accountMonthState, checkInMonth, checkInStreak, CHECK_IN_DAY, previousMonth, statementsDone, upcomingStatements, type AccountMonthState } from "../lib/checkIn";
 import {
   getCardPaymentsTotal,
   getCategorySummary,
@@ -65,6 +65,16 @@ export default function CheckInScreen() {
   const [month, setMonth] = useState(openMonth);
   const [earliestMonth, setEarliestMonth] = useState(openMonth);
   const isOpen = month === openMonth;
+  // Months after the open one (the one in progress and the next) show when
+  // their statements are due; their check-ins haven't opened yet.
+  const isUpcoming = month > openMonth;
+  const lastViewable = shiftMonth(today.slice(0, 7), 1);
+  const opensOn = new Date(`${shiftMonth(month, 1)}-0${CHECK_IN_DAY}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  const started = month <= today.slice(0, 7);
   const label = monthName(month, month.slice(0, 4) !== today.slice(0, 4));
   const [accountStates, setAccountStates] = useState<{ status: StatementStatus; state: AccountMonthState }[]>([]);
   const [statementsIn, setStatementsIn] = useState(false);
@@ -82,7 +92,7 @@ export default function CheckInScreen() {
     if (firsts[0]) setEarliestMonth(firsts[0].slice(0, 7) < openMonth ? firsts[0].slice(0, 7) : openMonth);
     setAccountStates(
       statuses.flatMap((s) => {
-        const state = accountMonthState(s, month, today);
+        const state = month > openMonth ? upcomingStatements(s, month, today) : accountMonthState(s, month, today);
         return state ? [{ status: s, state }] : [];
       })
     );
@@ -141,7 +151,8 @@ export default function CheckInScreen() {
     else Linking.openURL("https://fia-finance-tracker.vercel.app/api/check-in-calendar");
   }
 
-  const change = recap && recap.spentBefore > 0 ? ((recap.spent - recap.spentBefore) / recap.spentBefore) * 100 : null;
+  // A month still in progress would always look like a big drop.
+  const change = recap && recap.spentBefore > 0 && !isUpcoming ? ((recap.spent - recap.spentBefore) / recap.spentBefore) * 100 : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -165,12 +176,14 @@ export default function CheckInScreen() {
           </Pressable>
           <View style={{ alignItems: "center" }}>
             <Text style={styles.monthLabel}>{label}</Text>
-            <Text style={styles.monthSub}>{isOpen ? "Open now" : finished ? "✅ Finished" : "✗ Not finished"}</Text>
+            <Text style={styles.monthSub}>
+              {isOpen ? "Open now" : isUpcoming ? `Opens ${opensOn}` : finished ? "✅ Finished" : "✗ Not finished"}
+            </Text>
           </View>
           <Pressable
             onPress={() => setMonth(shiftMonth(month, 1))}
-            disabled={isOpen}
-            style={[styles.monthArrow, isOpen && { opacity: 0.3 }]}
+            disabled={month >= lastViewable}
+            style={[styles.monthArrow, month >= lastViewable && { opacity: 0.3 }]}
             accessibilityLabel="Next month"
           >
             <Ionicons name="chevron-forward" size={18} color={colors.textPrimary} />
@@ -179,14 +192,22 @@ export default function CheckInScreen() {
 
         <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
           <Text style={styles.heroTitle}>
-            {finished ? `${label} is all wrapped up 🎉` : isOpen ? `Wrap up ${label}` : `${label} wasn't finished`}
+            {finished
+              ? `${label} is all wrapped up 🎉`
+              : isOpen
+                ? `Wrap up ${label}`
+                : isUpcoming
+                  ? `${label} check-in opens ${opensOn}`
+                  : `${label} wasn't finished`}
           </Text>
           <Text style={styles.heroText}>
             {finished
               ? "Your numbers for the month are complete."
               : isOpen
                 ? "Once a month: get last month's statements in, sort anything new, and see how the month went. About 5 minutes."
-                : "Its check-in closed before it was finished. You can still upload its statements to fill in the numbers."}
+                : isUpcoming
+                  ? `Here's when the statements that make up ${monthName(month)} come out.`
+                  : "Its check-in closed before it was finished. You can still upload its statements to fill in the numbers."}
           </Text>
           {streak > 0 && (
             <View style={styles.streakPill}>
@@ -201,14 +222,17 @@ export default function CheckInScreen() {
           <StepTitle done={statementsIn} title={`1. ${label} statements`} styles={styles} />
           <Pressable onPress={() => setStatementsOpen((v) => !v)} style={styles.summaryRow}>
             <Text style={[styles.stepText, { flex: 1 }]}>
-              {statementsIn ? `Every account is in for ${label}` : statementSummary(accountStates.map((a) => a.state))}
+              {statementsIn ? `Every account is in for ${label}` : statementSummary(accountStates.map((a) => a.state), isUpcoming)}
             </Text>
             <Text style={styles.summaryToggle}>{statementsOpen ? "Hide" : `Show ${accountStates.length}`}</Text>
             <Ionicons name={statementsOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.accent} />
           </Pressable>
           {statementsOpen && accountStates.map(({ status, state }) => {
             const icon = STATE_ICON[state.kind];
-            const needsUpload = state.kind === "missing" || state.kind === "ready" || state.kind === "waiting";
+            // A future month's statements get Upload once they should be out.
+            const needsUpload = isUpcoming
+              ? state.line.includes("should be out now")
+              : state.kind === "missing" || state.kind === "ready" || state.kind === "waiting";
             return (
               <View key={status.accountId} style={styles.waitingRow}>
                 <Ionicons name={icon.name} size={18} color={icon.color} />
@@ -249,8 +273,13 @@ export default function CheckInScreen() {
         </View>
         )}
 
+        {started && (
         <View style={styles.stepCard}>
-          <StepTitle done={finished} title={isOpen ? `3. Your ${label} recap` : `2. Your ${label} recap`} styles={styles} />
+          <StepTitle
+            done={finished}
+            title={isOpen ? `3. Your ${label} recap` : isUpcoming ? `2. Your ${label} so far` : `2. Your ${label} recap`}
+            styles={styles}
+          />
           {recap && (
             <>
               <View style={styles.recapRow}>
@@ -353,6 +382,7 @@ export default function CheckInScreen() {
             </Pressable>
           )}
         </View>
+        )}
         </>
         )}
 
@@ -370,11 +400,11 @@ export default function CheckInScreen() {
 }
 
 // "2 in · 1 waiting · 1 missing" for the folded statements list.
-function statementSummary(states: AccountMonthState[]): string {
+function statementSummary(states: AccountMonthState[], upcoming: boolean): string {
   const count = (kinds: AccountMonthState["kind"][]) => states.filter((s) => kinds.includes(s.kind)).length;
   const parts = [
     [count(["closed", "upToDate"]), "in"],
-    [count(["waiting"]), "waiting"],
+    [count(["waiting"]), upcoming ? "coming up" : "waiting"],
     [count(["ready"]), "ready to upload"],
     [count(["missing"]), "missing"],
   ] as const;

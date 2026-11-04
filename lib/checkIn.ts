@@ -1,4 +1,4 @@
-import { addDays, closingOnOrAfter, READY_AFTER_DAYS, type StatementStatus } from "./statementReminders";
+import { addDays, addMonths, closingOnOrAfter, onDay, READY_AFTER_DAYS, type StatementStatus } from "./statementReminders";
 
 // The monthly check-in: once last month's statements are out, upload them,
 // clear the review pile, see the month's recap. Month M's check-in opens on
@@ -76,6 +76,31 @@ export function accountMonthState(s: StatementStatus, month: string, today: stri
     return { kind: "closed", line: `Statement closed ${closings.map(shortDate).join(" and ")}` };
   }
   return { kind: "upToDate", line: "Up to date" };
+}
+
+// A month whose check-in hasn't opened yet: the statements that will make up
+// its numbers and when each comes out -- the one closing in it and, when
+// statements close mid-month, the next one holding its last days. Without a
+// statement day, the expected closings that fall in the month.
+export function upcomingStatements(s: StatementStatus, month: string, today: string): AccountMonthState | null {
+  if (!s.remindersOn || !s.nextExpected) return null;
+  const name = new Date(`${month}-01T00:00:00Z`).toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+  let closings: string[];
+  if (s.statementDay !== null) {
+    closings = [...new Set([onDay(month, s.statementDay), closingOnOrAfter(lastDayOf(month), s.statementDay)])];
+  } else {
+    closings = [];
+    for (let d = s.nextExpected; d.slice(0, 7) <= month; d = addMonths(d, 1)) if (d.slice(0, 7) === month) closings.push(d);
+  }
+  if (closings.length === 0) return null;
+  const uploaded = (d: string) => s.lastStatementDate !== null && d <= s.lastStatementDate;
+  const parts = closings.map((d) => {
+    const rest = d.slice(0, 7) !== month ? ` (has the rest of ${name})` : "";
+    if (uploaded(d)) return `✅ ${shortDate(d)} statement in`;
+    const out = addDays(d, READY_AFTER_DAYS);
+    return `${shortDate(d)} statement${rest} · ${out <= today ? "should be out now" : `out around ${shortDate(out)}`}`;
+  });
+  return { kind: closings.every(uploaded) ? "closed" : "waiting", line: parts.join("\n") };
 }
 
 // Months in a row with a finished check-in, counting back from the open

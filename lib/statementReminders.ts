@@ -67,7 +67,7 @@ export function addMonths(date: string, months: number): string {
   return format(d);
 }
 
-function onDay(month: string, day: number): string {
+export function onDay(month: string, day: number): string {
   const lastDay = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
   return `${month}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
 }

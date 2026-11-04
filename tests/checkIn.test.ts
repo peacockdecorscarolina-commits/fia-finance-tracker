@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountMonthState, checkInMonth, checkInStreak, monthEndStatementNeeded, statementsDone } from "../lib/checkIn";
+import { accountMonthState, checkInMonth, checkInStreak, monthEndStatementNeeded, statementsDone, upcomingStatements } from "../lib/checkIn";
 import type { StatementStatus } from "../lib/statementReminders";
 
 const status = (readyMonths: string[], missingMonths: string[] = [], over: Partial<StatementStatus> = {}): StatementStatus => ({
@@ -84,5 +84,26 @@ describe("accountMonthState", () => {
   it("leaves out accounts that started later or have reminders off", () => {
     expect(accountMonthState(status([], [], { firstDate: "2026-11-01" }), "2026-10", today)).toBeNull();
     expect(accountMonthState(status([], [], { remindersOn: false }), "2026-10", today)).toBeNull();
+  });
+});
+
+describe("upcomingStatements", () => {
+  it("lists when a future month's statements come out", () => {
+    const card = status([], [], { statementDay: 15, lastStatementDate: "2026-10-15", nextExpected: "2026-11-15" });
+    expect(upcomingStatements(card, "2026-11", "2026-11-04")).toEqual({
+      kind: "waiting",
+      line: "Nov 15 statement · out around Nov 20\nDec 15 statement (has the rest of November) · out around Dec 20",
+    });
+    const monthEnd = status([], [], { statementDay: 31, lastStatementDate: "2026-10-31", nextExpected: "2026-11-30" });
+    expect(upcomingStatements(monthEnd, "2026-11", "2026-11-04")?.line).toBe("Nov 30 statement · out around Dec 5");
+  });
+
+  it("marks statements already in, and guesses by month without a day", () => {
+    const both = status([], [], { statementDay: 15, lastStatementDate: "2026-11-15", nextExpected: "2026-12-15" });
+    expect(upcomingStatements(both, "2026-11", "2026-11-25")?.line).toBe(
+      "✅ Nov 15 statement in\nDec 15 statement (has the rest of November) · out around Dec 20"
+    );
+    const noDay = status([], [], { lastStatementDate: "2026-10-20", nextExpected: "2026-11-20" });
+    expect(upcomingStatements(noDay, "2026-11", "2026-11-04")?.line).toBe("Nov 20 statement · out around Nov 25");
   });
 });
