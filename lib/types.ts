@@ -30,6 +30,8 @@ export type Category = {
   // Part of each payment that isn't the loan (mortgage escrow) -- null for none.
   loanEscrow: number | null;
   emoji: string | null;
+  // Counts toward income (always true for "Income").
+  isIncome: boolean;
 };
 
 export type Transaction = {

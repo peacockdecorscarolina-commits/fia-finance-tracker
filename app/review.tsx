@@ -259,7 +259,8 @@ function ReviewCard({
       </View>
 
       <View style={styles.chips}>
-        {categories.map((c) => {
+        {/* Money in: income categories first, since that's most often the answer. */}
+        {(isNegative ? categories : [...categories].sort((a, b) => Number(b.isIncome) - Number(a.isIncome))).map((c) => {
           const cs = getCategoryStyle(c.name);
           return (
             <Pressable key={c.id} onPress={() => flyOff(FLY_DISTANCE, 40, () => onTag(c.id))} style={styles.chipBtn}>

@@ -140,9 +140,19 @@ export function parseCsv(text: string): ExtractedTransaction[] {
   return rows.map(rowFromShape).filter((t): t is ExtractedTransaction => t !== null);
 }
 
-// A statement is mostly purchases, so if most amounts are positive the file
-// probably writes purchases as + (Amex does) -- the app stores them as -.
+// Descriptions that only ever mean money coming in -- a paycheck, a deposit,
+// a refund, a card payment as the card sees it. ("Autopay" is left out: in a
+// checking account it's money going out.)
+const MONEY_IN = /payroll|direct dep|\bdeposit\b|salary|zelle from|transfer from|refund|payment received|payment\s*-?\s*thank you|interest paid/i;
+
+// Whether the file writes purchases as + (Amex does) -- the app stores
+// them as -. Rows that must be money in say it best; without any, a
+// statement is mostly purchases, so mostly-positive means reversed. (A
+// checking file of mostly paychecks and payouts would otherwise flip.)
 export function csvLooksReversed(transactions: ExtractedTransaction[]): boolean {
+  const moneyIn = transactions.filter((t) => MONEY_IN.test(t.merchant));
+  const positiveIn = moneyIn.filter((t) => t.amount > 0).length;
+  if (moneyIn.length > 0 && positiveIn * 2 !== moneyIn.length) return positiveIn * 2 < moneyIn.length;
   const positive = transactions.filter((t) => t.amount > 0).length;
   return positive > transactions.length / 2;
 }

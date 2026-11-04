@@ -24,6 +24,7 @@ import {
   getCardPaymentsTotal,
   getCardsOwed,
   getCardOverviews,
+  getIncomeSources,
   getRecurring,
   getSetting,
   setSetting,
@@ -33,6 +34,7 @@ import {
   type CardOverview,
   type CategoryTotal,
 } from "../lib/db";
+import { describePaySchedule, INCOME_KINDS, type IncomeSource } from "../lib/incomeSources";
 import { monthsBetween, periodRange } from "../lib/period";
 import { radius, spacing, tabBarClearance } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -288,6 +290,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const [loading, setLoading] = useState(true);
   // Active subscriptions and bills -- always "right now", not tied to the picked period.
   const [recurring, setRecurring] = useState<Recurring[]>([]);
+  const [incomeSources, setIncomeSources] = useState<IncomeSource[]>([]);
   const [cards, setCards] = useState<CardOverview[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -366,6 +369,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         // Owed as of the period's end, or today while it's still going.
         getCardsOwed(db, end < todayIso() ? end : todayIso()).then(setCardsOwed),
         getTransactions(db, { start, end }).then((list) => setRecent(list.slice(0, 5))),
+        section === "spending" ? getIncomeSources(db, start, end, todayIso()).then(setIncomeSources) : Promise.resolve(),
         getAccounts(db).then(setAccounts),
         getAccountBalances(db, end).then(setAccountBalances),
       ]).then(() => setLoading(false));
@@ -411,6 +415,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
     { icon: "search-outline", label: "Search", onPress: () => router.push({ pathname: "/all-transactions", params: { search: "1" } }) },
     { icon: "repeat-outline", label: "Subscriptions", onPress: () => router.push("/subscriptions") },
     { icon: "calendar-outline", label: "Monthly check-in", onPress: () => router.push("/check-in") },
+    { icon: "cash-outline", label: "Income", onPress: () => router.push("/income") },
     { icon: "card-outline", label: "Manage accounts", onPress: () => router.push("/accounts") },
     { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
     { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },
@@ -668,6 +673,47 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         </View>
         )}
 
+        {/* Only worth a section with more than one income, or a late paycheck. */}
+        {section === "spending" &&
+          (incomeSources.filter((s) => s.total > 0).length > 1 || incomeSources.some((s) => s.schedule?.late)) && (
+        <View>
+          {sectionHeader(
+            "incomeSources",
+            "Income by source",
+            formatMoney(incomeSources.reduce((sum, s) => sum + s.total, 0)),
+            { label: "See all", onPress: () => router.push({ pathname: "/income", params: { period: periodKey } }) }
+          )}
+          {!collapsed.incomeSources && (
+          <View style={[styles.sectionCard, { marginTop: spacing.sm, gap: spacing.sm }]}>
+            {incomeSources.slice(0, 4).map((s) => {
+              const kind = INCOME_KINDS.find((k) => k.value === s.kind);
+              return (
+                <Pressable
+                  key={s.key}
+                  onPress={() => router.push({ pathname: "/income", params: { period: periodKey } })}
+                  style={styles.incomeRow}
+                >
+                  <Text style={styles.incomeEmoji}>{kind?.emoji ?? "💵"}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.legendName} numberOfLines={1}>
+                      {s.name}
+                    </Text>
+                    {s.schedule && (
+                      <Text style={[styles.incomeMeta, s.schedule.late && { color: "#B45309", fontWeight: "700" }]} numberOfLines={1}>
+                        {s.schedule.late ? "Late · was due " : `${describePaySchedule(s.schedule)} · next `}
+                        {new Date(`${s.schedule.nextDate}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={styles.incomeAmount}>{formatMoney(s.total)}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          )}
+        </View>
+        )}
+
         {section === "spending" && (
         <View>
           {sectionHeader("byCategory", "By category", formatMoney(total))}
@@ -909,6 +955,10 @@ function makeStyles(colors: ThemeColors) {
   },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   headerIcons: { flexDirection: "row", gap: spacing.sm },
+  incomeRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  incomeEmoji: { fontSize: 20 },
+  incomeMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  incomeAmount: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
   headerIconBtn: {
     width: 40,
     height: 40,

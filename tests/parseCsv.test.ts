@@ -18,6 +18,19 @@ describe("parseCsv", () => {
     expect(csvLooksReversed(rows)).toBe(true);
   });
 
+  it("doesn't flip a checking file that's mostly paychecks and payouts", () => {
+    const rows = parseCsv(
+      "Date,Description,Amount\n10/02/2026,ACME CORP PAYROLL,2100.00\n10/16/2026,ACME CORP PAYROLL,2100.00\n10/12/2026,UBER EARNINGS,320.00\n10/08/2026,GROCERY STORE,-54.20"
+    );
+    expect(csvLooksReversed(rows)).toBe(false);
+  });
+
+  it("goes by money-in rows when they're there, either way", () => {
+    // Amex-style: purchases +, the payment received -.
+    const amex = parseCsv("Date,Description,Amount\n10/01/2026,PAYMENT RECEIVED - THANK YOU,-500.00\n10/03/2026,TARGET,-12.00\n10/04/2026,REFUND AMAZON,-20.00");
+    expect(csvLooksReversed(amex)).toBe(true);
+  });
+
   it("combines separate Debit and Credit columns", () => {
     const rows = parseCsv(
       "Transaction Date,Posted Date,Card No.,Description,Category,Debit,Credit\n2026-01-03,2026-01-04,1234,SHELL OIL,Gas,40.00,\n2026-01-06,2026-01-06,1234,AUTOPAY,Payment,,250.00"
