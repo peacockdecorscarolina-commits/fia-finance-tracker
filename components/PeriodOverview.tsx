@@ -673,7 +673,9 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         </View>
         )}
 
-        {section === "spending" && incomeSources.length > 0 && (
+        {/* Only worth a section with more than one income, or a late paycheck. */}
+        {section === "spending" &&
+          (incomeSources.filter((s) => s.total > 0).length > 1 || incomeSources.some((s) => s.schedule?.late)) && (
         <View>
           {sectionHeader(
             "incomeSources",
