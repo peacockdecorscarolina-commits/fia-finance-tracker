@@ -2,9 +2,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
-import { getStatementStatuses, setStatementReminders, todayISO } from "../lib/db";
-import { describeStatementStatus, type StatementStatus } from "../lib/statementReminders";
+import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { getStatementStatuses, setStatementDayByUser, setStatementReminders, todayISO } from "../lib/db";
+import { describeStatementStatus, ordinalDay, type StatementStatus } from "../lib/statementReminders";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
@@ -21,6 +21,8 @@ export function StatementStatusCard({ accountId }: { accountId: number }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const [status, setStatus] = useState<StatementStatus | null>(null);
+  const [editingDay, setEditingDay] = useState(false);
+  const [dayInput, setDayInput] = useState("");
 
   const load = useCallback(async () => {
     const all = await getStatementStatuses(db, todayISO());
@@ -36,6 +38,18 @@ export function StatementStatusCard({ accountId }: { accountId: number }) {
   if (!status || !status.nextExpected) return null;
   const line = describeStatementStatus(status, todayISO());
 
+  const dayValue = Number(dayInput);
+  const dayValid = dayValue >= 1 && dayValue <= 31;
+
+  async function saveDay() {
+    if (!dayValid) return;
+    // Their latest transactions are from statements already uploaded, so the
+    // reminder starts with the next one.
+    await setStatementDayByUser(db, accountId, dayValue, true);
+    setEditingDay(false);
+    load();
+  }
+
   async function toggle(on: boolean) {
     await setStatementReminders(db, accountId, on);
     load();
@@ -44,6 +58,37 @@ export function StatementStatusCard({ accountId }: { accountId: number }) {
   return (
     <View style={styles.card}>
       <Text style={styles.title}>📄 Statements</Text>
+      {editingDay ? (
+        <View style={styles.dayRow}>
+          <TextInput
+            value={dayInput}
+            onChangeText={(v) => setDayInput(v.replace(/\D/g, "").slice(0, 2))}
+            placeholder="Closing day, e.g. 15"
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="number-pad"
+            autoFocus
+            style={styles.dayInput}
+          />
+          <Pressable onPress={saveDay} style={[styles.uploadBtn, !dayValid && { opacity: 0.5 }]}>
+            <Text style={styles.uploadBtnText}>Save</Text>
+          </Pressable>
+          <Pressable onPress={() => setEditingDay(false)}>
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable
+          onPress={() => {
+            setDayInput(status.statementDay ? String(status.statementDay) : "");
+            setEditingDay(true);
+          }}
+        >
+          <Text style={styles.meta}>
+            {status.statementDay ? `Closes on the ${ordinalDay(status.statementDay)} · ` : "Closing day not set · "}
+            <Text style={styles.link}>{status.statementDay ? "Change" : "Set it"}</Text>
+          </Text>
+        </Pressable>
+      )}
       <Text style={styles.meta}>
         {status.lastStatementDate ? `Last statement closed ${formatDate(status.lastStatementDate)}` : "Based on your latest transaction"}
         {` · next one around ${formatDate(status.nextExpected)}`}
@@ -91,5 +136,18 @@ function makeStyles(colors: ThemeColors) {
     uploadBtnText: { fontSize: 12, fontWeight: "700", color: "#FFFFFF" },
     switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
     switchLabel: { fontSize: 13, color: colors.textPrimary, fontWeight: "600" },
+    link: { color: colors.accent, fontWeight: "700", fontSize: 12 },
+    dayRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    dayInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.chip,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 7,
+      fontSize: 14,
+      color: colors.textPrimary,
+      backgroundColor: colors.background,
+    },
   });
 }

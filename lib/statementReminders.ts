@@ -1,8 +1,9 @@
 // Works out, per account, whether a statement is waiting to be uploaded:
-// - "ready": the next statement has probably come out. Statements close
-//   about a month apart, so the next one is expected a month after the
-//   last one (its closing date, or the last transaction when no closing
-//   date is known), and counted as out READY_AFTER_DAYS after that.
+// - "ready": the next statement has probably come out. With the account's
+//   statement day known (read off a statement, or given by the user), the
+//   next one closes on that day; without it, a month after the last one
+//   (its closing date, or the last transaction when no closing date is
+//   known). Either way it counts as out READY_AFTER_DAYS after closing.
 // - "missing": a month in the middle that never got uploaded -- either no
 //   transactions at all that month, or two statements more than a month
 //   apart with nothing in the gap where the one between them belongs.
@@ -21,12 +22,15 @@ export type StatementHistory = {
   statementDates: string[];
   skippedMonths: string[];
   remindersOn: boolean;
+  // Day of the month statements close on, when known.
+  statementDay: number | null;
 };
 
 export type StatementStatus = {
   accountId: number;
   accountName: string;
   remindersOn: boolean;
+  statementDay: number | null;
   lastStatementDate: string | null;
   // When the next statement should close.
   nextExpected: string | null;
@@ -60,6 +64,23 @@ export function addMonths(date: string, months: number): string {
   return format(d);
 }
 
+function onDay(month: string, day: number): string {
+  const lastDay = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+  return `${month}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
+// The first date after `date` falling on `day` (the month's last day when
+// it's shorter -- a statement "on the 31st" closes Feb 28).
+export function nextOnDay(date: string, day: number): string {
+  const sameMonth = onDay(date.slice(0, 7), day);
+  return sameMonth > date ? sameMonth : onDay(addMonths(`${date.slice(0, 7)}-01`, 1).slice(0, 7), day);
+}
+
+// The statement a transaction on `date` belongs to closes on this date.
+export function closingOnOrAfter(date: string, day: number): string {
+  return nextOnDay(addDays(date, -1), day);
+}
+
 function monthsBetweenExclusive(first: string, last: string): string[] {
   const out: string[] = [];
   let m = addMonths(`${first}-01`, 1).slice(0, 7);
@@ -77,18 +98,28 @@ function hasDateBetween(sortedDates: string[], from: string, to: string): boolea
 export function statementStatus(h: StatementHistory, today: string): StatementStatus {
   const lastStatementDate = h.statementDates[h.statementDates.length - 1] ?? null;
   const lastTransaction = h.transactionDates[h.transactionDates.length - 1] ?? null;
-  const empty = { accountId: h.accountId, accountName: h.accountName, remindersOn: h.remindersOn, lastStatementDate, readyMonths: [], missingMonths: [] };
+  const empty = { accountId: h.accountId, accountName: h.accountName, remindersOn: h.remindersOn, statementDay: h.statementDay, lastStatementDate, readyMonths: [], missingMonths: [] };
   const base = [lastStatementDate, lastTransaction].filter((d): d is string => d !== null).sort().pop();
   if (!base) return { ...empty, nextExpected: null };
 
   const skipped = new Set(h.skippedMonths);
-  let nextExpected = addMonths(base, 1);
-  while (skipped.has(nextExpected.slice(0, 7))) nextExpected = addMonths(nextExpected, 1);
+  // The k-th statement closing after `base`.
+  const day = h.statementDay;
+  const closingAfter = (k: number) => {
+    if (day === null) return addMonths(base, k);
+    let d = nextOnDay(base, day);
+    for (let i = 1; i < k; i++) d = nextOnDay(d, day);
+    return d;
+  };
+
+  let k = 1;
+  while (skipped.has(closingAfter(k).slice(0, 7)) && k < 24) k++;
+  const nextExpected = closingAfter(k);
   if (!h.remindersOn) return { ...empty, nextExpected };
 
   const readyMonths: string[] = [];
   for (let k = 1; k <= 12; k++) {
-    const closing = addMonths(base, k);
+    const closing = closingAfter(k);
     if (addDays(closing, READY_AFTER_DAYS) > today) break;
     if (!skipped.has(closing.slice(0, 7))) readyMonths.push(closing.slice(0, 7));
   }
@@ -140,4 +171,11 @@ export function describeStatementStatus(s: StatementStatus, today: string): stri
 // middle first, then the oldest ready one.
 export function monthToSkip(s: StatementStatus): string | null {
   return s.missingMonths[0] ?? s.readyMonths[0] ?? null;
+}
+
+// 1 -> "1st", 22 -> "22nd", 15 -> "15th".
+export function ordinalDay(day: number): string {
+  const tens = day % 100;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[day % 10] ?? "th";
+  return `${day}${suffix}`;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonths, describeStatementStatus, monthToSkip, statementStatus, type StatementHistory } from "../lib/statementReminders";
+import { addMonths, closingOnOrAfter, describeStatementStatus, monthToSkip, nextOnDay, statementStatus, type StatementHistory } from "../lib/statementReminders";
 
 // A card used every few days from `from` to `to`, with statements closing on the 25th.
 function days(from: string, to: string, every = 3): string[] {
@@ -17,6 +17,7 @@ const card = (over: Partial<StatementHistory>): StatementHistory => ({
   statementDates: ["2026-07-25", "2026-08-25", "2026-09-25"],
   skippedMonths: [],
   remindersOn: true,
+  statementDay: null,
   ...over,
 });
 
@@ -82,5 +83,31 @@ describe("describeStatementStatus", () => {
     expect(describeStatementStatus(both, "2026-12-01")).toBe("2 statements to catch up on (October–November) · August is missing");
     expect(monthToSkip(both)).toBe("2026-08");
     expect(describeStatementStatus(statementStatus(card({}), "2026-10-01"), "2026-10-01")).toBeNull();
+  });
+});
+
+describe("statement day", () => {
+  it("finds the next closing on that day, shortened for short months", () => {
+    expect(nextOnDay("2026-10-15", 15)).toBe("2026-11-15");
+    expect(nextOnDay("2026-10-12", 15)).toBe("2026-10-15");
+    expect(nextOnDay("2027-01-31", 31)).toBe("2027-02-28");
+    expect(nextOnDay("2027-02-28", 31)).toBe("2027-03-31");
+    expect(closingOnOrAfter("2026-10-15", 15)).toBe("2026-10-15");
+    expect(closingOnOrAfter("2026-10-16", 15)).toBe("2026-11-15");
+  });
+
+  it("expects statements on the account's day instead of a month after the last transaction", () => {
+    // Last transaction Oct 2, statement closes on the 20th: October's closes Oct 20.
+    const s = statementStatus(card({ statementDates: [], transactionDates: ["2026-09-21", "2026-10-02"], statementDay: 20 }), "2026-10-26");
+    expect(s.nextExpected).toBe("2026-10-20");
+    expect(s.readyMonths).toEqual(["2026-10"]);
+    // Without the day it would have waited until Nov 7.
+    expect(statementStatus(card({ statementDates: [], transactionDates: ["2026-09-21", "2026-10-02"] }), "2026-10-26").readyMonths).toEqual([]);
+  });
+
+  it("counts on from the last closing date on that day", () => {
+    const s = statementStatus(card({ statementDates: ["2026-09-15"], statementDay: 15 }), "2026-12-01");
+    expect(s.nextExpected).toBe("2026-10-15");
+    expect(s.readyMonths).toEqual(["2026-10", "2026-11"]);
   });
 });

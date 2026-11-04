@@ -1,4 +1,4 @@
-import type { StatementStatus } from "./statementReminders";
+import { closingOnOrAfter, type StatementStatus } from "./statementReminders";
 
 // The monthly check-in: once last month's statements are out, upload them,
 // clear the review pile, see the month's recap. Month M's check-in opens on
@@ -19,10 +19,29 @@ export function checkInMonth(today: string): string {
   return shift(thisMonth, Number(today.slice(8, 10)) >= CHECK_IN_DAY ? -1 : -2);
 }
 
+function lastDayOf(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+}
+
+// A statement closing mid-month splits the month: October's last days are on
+// the statement closing in November. With the account's statement day
+// known, this is that statement's closing date while it isn't in yet
+// (uploaded, or its month marked "No statement"), else null.
+export function monthEndStatementNeeded(s: StatementStatus, month: string): string | null {
+  if (!s.remindersOn || s.statementDay === null || !s.nextExpected) return null;
+  const needed = closingOnOrAfter(lastDayOf(month), s.statementDay);
+  // The next statement expected comes after it, so it's covered.
+  return s.nextExpected > needed ? null : needed;
+}
+
 // Statements for that month are in when no account is still waiting on one
-// from it or before it.
+// from it or before it, nor on the one holding the month's last days.
 export function statementsDone(statuses: StatementStatus[], month: string): boolean {
-  return statuses.every((s) => [...s.readyMonths, ...s.missingMonths].every((m) => m > month));
+  return statuses.every(
+    (s) =>
+      [...s.readyMonths, ...s.missingMonths].every((m) => m > month) && monthEndStatementNeeded(s, month) === null
+  );
 }
 
 // Months in a row with a finished check-in, counting back from the open

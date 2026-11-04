@@ -477,6 +477,13 @@ function findClosingDate(text: string): string | null {
   return null;
 }
 
+// When a statement closed: its printed closing/statement date or billing
+// period end, else a bank statement's "Ending balance on" date. Null when
+// it prints none -- then the app asks which day the account's statements close.
+export function findStatementClosingDate(text: string, statementYear?: number): string | null {
+  return findClosingDate(text) ?? findStatementEndingBalance(text, statementYear)?.date ?? null;
+}
+
 // A card statement's balance (positive = owed) and the date it's as of.
 // `fallbackDate` (usually the statement's last transaction) is used when no
 // closing date is printed.

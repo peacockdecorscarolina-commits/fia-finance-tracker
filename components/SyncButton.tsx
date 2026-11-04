@@ -4,6 +4,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, type StyleProp, type ViewStyle } from "react-native";
 import { backupNow } from "../lib/autoBackup";
+import { BackupWouldLoseDataError } from "../lib/backupSafety";
 import { isSignedIn } from "../lib/googleAuth";
 import { useTheme } from "../lib/ThemeContext";
 
@@ -47,6 +48,21 @@ export function SyncButton({ style }: { style?: StyleProp<ViewStyle> }) {
       await backupNow(db);
       showResult("done");
     } catch (err) {
+      setState("idle");
+      // The Sync screen explains it and offers Restore instead.
+      if (err instanceof BackupWouldLoseDataError) {
+        router.push({
+          pathname: "/sync",
+          params: {
+            driveTransactions: String(err.drive.transactions),
+            driveAccounts: String(err.drive.accounts),
+            driveDate: err.drive.exportedAt,
+            deviceTransactions: String(err.device.transactions),
+            deviceAccounts: String(err.device.accounts),
+          },
+        });
+        return;
+      }
       showResult("error");
       window.alert(err instanceof Error ? err.message : "Backup failed.");
     }

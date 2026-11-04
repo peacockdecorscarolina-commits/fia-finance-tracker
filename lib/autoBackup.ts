@@ -23,10 +23,13 @@ export async function markDriveSynced(db: SQLiteDatabase) {
   await setSetting(db, LAST_SYNC_KEY, new Date().toISOString());
 }
 
-// Manual backup (header button / Sync screen). Throws, so callers can show errors.
-export function backupNow(db: SQLiteDatabase): Promise<void> {
+// Manual backup (header button / Sync screen). Throws, so callers can show
+// errors -- including BackupWouldLoseDataError, when this device has much
+// less than the Drive backup; `replaceAnyway` is for after the user confirms.
+// Automatic backups never pass it, so they quietly skip that case.
+export function backupNow(db: SQLiteDatabase, replaceAnyway = false): Promise<void> {
   if (!inFlight) {
-    inFlight = backupToDrive(db)
+    inFlight = backupToDrive(db, replaceAnyway)
       .then(() => markDriveSynced(db))
       .finally(() => {
         inFlight = null;
