@@ -5,7 +5,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { checkInMonth, checkInStreak, monthEndStatementNeeded, previousMonth, statementsDone } from "../lib/checkIn";
+import { accountMonthState, checkInMonth, checkInStreak, previousMonth, statementsDone, type AccountMonthState } from "../lib/checkIn";
 import {
   getCardPaymentsTotal,
   getCategorySummary,
@@ -13,12 +13,16 @@ import {
   getIncomeExpenseTotals,
   getNeedsReviewCount,
   getStatementStatuses,
+  getTransactions,
+  INCOME_CATEGORY_NAME,
   markCheckInDone,
+  PAYMENT_CATEGORY_NAME,
   todayISO,
   type CategoryTotal,
 } from "../lib/db";
-import { periodRange } from "../lib/period";
-import { addDays, describeStatementStatus, monthName, READY_AFTER_DAYS, type StatementStatus } from "../lib/statementReminders";
+import { periodRange, shiftMonth } from "../lib/period";
+import { formatMerchantName } from "../lib/formatMerchant";
+import { monthName, type StatementStatus } from "../lib/statementReminders";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
@@ -26,6 +30,16 @@ import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 const GRADIENT = ["#4C1D95", "#312E81"] as const;
 const ACCENT = "#4C1D95";
 const SUCCESS = "#16A34A";
+const DANGER = "#DC2626";
+const WAITING = "#B45309";
+
+const STATE_ICON: Record<AccountMonthState["kind"], { name: keyof typeof Ionicons.glyphMap; color: string }> = {
+  closed: { name: "checkmark-circle", color: SUCCESS },
+  upToDate: { name: "checkmark-circle", color: SUCCESS },
+  waiting: { name: "time-outline", color: WAITING },
+  ready: { name: "cloud-upload-outline", color: ACCENT },
+  missing: { name: "alert-circle", color: DANGER },
+};
 
 function formatMoney(value: number): string {
   return `$${Math.round(value).toLocaleString()}`;
@@ -36,7 +50,9 @@ type Recap = {
   spentBefore: number;
   income: number;
   paidToCards: number;
-  top: CategoryTotal[];
+  count: number;
+  top: (CategoryTotal & { before: number })[];
+  biggest: { id: number; merchant: string; accountName: string; date: string; amount: number }[];
 };
 
 export default function CheckInScreen() {
@@ -44,9 +60,13 @@ export default function CheckInScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
   const today = todayISO();
-  const month = checkInMonth(today);
+  const openMonth = checkInMonth(today);
+  // ‹ › steps back through past months' check-ins; only the open one can be finished.
+  const [month, setMonth] = useState(openMonth);
+  const [earliestMonth, setEarliestMonth] = useState(openMonth);
+  const isOpen = month === openMonth;
   const label = monthName(month, month.slice(0, 4) !== today.slice(0, 4));
-  const [waiting, setWaiting] = useState<{ status: StatementStatus; line: string }[]>([]);
+  const [accountStates, setAccountStates] = useState<{ status: StatementStatus; state: AccountMonthState }[]>([]);
   const [statementsIn, setStatementsIn] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
   const [doneMonths, setDoneMonths] = useState<string[]>([]);
@@ -56,41 +76,42 @@ export default function CheckInScreen() {
   const load = useCallback(async () => {
     const statuses = await getStatementStatuses(db, today);
     setStatementsIn(statementsDone(statuses, month));
-    const shortDate = (d: string) =>
-      new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-    setWaiting(
+    const firsts = statuses.map((s) => s.firstDate).filter((d): d is string => d !== null).sort();
+    if (firsts[0]) setEarliestMonth(firsts[0].slice(0, 7) < openMonth ? firsts[0].slice(0, 7) : openMonth);
+    setAccountStates(
       statuses.flatMap((s) => {
-        if ([...s.readyMonths, ...s.missingMonths].some((m) => m <= month)) {
-          return [{ status: s, line: describeStatementStatus(s, today) ?? "" }];
-        }
-        // Closes mid-month: the month's last days are on the next statement.
-        const needed = monthEndStatementNeeded(s, month);
-        if (!needed) return [];
-        const out = addDays(needed, READY_AFTER_DAYS);
-        const when = out <= today ? "should be out now" : `out around ${shortDate(out)}`;
-        const which =
-          needed.slice(0, 7) === month
-            ? `Its ${monthName(month)} statement closes ${shortDate(needed)}`
-            : `Its ${shortDate(needed)} statement has the rest of ${monthName(month)}`;
-        return [{ status: s, line: `${which} · ${when}` }];
+        const state = accountMonthState(s, month, today);
+        return state ? [{ status: s, state }] : [];
       })
     );
     setReviewCount(await getNeedsReviewCount(db));
     setDoneMonths(await getCheckInsDone(db));
     const { start, end } = periodRange(month);
     const before = periodRange(previousMonth(month));
-    const [totals, totalsBefore, paidToCards, categories] = await Promise.all([
+    const [totals, totalsBefore, paidToCards, categories, categoriesBefore, transactions] = await Promise.all([
       getIncomeExpenseTotals(db, { start, end }),
       getIncomeExpenseTotals(db, { start: before.start, end: before.end }),
       getCardPaymentsTotal(db, start, end),
       getCategorySummary(db, month),
+      getCategorySummary(db, previousMonth(month)),
+      getTransactions(db, { start, end, excludeCategoryNames: [INCOME_CATEGORY_NAME, PAYMENT_CATEGORY_NAME] }),
     ]);
+    const beforeByName = new Map(categoriesBefore.map((c) => [c.categoryName, c.total]));
+    const spending = transactions
+      .filter((t) => t.amount < 0 && !t.ignored)
+      .map((t) => ({ id: t.id, merchant: t.merchant, accountName: t.accountName, date: t.date, amount: -t.amount - (t.reimbursed ?? 0) }));
     setRecap({
       spent: totals.expenses,
       spentBefore: totalsBefore.expenses,
       income: totals.income,
       paidToCards,
-      top: [...categories].sort((a, b) => b.total - a.total).filter((c) => c.total > 0).slice(0, 3),
+      count: spending.length,
+      top: [...categories]
+        .sort((a, b) => b.total - a.total)
+        .filter((c) => c.total > 0)
+        .slice(0, 5)
+        .map((c) => ({ ...c, before: beforeByName.get(c.categoryName) ?? 0 })),
+      biggest: spending.sort((a, b) => b.amount - a.amount).slice(0, 3),
     });
     setLoaded(true);
   }, [db, month, today]);
@@ -108,7 +129,7 @@ export default function CheckInScreen() {
   // Statements have to be in -- that's what makes the month's numbers right,
   // so the streak can't be kept without them. Sorting is optional.
   async function finish() {
-    if (!statementsIn) return;
+    if (!statementsIn || !isOpen) return;
     await markCheckInDone(db, month);
     load();
   }
@@ -127,16 +148,43 @@ export default function CheckInScreen() {
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
             <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </Pressable>
-          <Text style={styles.headerTitle}>{label} check-in</Text>
+          <Text style={styles.headerTitle}>Monthly check-in</Text>
           <View style={styles.headerBtn} />
         </View>
 
+        <View style={styles.monthSwitch}>
+          <Pressable
+            onPress={() => setMonth(previousMonth(month))}
+            disabled={month <= earliestMonth}
+            style={[styles.monthArrow, month <= earliestMonth && { opacity: 0.3 }]}
+            accessibilityLabel="Previous month"
+          >
+            <Ionicons name="chevron-back" size={18} color={colors.textPrimary} />
+          </Pressable>
+          <View style={{ alignItems: "center" }}>
+            <Text style={styles.monthLabel}>{label}</Text>
+            <Text style={styles.monthSub}>{isOpen ? "Open now" : finished ? "✅ Finished" : "✗ Not finished"}</Text>
+          </View>
+          <Pressable
+            onPress={() => setMonth(shiftMonth(month, 1))}
+            disabled={isOpen}
+            style={[styles.monthArrow, isOpen && { opacity: 0.3 }]}
+            accessibilityLabel="Next month"
+          >
+            <Ionicons name="chevron-forward" size={18} color={colors.textPrimary} />
+          </Pressable>
+        </View>
+
         <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-          <Text style={styles.heroTitle}>{finished ? `${label} is all wrapped up 🎉` : `Wrap up ${label}`}</Text>
+          <Text style={styles.heroTitle}>
+            {finished ? `${label} is all wrapped up 🎉` : isOpen ? `Wrap up ${label}` : `${label} wasn't finished`}
+          </Text>
           <Text style={styles.heroText}>
             {finished
               ? "Your numbers for the month are complete."
-              : "Once a month: get last month's statements in, sort anything new, and see how the month went. About 5 minutes."}
+              : isOpen
+                ? "Once a month: get last month's statements in, sort anything new, and see how the month went. About 5 minutes."
+                : "Its check-in closed before it was finished. You can still upload its statements to fill in the numbers."}
           </Text>
           {streak > 0 && (
             <View style={styles.streakPill}>
@@ -148,29 +196,34 @@ export default function CheckInScreen() {
         {loaded && (
         <>
         <View style={styles.stepCard}>
-          <StepTitle done={statementsIn} title="1. Upload statements" styles={styles} />
-          {statementsIn ? (
-            <Text style={styles.stepText}>Every account is up to date through {label}.</Text>
-          ) : (
-            waiting.map(({ status, line }) => (
+          <StepTitle done={statementsIn} title={`1. ${label} statements`} styles={styles} />
+          {statementsIn && <Text style={styles.stepText}>Every account is in for {label}.</Text>}
+          {accountStates.map(({ status, state }) => {
+            const icon = STATE_ICON[state.kind];
+            const needsUpload = state.kind === "missing" || state.kind === "ready" || state.kind === "waiting";
+            return (
               <View key={status.accountId} style={styles.waitingRow}>
+                <Ionicons name={icon.name} size={18} color={icon.color} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.waitingName} numberOfLines={1}>
                     {status.accountName}
                   </Text>
-                  <Text style={styles.stepText}>{line}</Text>
+                  <Text style={styles.stepText}>{state.line}</Text>
                 </View>
-                <Pressable
-                  onPress={() => router.push({ pathname: "/upload", params: { accountId: String(status.accountId) } })}
-                  style={styles.smallBtn}
-                >
-                  <Text style={styles.smallBtnText}>Upload</Text>
-                </Pressable>
+                {needsUpload && (
+                  <Pressable
+                    onPress={() => router.push({ pathname: "/upload", params: { accountId: String(status.accountId) } })}
+                    style={styles.smallBtn}
+                  >
+                    <Text style={styles.smallBtnText}>Upload</Text>
+                  </Pressable>
+                )}
               </View>
-            ))
-          )}
+            );
+          })}
         </View>
 
+        {isOpen && (
         <View style={styles.stepCard}>
           <StepTitle done={reviewDone} title="2. Sort new transactions" styles={styles} />
           {reviewDone ? (
@@ -186,9 +239,10 @@ export default function CheckInScreen() {
             </View>
           )}
         </View>
+        )}
 
         <View style={styles.stepCard}>
-          <StepTitle done={finished} title={`3. Your ${label} recap`} styles={styles} />
+          <StepTitle done={finished} title={isOpen ? `3. Your ${label} recap` : `2. Your ${label} recap`} styles={styles} />
           {recap && (
             <>
               <View style={styles.recapRow}>
@@ -205,20 +259,72 @@ export default function CheckInScreen() {
                   <Text style={styles.recapLabel}>Income</Text>
                   <Text style={styles.recapValue}>{formatMoney(recap.income)}</Text>
                 </View>
+              </View>
+              <View style={styles.recapRow}>
+                <View style={styles.recapBox}>
+                  <Text style={styles.recapLabel}>Net</Text>
+                  <Text style={[styles.recapValue, { color: recap.income - recap.spent >= 0 ? SUCCESS : DANGER }]}>
+                    {recap.income - recap.spent < 0 ? "-" : ""}
+                    {formatMoney(Math.abs(recap.income - recap.spent))}
+                  </Text>
+                </View>
                 <View style={styles.recapBox}>
                   <Text style={styles.recapLabel}>Paid to cards</Text>
                   <Text style={styles.recapValue}>{formatMoney(recap.paidToCards)}</Text>
                 </View>
+                <View style={styles.recapBox}>
+                  <Text style={styles.recapLabel}>Purchases</Text>
+                  <Text style={styles.recapValue}>{recap.count.toLocaleString()}</Text>
+                </View>
               </View>
               {recap.top.length > 0 && (
                 <>
-                  <Text style={styles.recapSubtitle}>Where most of it went</Text>
-                  {recap.top.map((c) => (
-                    <View key={c.categoryName} style={styles.topRow}>
-                      <Text style={styles.topName}>
-                        {getCategoryStyle(c.categoryName).emoji} {c.categoryName}
-                      </Text>
-                      <Text style={styles.topAmount}>{formatMoney(c.total)}</Text>
+                  <Text style={styles.recapSubtitle}>Where it went</Text>
+                  {recap.top.map((c) => {
+                    const diff = c.total - c.before;
+                    const style = getCategoryStyle(c.categoryName);
+                    return (
+                      <Pressable
+                        key={c.categoryName}
+                        onPress={() => router.push({ pathname: "/category/[name]", params: { name: c.categoryName, month } })}
+                        style={styles.topItem}
+                      >
+                        <View style={styles.topRow}>
+                          <Text style={styles.topName}>
+                            {style.emoji} {c.categoryName}
+                          </Text>
+                          <Text style={styles.topAmount}>{formatMoney(c.total)}</Text>
+                        </View>
+                        <View style={styles.barTrack}>
+                          <View
+                            style={[styles.barFill, { width: `${(c.total / recap.top[0].total) * 100}%`, backgroundColor: style.color }]}
+                          />
+                        </View>
+                        {c.before > 0 && Math.round(diff) !== 0 && (
+                          <Text style={[styles.topChange, { color: diff <= 0 ? SUCCESS : DANGER }]}>
+                            {diff <= 0 ? "▼" : "▲"} {formatMoney(Math.abs(diff))} vs {monthName(previousMonth(month))}
+                          </Text>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </>
+              )}
+              {recap.biggest.length > 0 && (
+                <>
+                  <Text style={styles.recapSubtitle}>Biggest purchases</Text>
+                  {recap.biggest.map((t) => (
+                    <View key={t.id} style={styles.topRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.topName} numberOfLines={1}>
+                          {formatMerchantName(t.merchant)}
+                        </Text>
+                        <Text style={styles.biggestMeta}>
+                          {t.accountName} ·{" "}
+                          {new Date(`${t.date}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                        </Text>
+                      </View>
+                      <Text style={styles.topAmount}>{formatMoney(t.amount)}</Text>
                     </View>
                   ))}
                 </>
@@ -228,7 +334,7 @@ export default function CheckInScreen() {
               )}
             </>
           )}
-          {!finished && (
+          {!finished && isOpen && (
             <Pressable onPress={finish} disabled={!statementsIn} style={[styles.finishWrap, !statementsIn && { opacity: 0.5 }]}>
               <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.finishBtn}>
                 <Ionicons name={statementsIn ? "checkmark-circle-outline" : "lock-closed-outline"} size={16} color="#FFFFFF" />
@@ -310,7 +416,24 @@ function makeStyles(colors: ThemeColors) {
   recapValue: { fontSize: 16, fontWeight: "800", color: colors.textPrimary },
   recapChange: { fontSize: 11, fontWeight: "700" },
   recapSubtitle: { fontSize: 12, fontWeight: "700", color: colors.textSecondary, marginTop: spacing.xs },
-  topRow: { flexDirection: "row", justifyContent: "space-between" },
+  topRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
+  topItem: { gap: 4 },
+  topChange: { fontSize: 11, fontWeight: "700" },
+  barTrack: { height: 6, borderRadius: 3, backgroundColor: colors.background, overflow: "hidden" },
+  barFill: { height: 6, borderRadius: 3 },
+  biggestMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  monthSwitch: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.card,
+    borderRadius: radius.card,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  monthArrow: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: colors.background },
+  monthLabel: { fontSize: 16, fontWeight: "800", color: colors.textPrimary },
+  monthSub: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
   topName: { fontSize: 14, color: colors.textPrimary },
   topAmount: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
   note: { fontSize: 12, color: "#B45309", lineHeight: 17 },

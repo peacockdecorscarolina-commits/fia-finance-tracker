@@ -1,4 +1,4 @@
-import { closingOnOrAfter, type StatementStatus } from "./statementReminders";
+import { addDays, closingOnOrAfter, READY_AFTER_DAYS, type StatementStatus } from "./statementReminders";
 
 // The monthly check-in: once last month's statements are out, upload them,
 // clear the review pile, see the month's recap. Month M's check-in opens on
@@ -42,6 +42,40 @@ export function statementsDone(statuses: StatementStatus[], month: string): bool
     (s) =>
       [...s.readyMonths, ...s.missingMonths].every((m) => m > month) && monthEndStatementNeeded(s, month) === null
   );
+}
+
+export type AccountMonthState = { kind: "closed" | "upToDate" | "waiting" | "missing" | "ready"; line: string };
+
+function shortDate(d: string): string {
+  return new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+// Where one account's statements stand for a month, for the check-in's
+// statements step. Null when the account has nothing that early (or
+// reminders are off for it).
+export function accountMonthState(s: StatementStatus, month: string, today: string): AccountMonthState | null {
+  if (!s.remindersOn || !s.firstDate || s.firstDate.slice(0, 7) > month) return null;
+  const name = new Date(`${month}-01T00:00:00Z`).toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+  if (s.missingMonths.includes(month)) return { kind: "missing", line: `${name} statement is missing` };
+  if (s.readyMonths.includes(month)) return { kind: "ready", line: `${name} statement is ready to upload` };
+  if (s.readyMonths.some((m) => m < month) || s.missingMonths.some((m) => m < month)) {
+    return { kind: "missing", line: "An earlier statement is still missing" };
+  }
+  const needed = monthEndStatementNeeded(s, month);
+  if (needed) {
+    const out = addDays(needed, READY_AFTER_DAYS);
+    const when = out <= today ? "should be out now" : `out around ${shortDate(out)}`;
+    const which =
+      needed.slice(0, 7) === month
+        ? `Its ${name} statement closes ${shortDate(needed)}`
+        : `Waiting for the ${shortDate(needed)} statement (has the rest of ${name})`;
+    return { kind: "waiting", line: `${which} · ${when}` };
+  }
+  const closings = s.statementDates.filter((d) => d.slice(0, 7) === month);
+  if (closings.length > 0) {
+    return { kind: "closed", line: `Statement closed ${closings.map(shortDate).join(" and ")}` };
+  }
+  return { kind: "upToDate", line: "Up to date" };
 }
 
 // Months in a row with a finished check-in, counting back from the open

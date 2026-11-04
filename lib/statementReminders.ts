@@ -31,6 +31,9 @@ export type StatementStatus = {
   accountName: string;
   remindersOn: boolean;
   statementDay: number | null;
+  // Every closing date known, sorted, and the account's earliest date.
+  statementDates: string[];
+  firstDate: string | null;
   lastStatementDate: string | null;
   // When the next statement should close.
   nextExpected: string | null;
@@ -98,7 +101,7 @@ function hasDateBetween(sortedDates: string[], from: string, to: string): boolea
 export function statementStatus(h: StatementHistory, today: string): StatementStatus {
   const lastStatementDate = h.statementDates[h.statementDates.length - 1] ?? null;
   const lastTransaction = h.transactionDates[h.transactionDates.length - 1] ?? null;
-  const empty = { accountId: h.accountId, accountName: h.accountName, remindersOn: h.remindersOn, statementDay: h.statementDay, lastStatementDate, readyMonths: [], missingMonths: [] };
+  const empty = { accountId: h.accountId, accountName: h.accountName, remindersOn: h.remindersOn, statementDay: h.statementDay, statementDates: h.statementDates, firstDate: [h.transactionDates[0], h.statementDates[0]].filter(Boolean).sort()[0] ?? null, lastStatementDate, readyMonths: [], missingMonths: [] };
   const base = [lastStatementDate, lastTransaction].filter((d): d is string => d !== null).sort().pop();
   if (!base) return { ...empty, nextExpected: null };
 
