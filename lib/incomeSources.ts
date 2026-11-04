@@ -42,6 +42,15 @@ export type IncomeSource = {
 
 export type IncomeLabel = { name: string | null; kind: IncomeKind | null };
 
+// Deposit descriptions that can only be pay. Zelle, Venmo, transfers and
+// refunds aren't here -- that's often someone paying you back, so those are
+// left for the user to sort.
+const PAYCHECK = /\bpayroll\b|\bpayrl\b|direct\s*dep|\bdir\s*dep\b|\bsalary\b|\bwages?\b/i;
+
+export function looksLikePaycheck(merchant: string): boolean {
+  return PAYCHECK.test(merchant);
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Weekends and holidays move pay days by a day or two.
 const LATE_AFTER_DAYS = 4;

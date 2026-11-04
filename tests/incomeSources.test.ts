@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describePaySchedule, detectPaySchedule, groupIncomeSources } from "../lib/incomeSources";
+import { describePaySchedule, detectPaySchedule, groupIncomeSources, looksLikePaycheck } from "../lib/incomeSources";
 import { tx } from "./helpers";
 
 describe("detectPaySchedule", () => {
@@ -67,5 +67,16 @@ describe("groupIncomeSources", () => {
     const covered = new Map([[1, "2026-11-25"]]);
     const sources = groupIncomeSources(income, { start: "2026-11-01", end: "2026-11-30" }, key, name, new Map(), covered, "2026-11-30");
     expect(sources.map((s) => [s.name, s.total, s.schedule?.late])).toEqual([["ACME PAYROLL", 0, true]]);
+  });
+});
+
+describe("looksLikePaycheck", () => {
+  it("spots pay, and leaves money that might be a payback alone", () => {
+    for (const m of ["ACME CORP PAYROLL PPD ID 123", "DIRECT DEP GUSTO", "Dir Dep Walmart", "STATE OF NY SALARY", "WAGES ACME"]) {
+      expect(looksLikePaycheck(m)).toBe(true);
+    }
+    for (const m of ["ZELLE FROM JOHN", "VENMO CASHOUT", "TRANSFER FROM SAVINGS", "AMAZON REFUND", "ONLINE DEPOSIT", "PAYPAL"]) {
+      expect(looksLikePaycheck(m)).toBe(false);
+    }
   });
 });

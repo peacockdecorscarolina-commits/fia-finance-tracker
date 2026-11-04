@@ -11,7 +11,7 @@ import {
 } from "./cardBenefits";
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
 import { closingOnOrAfter, statementStatus, type StatementStatus } from "./statementReminders";
-import { groupIncomeSources, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
+import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { formatMerchantName, merchantMatchText } from "./formatMerchant";
@@ -1348,9 +1348,25 @@ export async function insertExtractedTransactions(
   for (const t of extracted) {
     if (!categoryIds.has(t.category)) categoryIds.set(t.category, await getCategoryIdByName(db, t.category));
   }
+  // A paycheck into checking or savings from a payer not seen before goes
+  // straight to Income, and the payer is remembered like any other choice.
+  const account = await db.getFirstAsync<{ type: string }>("SELECT type FROM accounts WHERE id = ?", accountId);
+  const bank = account?.type === "Checking" || account?.type === "Savings";
+  // Looked up directly: no "Income" category (deleted) means no auto-sorting,
+  // rather than paychecks quietly landing in Other.
+  const incomeRow = bank
+    ? await db.getFirstAsync<{ id: number }>("SELECT id FROM categories WHERE LOWER(name) = LOWER(?)", INCOME_CATEGORY_NAME)
+    : null;
+  const incomeId = incomeRow?.id ?? null;
   await db.withTransactionAsync(async () => {
     for (const t of extracted) {
-      const known = memory.get(normalizeMerchantKey(t.merchant));
+      const key = normalizeMerchantKey(t.merchant);
+      let known = memory.get(key);
+      if (known === undefined && incomeId !== null && t.amount > 0 && looksLikePaycheck(t.merchant)) {
+        known = incomeId;
+        memory.set(key, incomeId);
+        await db.runAsync("INSERT OR IGNORE INTO merchant_category_map (merchant_key, category_id) VALUES (?, ?)", key, incomeId);
+      }
       await db.runAsync(
         "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, ?, 0)",
         accountId,
