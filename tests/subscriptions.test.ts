@@ -48,3 +48,22 @@ describe("detectRecurring", () => {
     expect(list.APP.nextDate).toBe("2026-04-30");
   });
 });
+
+describe("one subscription per name shown", () => {
+  it("counts a subscription billed under different wordings once", async () => {
+    const { formatMerchantName } = await import("../lib/formatMerchant");
+    const group = (m: string) => formatMerchantName(m).toLowerCase();
+    const charges = [
+      tx("2026-07-03", "SPOTIFY USA", -11.99),
+      tx("2026-08-03", "Spotify P1A2B3C4D", -11.99),
+      tx("2026-09-03", "SPOTIFY 877-778-1161 NY", -11.99),
+      tx("2026-07-10", "DISNEY PLUS", -13.99),
+      tx("2026-08-10", "DISNEYPLUS 888-905-7888", -13.99),
+    ];
+    const found = detectRecurring(charges, group, new Map(), "2026-09-20");
+    expect(found.map((r) => [r.merchantKey, r.charges.length])).toEqual([
+      ["disney+", 2],
+      ["spotify", 3],
+    ]);
+  });
+});

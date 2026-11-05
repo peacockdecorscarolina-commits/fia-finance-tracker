@@ -21,7 +21,7 @@ describe("formatMerchantName", () => {
     ["SPOTIFY 877-778-1161 NY", "Spotify"],
     ["NETFLIX.COM 8665797172 CA", "Netflix"],
     ["HULU 877-8244858 CA", "Hulu"],
-    ["OPENAI *CHATGPT SUBSCR +14158799686 CA", "Openai Chatgpt Subscr"],
+    ["OPENAI *CHATGPT SUBSCR +14158799686 CA", "OpenAI"],
     ["COMCAST CABLE COMM 800-COMCAST", "Comcast Cable Comm"],
     ["CHICK-FIL-A #01234 8035551212", "Chick-fil-A"],
   ])("removes phone numbers in every format: %s", (raw, clean) => {
