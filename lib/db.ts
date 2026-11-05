@@ -311,21 +311,42 @@ export async function initDatabase(db: SQLiteDatabase) {
 // The user's own calls on subscription detection, per merchant (same key
 // as merchant memory): "subscription" counts it even after one charge,
 // "not" hides it for good. null clears the choice.
+// The merchant-memory keys of every description that shows the same name as
+// `merchant` ("SPOTIFY USA", "Spotify P1A2B3"...), including its own.
+async function keysForMerchantGroup(db: SQLiteDatabase, merchant: string): Promise<string[]> {
+  const group = merchantGroupKey(merchant);
+  const rows = await db.getAllAsync<{ merchant: string }>("SELECT DISTINCT merchant FROM transactions");
+  const keys = new Set([normalizeMerchantKey(merchant)]);
+  for (const r of rows) if (merchantGroupKey(r.merchant) === group) keys.add(normalizeMerchantKey(r.merchant));
+  return [...keys];
+}
+
+// "Subscription" / "not one" applies to the merchant as shown, so it's
+// saved for each of its descriptions.
 export async function setRecurringOverride(db: SQLiteDatabase, merchant: string, status: RecurringOverride | null) {
-  const key = normalizeMerchantKey(merchant);
-  if (status === null) {
-    await db.runAsync("DELETE FROM recurring_overrides WHERE merchant_key = ?", key);
-  } else {
-    await db.runAsync("INSERT OR REPLACE INTO recurring_overrides (merchant_key, status) VALUES (?, ?)", key, status);
+  for (const key of await keysForMerchantGroup(db, merchant)) {
+    if (status === null) {
+      await db.runAsync("DELETE FROM recurring_overrides WHERE merchant_key = ?", key);
+    } else {
+      await db.runAsync("INSERT OR REPLACE INTO recurring_overrides (merchant_key, status) VALUES (?, ?)", key, status);
+    }
   }
 }
 
 export async function getRecurringOverride(db: SQLiteDatabase, merchant: string): Promise<RecurringOverride | null> {
-  const row = await db.getFirstAsync<{ status: RecurringOverride }>(
-    "SELECT status FROM recurring_overrides WHERE merchant_key = ?",
-    normalizeMerchantKey(merchant)
+  const keys = await keysForMerchantGroup(db, merchant);
+  const rows = await db.getAllAsync<{ status: RecurringOverride }>(
+    `SELECT status FROM recurring_overrides WHERE merchant_key IN (${keys.map(() => "?").join(", ")})`,
+    ...keys
   );
-  return row?.status ?? null;
+  return combineOverrides(rows.map((r) => r.status));
+}
+
+// When a merchant's descriptions disagree, "not a subscription" wins, so
+// something the user hid doesn't come back under a new wording.
+function combineOverrides(statuses: RecurringOverride[]): RecurringOverride | null {
+  if (statuses.includes("not")) return "not";
+  return statuses.includes("subscription") ? "subscription" : null;
 }
 
 // Subscriptions and recurring bills found in spending -- leaving out
@@ -347,12 +368,21 @@ export async function getRecurring(db: SQLiteDatabase): Promise<Recurring[]> {
   );
   const d = new Date();
   const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return detectRecurring(
-    spending,
-    normalizeMerchantKey,
-    new Map(overrideRows.map((r) => [r.merchant_key, r.status])),
-    today
-  );
+  // Grouped by the name shown, so a subscription billed under a few
+  // wordings is one subscription; saved choices follow each description to
+  // its group.
+  const groupOfKey = new Map(transactions.map((t) => [normalizeMerchantKey(t.merchant), merchantGroupKey(t.merchant)]));
+  const byGroup = new Map<string, RecurringOverride[]>();
+  for (const r of overrideRows) {
+    const group = groupOfKey.get(r.merchant_key);
+    if (group) byGroup.set(group, [...(byGroup.get(group) ?? []), r.status]);
+  }
+  const overrides = new Map<string, RecurringOverride>();
+  for (const [group, statuses] of byGroup) {
+    const status = combineOverrides(statuses);
+    if (status) overrides.set(group, status);
+  }
+  return detectRecurring(spending, merchantGroupKey, overrides, today);
 }
 
 // Small key/value store for per-device preferences. null = never set.
