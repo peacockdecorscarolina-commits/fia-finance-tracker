@@ -25,7 +25,9 @@ import {
   getCardsOwed,
   getCardOverviews,
   getIncomeSources,
+  getMonthInsights,
   getRecurring,
+  getTopMerchants,
   getSetting,
   setSetting,
   getTransactionMonthBounds,
@@ -35,6 +37,7 @@ import {
   type CategoryTotal,
 } from "../lib/db";
 import { describePaySchedule, INCOME_KINDS, type IncomeSource } from "../lib/incomeSources";
+import type { Insight, TopMerchant } from "../lib/merchantInsights";
 import { monthsBetween, periodRange } from "../lib/period";
 import { radius, spacing, tabBarClearance } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -291,6 +294,8 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   // Active subscriptions and bills -- always "right now", not tied to the picked period.
   const [recurring, setRecurring] = useState<Recurring[]>([]);
   const [incomeSources, setIncomeSources] = useState<IncomeSource[]>([]);
+  const [topMerchantList, setTopMerchantList] = useState<TopMerchant[]>([]);
+  const [insights, setInsights] = useState<Insight[]>([]);
   const [cards, setCards] = useState<CardOverview[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -370,6 +375,9 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         getCardsOwed(db, end < todayIso() ? end : todayIso()).then(setCardsOwed),
         getTransactions(db, { start, end }).then((list) => setRecent(list.slice(0, 5))),
         section === "spending" ? getIncomeSources(db, start, end, todayIso()).then(setIncomeSources) : Promise.resolve(),
+        section === "spending" ? getTopMerchants(db, start, end).then(setTopMerchantList) : Promise.resolve(),
+        // Insights compare a month with the months before it.
+        section === "spending" && view !== "Year" ? getMonthInsights(db, month).then(setInsights) : Promise.resolve(setInsights([])),
         getAccounts(db).then(setAccounts),
         getAccountBalances(db, end).then(setAccountBalances),
       ]).then(() => setLoading(false));
@@ -714,6 +722,22 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         </View>
         )}
 
+        {section === "spending" && insights.length > 0 && (
+        <View>
+          {sectionHeader("insights", "What stood out", `${insights.length} notes`)}
+          {!collapsed.insights && (
+          <View style={[styles.sectionCard, { marginTop: spacing.sm, gap: spacing.sm }]}>
+            {insights.map((i) => (
+              <View key={i.text} style={styles.insightRow}>
+                <Text style={styles.insightEmoji}>{i.emoji}</Text>
+                <Text style={styles.insightText}>{i.text}</Text>
+              </View>
+            ))}
+          </View>
+          )}
+        </View>
+        )}
+
         {section === "spending" && (
         <View>
           {sectionHeader("byCategory", "By category", formatMoney(total))}
@@ -754,6 +778,35 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                 </View>
               </View>
             )}
+          </View>
+          )}
+        </View>
+        )}
+
+        {section === "spending" && topMerchantList.length > 0 && (
+        <View>
+          {sectionHeader("topMerchants", "Top merchants", formatMoney(topMerchantList[0].total))}
+          {!collapsed.topMerchants && (
+          <View style={[styles.sectionCard, { marginTop: spacing.sm, gap: spacing.sm }]}>
+            {topMerchantList.map((m, i) => (
+              <Pressable
+                key={m.key}
+                onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: m.merchant } })}
+                style={styles.incomeRow}
+              >
+                <Text style={styles.merchantRank}>{i + 1}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.legendName} numberOfLines={1}>
+                    {m.name}
+                  </Text>
+                  <Text style={styles.incomeMeta}>
+                    {m.visits} {m.visits === 1 ? "visit" : "visits"}
+                  </Text>
+                </View>
+                <Text style={styles.incomeAmount}>{formatMoney(m.total)}</Text>
+                <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+              </Pressable>
+            ))}
           </View>
           )}
         </View>
@@ -912,7 +965,11 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
               recent.map((t) => {
                 const style = getCategoryStyle(t.categoryName);
                 return (
-                  <View key={t.id} style={styles.txRow}>
+                  <Pressable
+                    key={t.id}
+                    style={styles.txRow}
+                    onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: t.merchant } })}
+                  >
                     <View style={[styles.txIcon, { backgroundColor: style.color }]}>
                       <Text style={{ fontSize: 16 }}>{style.emoji}</Text>
                     </View>
@@ -924,7 +981,8 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                       <Text style={styles.txAmount}>{formatMoney(Math.abs(t.amount))}</Text>
                       <Text style={styles.txCategory}>{t.categoryName}</Text>
                     </View>
-                  </View>
+                    <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+                  </Pressable>
                 );
               })
             )}
@@ -956,6 +1014,10 @@ function makeStyles(colors: ThemeColors) {
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   headerIcons: { flexDirection: "row", gap: spacing.sm },
   incomeRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  merchantRank: { width: 18, fontSize: 13, fontWeight: "800", color: colors.textSecondary, textAlign: "center" },
+  insightRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+  insightEmoji: { fontSize: 16 },
+  insightText: { flex: 1, fontSize: 14, color: colors.textPrimary, lineHeight: 20 },
   incomeEmoji: { fontSize: 20 },
   incomeMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
   incomeAmount: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },

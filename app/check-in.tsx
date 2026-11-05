@@ -12,6 +12,7 @@ import {
   getCheckInsDone,
   getIncomeExpenseTotals,
   getIncomeSources,
+  getMonthInsights,
   getNeedsReviewCount,
   getStatementStatuses,
   getTransactions,
@@ -54,6 +55,7 @@ type Recap = {
   top: (CategoryTotal & { before: number })[];
   biggest: { id: number; merchant: string; accountName: string; date: string; amount: number }[];
   incomeSources: { key: string; name: string; total: number }[];
+  insights: { emoji: string; text: string }[];
 };
 
 export default function CheckInScreen() {
@@ -101,7 +103,7 @@ export default function CheckInScreen() {
     setDoneMonths(await getCheckInsDone(db));
     const { start, end } = periodRange(month);
     const before = periodRange(previousMonth(month));
-    const [totals, totalsBefore, paidToCards, categories, categoriesBefore, transactions, sources] = await Promise.all([
+    const [totals, totalsBefore, paidToCards, categories, categoriesBefore, transactions, sources, insights] = await Promise.all([
       getIncomeExpenseTotals(db, { start, end }),
       getIncomeExpenseTotals(db, { start: before.start, end: before.end }),
       getCardPaymentsTotal(db, start, end),
@@ -109,6 +111,7 @@ export default function CheckInScreen() {
       getCategorySummary(db, previousMonth(month)),
       getTransactions(db, { start, end, excludeIncome: true, excludeCategoryNames: [PAYMENT_CATEGORY_NAME] }),
       getIncomeSources(db, start, end, today),
+      getMonthInsights(db, month),
     ]);
     const beforeByName = new Map(categoriesBefore.map((c) => [c.categoryName, c.total]));
     const spending = transactions
@@ -127,6 +130,8 @@ export default function CheckInScreen() {
         .map((c) => ({ ...c, before: beforeByName.get(c.categoryName) ?? 0 })),
       biggest: spending.sort((a, b) => b.amount - a.amount).slice(0, 3),
       incomeSources: sources.filter((s) => s.total > 0).map((s) => ({ key: s.key, name: s.name, total: s.total })),
+      // A month still going has nothing settled to compare yet.
+      insights: month > openMonth ? [] : insights,
     });
     setLoaded(true);
   }, [db, month, today]);
@@ -317,6 +322,17 @@ export default function CheckInScreen() {
                   <Text style={styles.recapValue}>{recap.count.toLocaleString()}</Text>
                 </View>
               </View>
+              {recap.insights.length > 0 && (
+                <>
+                  <Text style={styles.recapSubtitle}>What stood out</Text>
+                  {recap.insights.map((i) => (
+                    <View key={i.text} style={styles.insightRow}>
+                      <Text style={styles.insightEmoji}>{i.emoji}</Text>
+                      <Text style={styles.insightText}>{i.text}</Text>
+                    </View>
+                  ))}
+                </>
+              )}
               {recap.incomeSources.length > 1 && (
                 <>
                   <Text style={styles.recapSubtitle}>Where income came from</Text>
@@ -371,7 +387,11 @@ export default function CheckInScreen() {
                 <>
                   <Text style={styles.recapSubtitle}>Biggest purchases</Text>
                   {recap.biggest.map((t) => (
-                    <View key={t.id} style={styles.topRow}>
+                    <Pressable
+                      key={t.id}
+                      onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: t.merchant } })}
+                      style={styles.topRow}
+                    >
                       <View style={{ flex: 1 }}>
                         <Text style={styles.topName} numberOfLines={1}>
                           {formatMerchantName(t.merchant)}
@@ -382,7 +402,7 @@ export default function CheckInScreen() {
                         </Text>
                       </View>
                       <Text style={styles.topAmount}>{formatMoney(t.amount)}</Text>
-                    </View>
+                    </Pressable>
                   ))}
                 </>
               )}
@@ -491,6 +511,9 @@ function makeStyles(colors: ThemeColors) {
   recapSubtitle: { fontSize: 12, fontWeight: "700", color: colors.textSecondary, marginTop: spacing.xs },
   topRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
   topItem: { gap: 4 },
+  insightRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+  insightEmoji: { fontSize: 15 },
+  insightText: { flex: 1, fontSize: 13, color: colors.textPrimary, lineHeight: 19 },
   topChange: { fontSize: 11, fontWeight: "700" },
   barTrack: { height: 6, borderRadius: 3, backgroundColor: colors.background, overflow: "hidden" },
   barFill: { height: 6, borderRadius: 3 },
