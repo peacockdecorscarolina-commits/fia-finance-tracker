@@ -66,7 +66,9 @@
           return;
         }
 
-        window.location.href = "/sync";
+        var next = localStorage.getItem("fia_after_sign_in") || "/sync";
+        localStorage.removeItem("fia_after_sign_in");
+        window.location.href = next.charAt(0) === "/" ? next : "/sync";
       })();
     </script>
   </body>

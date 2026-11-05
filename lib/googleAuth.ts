@@ -7,8 +7,11 @@ export const GOOGLE_CLIENT_ID =
   "596041897163-iq2nvao144gtjk6tnitvobge939su08t.apps.googleusercontent.com";
 
 // Drive's "app data" scope: a hidden folder only this app can see or write
-// to, invisible in the user's regular Drive.
-const SCOPE = "https://www.googleapis.com/auth/drive.appdata";
+// to, invisible in the user's regular Drive. Plus the email address, so
+// the owner knows who uses Fia (see api/access.js) -- both non-sensitive.
+const SCOPE = "openid email https://www.googleapis.com/auth/drive.appdata";
+// Where public/auth-callback.html sends the user after signing in.
+const AFTER_SIGN_IN_KEY = "fia_after_sign_in";
 
 const TOKENS_KEY = "fia_google_tokens";
 
@@ -75,7 +78,8 @@ async function exchangeToken(body: Record<string, string>): Promise<StoredTokens
 // page out of bfcache -- browsers won't cache a page that has one, forcing
 // a real teardown instead of a suspend. Combined with explicitly closing
 // the database first, this should leave nothing to race against.
-export async function signIn(db: SQLiteDatabase): Promise<void> {
+export async function signIn(db: SQLiteDatabase, returnTo = "/sync"): Promise<void> {
+  localStorage.setItem(AFTER_SIGN_IN_KEY, returnTo);
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: `${window.location.origin}/auth-callback.html`,

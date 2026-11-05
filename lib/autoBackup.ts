@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 import { Platform } from "react-native";
 import { getSetting, setSetting } from "./db";
+import { isReadOnly } from "./access";
 import { isSignedIn } from "./googleAuth";
 import { backupToDrive } from "./googleDrive";
 
@@ -28,6 +29,8 @@ export async function markDriveSynced(db: SQLiteDatabase) {
 // less than the Drive backup; `replaceAnyway` is for after the user confirms.
 // Automatic backups never pass it, so they quietly skip that case.
 export function backupNow(db: SQLiteDatabase, replaceAnyway = false): Promise<void> {
+  // Read-only access: nothing new is saved, backups included.
+  if (isReadOnly()) return Promise.reject(new Error("Backups are off: your access to Fia has ended."));
   if (!inFlight) {
     inFlight = backupToDrive(db, replaceAnyway)
       .then(() => markDriveSynced(db))
@@ -39,7 +42,7 @@ export function backupNow(db: SQLiteDatabase, replaceAnyway = false): Promise<vo
 }
 
 async function canAutoBackup(db: SQLiteDatabase): Promise<boolean> {
-  if (Platform.OS !== "web" || !isSignedIn()) return false;
+  if (Platform.OS !== "web" || !isSignedIn() || isReadOnly()) return false;
   return (await getSetting(db, LAST_SYNC_KEY)) !== null;
 }
 
