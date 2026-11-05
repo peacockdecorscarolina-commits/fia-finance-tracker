@@ -13,7 +13,7 @@ import {
   getStatementForFeedback,
   hideAccountNumbers,
   MESSAGE_MAX,
-  sendFeedback,
+  queueFeedback,
   sendWaitingFeedback,
   STATEMENT_MAX,
   type FeedbackHistoryItem,
@@ -96,14 +96,16 @@ export default function FeedbackScreen() {
     }
     setStatus({ kind: "busy" });
     try {
-      const result = await sendFeedback(db, payload);
-      setStatus({ kind: "done", waiting: result === "waiting" });
+      // Thanks right away; the sending happens in the background.
+      await queueFeedback(db, payload);
+      setStatus({ kind: "done", waiting: typeof navigator !== "undefined" && navigator.onLine === false });
       setMessage("");
       setCardName("");
       setIssuer("");
       setLink("");
       setIncludeStatement(false);
       setHistory(await getFeedbackHistory(db));
+      sendWaitingFeedback(db).then(async () => setHistory(await getFeedbackHistory(db)));
     } catch (err) {
       setStatus({ kind: "error", message: err instanceof Error ? err.message : "Couldn't send it." });
     }
@@ -303,8 +305,19 @@ export default function FeedbackScreen() {
                     {typeLabel(h.type).label} · {new Date(h.sentAt).toLocaleDateString()}
                   </Text>
                 </View>
-                <Text style={[styles.historyStatus, { color: h.status === "sent" ? SUCCESS : "#B45309" }]}>
-                  {h.status === "sent" ? "Sent" : "Waiting to send"}
+                <Text
+                  style={[
+                    styles.historyStatus,
+                    { color: h.status === "sent" ? SUCCESS : h.status === "failed" ? DANGER : "#B45309" },
+                  ]}
+                >
+                  {h.status === "sent"
+                    ? "Sent"
+                    : h.status === "failed"
+                      ? "Couldn't send"
+                      : typeof navigator !== "undefined" && navigator.onLine === false
+                        ? "Waiting to send"
+                        : "Sending..."}
                 </Text>
               </View>
             ))}
