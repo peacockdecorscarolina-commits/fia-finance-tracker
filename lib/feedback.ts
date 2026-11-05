@@ -41,7 +41,8 @@ export type FeedbackHistoryItem = {
   type: FeedbackType;
   summary: string;
   sentAt: string;
-  status: "sent" | "waiting";
+  // "failed": the server turned it down (too many, too long) -- not retried.
+  status: "sent" | "waiting" | "failed";
 };
 
 const HISTORY_KEY = "feedback_history";
@@ -127,53 +128,67 @@ async function post(payload: FeedbackPayload): Promise<"sent" | "offline"> {
     return "offline";
   }
   if (res.ok) return "sent";
+  // The server or the Sheet being down is worth another try later.
+  if (res.status >= 500) return "offline";
   const data = await res.json().catch(() => ({}));
   throw new Error(data.error ?? "Couldn't send it. Try again in a bit.");
 }
 
-// Sends it, or with no connection keeps it to send later. Throws when the
-// server turns it down (too many, too long).
-export async function sendFeedback(db: SQLiteDatabase, payload: FeedbackPayload): Promise<"sent" | "waiting"> {
+// Saves it to send -- straight away the screen can say thanks -- and the
+// caller follows with sendWaitingFeedback, which does the actual sending
+// (the Sheet can take several seconds to answer). Throws past the daily limit.
+export async function queueFeedback(db: SQLiteDatabase, payload: FeedbackPayload): Promise<void> {
   const history = await getFeedbackHistory(db);
   if (sentInLastDay(history) >= DAILY_LIMIT) {
     throw new Error(`That's ${DAILY_LIMIT} messages today. Thanks! Try again tomorrow.`);
   }
-  const result = await post(payload);
   const item: FeedbackHistoryItem = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     type: payload.type,
     summary: feedbackSummary(payload),
     sentAt: new Date().toISOString(),
-    status: result === "sent" ? "sent" : "waiting",
+    status: "waiting",
   };
-  if (result === "offline") {
-    const pending = await readJson<{ id: string; payload: FeedbackPayload }[]>(db, PENDING_KEY, []);
-    await setSetting(db, PENDING_KEY, JSON.stringify([...pending, { id: item.id, payload }]));
-  }
+  const pending = await readJson<{ id: string; payload: FeedbackPayload }[]>(db, PENDING_KEY, []);
+  await setSetting(db, PENDING_KEY, JSON.stringify([...pending, { id: item.id, payload }]));
   await setSetting(db, HISTORY_KEY, JSON.stringify([item, ...history].slice(0, 30)));
-  return item.status;
 }
 
-// Tries again to send anything saved while offline.
-export async function sendWaitingFeedback(db: SQLiteDatabase): Promise<void> {
+let sending: Promise<void> | null = null;
+
+// Sends everything waiting: just queued, or saved while offline. One run at
+// a time, so a message isn't sent twice.
+export function sendWaitingFeedback(db: SQLiteDatabase): Promise<void> {
+  if (!sending) {
+    sending = sendAll(db).finally(() => {
+      sending = null;
+    });
+  }
+  return sending;
+}
+
+async function sendAll(db: SQLiteDatabase): Promise<void> {
   const pending = await readJson<{ id: string; payload: FeedbackPayload }[]>(db, PENDING_KEY, []);
   if (pending.length === 0) return;
   const stillWaiting: typeof pending = [];
-  const sentIds = new Set<string>();
+  const outcome = new Map<string, "sent" | "failed">();
   for (const entry of pending) {
     try {
-      if ((await post(entry.payload)) === "sent") sentIds.add(entry.id);
+      if ((await post(entry.payload)) === "sent") outcome.set(entry.id, "sent");
       else stillWaiting.push(entry);
     } catch {
       // Turned down by the server -- sending again won't help.
-      sentIds.add(entry.id);
+      outcome.set(entry.id, "failed");
     }
   }
-  await setSetting(db, PENDING_KEY, JSON.stringify(stillWaiting));
+  // Anything queued while these were sending stays queued.
+  const latest = await readJson<{ id: string; payload: FeedbackPayload }[]>(db, PENDING_KEY, []);
+  const handled = new Set(pending.map((p) => p.id));
+  await setSetting(db, PENDING_KEY, JSON.stringify([...stillWaiting, ...latest.filter((p) => !handled.has(p.id))]));
   const history = await getFeedbackHistory(db);
   await setSetting(
     db,
     HISTORY_KEY,
-    JSON.stringify(history.map((h) => (sentIds.has(h.id) ? { ...h, status: "sent" } : h)))
+    JSON.stringify(history.map((h) => (outcome.has(h.id) ? { ...h, status: outcome.get(h.id)! } : h)))
   );
 }

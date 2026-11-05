@@ -46,7 +46,10 @@ export function AccessGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     cachedAccess(db).then((quick) => {
-      if (quick.kind !== "loading") apply(quick);
+      // Signed in but never checked (a first sign-in): straight in, rather
+      // than a blank screen while the Sheet answers -- the check below turns
+      // the app read-only a moment later if this person is blocked.
+      apply(quick.kind === "loading" ? { kind: "active", email: "" } : quick);
       recheck();
     });
     const onVisible = () => {
