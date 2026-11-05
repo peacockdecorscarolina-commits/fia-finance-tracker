@@ -420,7 +420,7 @@ export default function AccountsScreen() {
 
         <View style={styles.footerRow}>
           <Ionicons name="lock-closed" size={12} color={colors.textSecondary} />
-          <Text style={styles.footerText}>Your data is encrypted and secure</Text>
+          <Text style={styles.footerText}>Your data stays on this device</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

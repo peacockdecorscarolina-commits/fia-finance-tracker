@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { cachedEmail, requestAccessCheck } from "../lib/access";
 import { backupNow, markDriveSynced } from "../lib/autoBackup";
 import { BackupWouldLoseDataError, type BackupSummary } from "../lib/backupSafety";
 import { restoreFromDrive } from "../lib/googleDrive";
@@ -35,6 +36,11 @@ export default function SyncScreen() {
     deviceAccounts?: string;
   }>();
   const [warning, setWarning] = useState<{ device: BackupSummary; drive: BackupSummary } | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    cachedEmail(db).then(setEmail);
+  }, [db]);
 
   useEffect(() => {
     setSignedIn(isSignedIn());
@@ -59,10 +65,13 @@ export default function SyncScreen() {
     await signIn(db);
   }
 
+  // Fia needs a Google sign-in to use, so signing out goes back to the
+  // sign-in screen. The data on this device stays.
   function handleSignOut() {
     signOut();
     setSignedIn(false);
     setStatus({ kind: "idle" });
+    requestAccessCheck();
   }
 
   async function handleBackup(replaceAnyway = false) {
@@ -143,7 +152,7 @@ export default function SyncScreen() {
                 <View style={styles.signedInIcon}>
                   <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
                 </View>
-                <Text style={styles.signedInText}>Signed in with Google</Text>
+                <Text style={styles.signedInText}>{email ? `Signed in as ${email}` : "Signed in with Google"}</Text>
               </View>
 
               <Pressable onPress={() => handleBackup()} disabled={busy} style={[styles.primaryBtnWrap, busy && { opacity: 0.5 }]}>

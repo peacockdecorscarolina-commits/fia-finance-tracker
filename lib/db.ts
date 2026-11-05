@@ -15,6 +15,7 @@ import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabe
 import { monthInsights, topMerchants, type Insight, type TopMerchant } from "./merchantInsights";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
+import { isReadOnly, notifyBlockedWrite } from "./access";
 import { formatMerchantName, merchantMatchText } from "./formatMerchant";
 import type { Account, Asset, AssetBalanceEntry, AssetType, Category, ExtractedTransaction, Transaction } from "./types";
 import { loadCategoryEmojiOverrides, setCategoryEmojiOverride } from "./categoryStyle";
@@ -306,6 +307,30 @@ export async function initDatabase(db: SQLiteDatabase) {
   await autoLinkTransfers(db);
   // No accounts are seeded -- a new user starts empty and adds their own
   // cards, rather than inheriting a hard-coded list.
+  guardWrites(db);
+}
+
+export class ReadOnlyError extends Error {
+  constructor() {
+    super("Fia is read-only: your access has ended.");
+  }
+}
+
+// While access is read-only (see lib/access.ts), every write is refused at
+// this one point instead of in each screen -- except the settings table,
+// which holds the access check itself and per-device conveniences.
+function guardWrites(db: SQLiteDatabase) {
+  const blocked = (sql: string) => isReadOnly() && !/^\s*(insert or replace into|update|delete from)\s+settings\b/i.test(sql);
+  const refuse = () => {
+    notifyBlockedWrite();
+    return Promise.reject(new ReadOnlyError());
+  };
+  const run = db.runAsync.bind(db) as (sql: string, ...params: unknown[]) => Promise<unknown>;
+  const exec = db.execAsync.bind(db);
+  // Typed loosely on purpose: runAsync has several overloads.
+  (db as unknown as { runAsync: unknown }).runAsync = (sql: string, ...params: unknown[]) =>
+    blocked(sql) ? refuse() : run(sql, ...params);
+  (db as unknown as { execAsync: unknown }).execAsync = (sql: string) => (blocked(sql) ? refuse() : exec(sql));
 }
 
 // The user's own calls on subscription detection, per merchant (same key

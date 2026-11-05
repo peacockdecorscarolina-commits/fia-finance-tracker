@@ -1,6 +1,12 @@
-// Google Apps Script for the Fia feedback Sheet. Each message from the app
-// becomes a row, and an email goes to the Sheet's owner (whoever deploys
-// this) -- no email address is written anywhere in the app.
+// Google Apps Script for the Fia Sheet. Two jobs:
+// - Feedback: each message from the app becomes a row on the first tab, and
+//   an email goes to the Sheet's owner (whoever deploys this) -- no email
+//   address is written anywhere in the app.
+// - Users: each person who opens Fia gets a row on the "Users" tab (email,
+//   first and last seen). Type "revoked" in their Status to stop them
+//   saving anything new; clear it (or type "active") to let them back in.
+//   "Paid until" is for later, when Fia is paid for: a date in the past
+//   counts as revoked, an empty one doesn't.
 //
 // One-time setup:
 // 1. Make a new Google Sheet (e.g. "Fia feedback").
@@ -58,8 +64,10 @@ function doPost(e) {
     return reply({ ok: false, error: "Not JSON" });
   }
   if (data.secret !== SECRET) return reply({ ok: false, error: "Wrong secret" });
+  if (data.action === "checkin") return checkIn(String(data.email || "").toLowerCase());
 
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  const book = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = book.getSheets().find((s) => s.getName() !== USERS_TAB) || book.insertSheet("Feedback", 0);
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(COLUMNS.map((c) => c[0]));
     sheet.setFrozenRows(1);
@@ -88,4 +96,40 @@ function doPost(e) {
   if (data.email) mail.replyTo = data.email;
   MailApp.sendEmail(mail);
   return reply({ ok: true });
+}
+
+const USERS_TAB = "Users";
+const USER_COLUMNS = ["Email", "Status", "First seen", "Last seen", "Opens", "Paid until", "Notes"];
+
+// Records that this email opened Fia and says whether they may use it.
+function checkIn(email) {
+  if (!email) return reply({ ok: false, error: "No email" });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const book = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = book.getSheetByName(USERS_TAB) || book.insertSheet(USERS_TAB);
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(USER_COLUMNS);
+      sheet.setFrozenRows(1);
+    }
+    const now = new Date();
+    const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, USER_COLUMNS.length).getValues() : [];
+    const index = rows.findIndex((r) => String(r[0]).toLowerCase() === email);
+    if (index === -1) {
+      sheet.appendRow([email, "active", now, now, 1, "", ""]);
+      MailApp.sendEmail(Session.getEffectiveUser().getEmail(), "New Fia user: " + email, email + " just started using Fia.\n\n" + book.getUrl());
+      return reply({ ok: true, status: "active" });
+    }
+    const row = rows[index];
+    const rowNumber = index + 2;
+    sheet.getRange(rowNumber, 4).setValue(now);
+    sheet.getRange(rowNumber, 5).setValue((Number(row[4]) || 0) + 1);
+    const status = String(row[1]).trim().toLowerCase();
+    const paidUntil = row[5] instanceof Date ? row[5] : null;
+    const expired = paidUntil !== null && paidUntil.getTime() < now.getTime() - 24 * 60 * 60 * 1000;
+    return reply({ ok: true, status: status === "revoked" || expired ? "revoked" : "active" });
+  } finally {
+    lock.releaseLock();
+  }
 }
