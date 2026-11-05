@@ -30,6 +30,7 @@ export type PaySchedule = {
 };
 
 export type IncomeSource = {
+  // Where its nickname is saved (setIncomeLabel).
   key: string;
   name: string;
   nickname: string | null;
@@ -166,12 +167,16 @@ export function describePaySchedule(s: PaySchedule): string {
 }
 
 // Groups income transactions (every date, so schedules have history) into
-// sources, with totals for start..end. Sources with nothing in the range
-// still show when a paycheck from them is late.
+// sources -- one per name as shown (`groupFor`), so "ACME PAYROLL 0412" and
+// "ACME PAYROLL PPD" are one payer -- with totals for start..end. Sources
+// with nothing in the range still show when a paycheck from them is late.
+// Nicknames are saved under `labelKeyFor`; one on any of a source's
+// descriptions counts for the whole source.
 export function groupIncomeSources(
   income: Transaction[],
   range: { start: string; end: string },
-  keyFor: (merchant: string) => string,
+  groupFor: (merchant: string) => string,
+  labelKeyFor: (merchant: string) => string,
   displayName: (merchant: string) => string,
   labels: Map<string, IncomeLabel>,
   coveredThrough: Map<number, string>,
@@ -180,11 +185,11 @@ export function groupIncomeSources(
   const byKey = new Map<string, Transaction[]>();
   for (const t of income) {
     if (t.ignored || t.amount <= 0) continue;
-    const key = keyFor(t.merchant);
-    byKey.set(key, [...(byKey.get(key) ?? []), t]);
+    const group = groupFor(t.merchant);
+    byKey.set(group, [...(byKey.get(group) ?? []), t]);
   }
   const sources: IncomeSource[] = [];
-  for (const [key, list] of byKey) {
+  for (const list of byKey.values()) {
     const sorted = [...list].sort((a, b) => a.date.localeCompare(b.date));
     const latest = sorted[sorted.length - 1];
     const inRange = sorted.filter((t) => t.date >= range.start && t.date <= range.end);
@@ -194,7 +199,11 @@ export function groupIncomeSources(
       today
     );
     if (inRange.length === 0 && !schedule?.late) continue;
-    const label = labels.get(key);
+    // Newest description first, so a fresh nickname wins over an old one.
+    const labelKeys = [...new Set(sorted.map((t) => labelKeyFor(t.merchant)))].reverse();
+    const labeledKey = labelKeys.find((k) => labels.has(k));
+    const key = labeledKey ?? labelKeyFor(latest.merchant);
+    const label = labeledKey ? labels.get(labeledKey) : undefined;
     sources.push({
       key,
       name: label?.name || displayName(latest.merchant),

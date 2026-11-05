@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { merchantHistory, monthInsights, topMerchants } from "../lib/merchantInsights";
+import { formatMerchantName } from "../lib/formatMerchant";
 import { tx } from "./helpers";
 
 const key = (m: string) => m.toLowerCase().replace(/[^a-z]/g, "");
@@ -102,5 +103,19 @@ describe("monthInsights", () => {
       displayName: name,
     }).map((i) => i.text);
     expect(insights).toEqual(["Biggest purchase: $5 at A on Oct 2."]);
+  });
+});
+
+describe("one merchant per name shown", () => {
+  it("adds up Starbucks and Amazon however their descriptions are worded", () => {
+    const spending = [
+      tx("2026-10-01", "STARBUCKS STORE 1234", -6),
+      tx("2026-10-02", "SQ *STARBUCKS", -5),
+      tx("2026-10-03", "STARBUCKS #05678 SEATTLE WA", -7),
+      tx("2026-10-04", "AMAZON MKTPLACE PMTS", -20),
+      tx("2026-10-05", "AMZN Mktp US*RT5YH6", -30),
+    ];
+    const top = topMerchants(spending, (m) => formatMerchantName(m).toLowerCase(), formatMerchantName);
+    expect(top.map((t) => [t.name, t.total, t.visits])).toEqual([["Amazon", 50, 2], ["Starbucks", 18, 3]]);
   });
 });

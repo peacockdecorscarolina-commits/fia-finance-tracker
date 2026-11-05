@@ -35,6 +35,15 @@ export function normalizeMerchantKey(merchant: string): string {
   return legacyMerchantKey(merchantMatchText(merchant));
 }
 
+// One merchant as the user sees it: every description that shows the same
+// name. Merchant pages, top merchants, insights and income sources group by
+// this, so "STARBUCKS STORE 1234" and "SQ *STARBUCKS" are one Starbucks.
+// Categories stay on normalizeMerchantKey, which is finer on purpose
+// (Amazon Prime and Amazon orders can be categorized apart).
+export function merchantGroupKey(merchant: string): string {
+  return formatMerchantName(merchant).toLowerCase();
+}
+
 // The key as it was before the cleaned name went in front of it; kept for
 // moving existing merchant memory over (see migrateMerchantKeys).
 function legacyMerchantKey(merchant: string): string {
@@ -456,6 +465,7 @@ export async function getIncomeSources(db: SQLiteDatabase, start: string, end: s
   return groupIncomeSources(
     income.filter((t) => t.linkedTransactionId === null),
     { start, end },
+    merchantGroupKey,
     normalizeMerchantKey,
     formatMerchantName,
     labels,
@@ -471,15 +481,15 @@ async function getSpending(db: SQLiteDatabase, start: string, end: string): Prom
   return list.filter((t) => t.amount < 0 && !t.ignored && t.linkedTransactionId === null);
 }
 
-// Every transaction from the same merchant as `merchant` (matched the way
-// merchant memory matches), newest first.
+// Every transaction from the same merchant as `merchant` (by the name shown),
+// newest first.
 export async function getMerchantTransactions(db: SQLiteDatabase, merchant: string): Promise<Transaction[]> {
-  const key = normalizeMerchantKey(merchant);
-  return (await getTransactions(db)).filter((t) => normalizeMerchantKey(t.merchant) === key);
+  const group = merchantGroupKey(merchant);
+  return (await getTransactions(db)).filter((t) => merchantGroupKey(t.merchant) === group);
 }
 
 export async function getTopMerchants(db: SQLiteDatabase, start: string, end: string, limit = 5): Promise<TopMerchant[]> {
-  return topMerchants(await getSpending(db, start, end), normalizeMerchantKey, formatMerchantName, limit);
+  return topMerchants(await getSpending(db, start, end), merchantGroupKey, formatMerchantName, limit);
 }
 
 // Plain-language notes on a month ("YYYY-MM") against the user's usual.
@@ -498,8 +508,8 @@ export async function getMonthInsights(db: SQLiteDatabase, month: string): Promi
     categories,
     earlier,
     spending,
-    seenBefore: new Set(seenRows.map((r) => normalizeMerchantKey(r.merchant))),
-    keyFor: normalizeMerchantKey,
+    seenBefore: new Set(seenRows.map((r) => merchantGroupKey(r.merchant))),
+    keyFor: merchantGroupKey,
     displayName: formatMerchantName,
     inProgress: end >= todayISO(),
   });

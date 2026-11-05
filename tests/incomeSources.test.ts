@@ -53,7 +53,7 @@ describe("groupIncomeSources", () => {
 
   it("totals each source for the range, biggest first, with nicknames", () => {
     const labels = new Map([["acmepayroll", { name: "Main job", kind: "salary" as const }]]);
-    const sources = groupIncomeSources(income, { start: "2026-10-01", end: "2026-10-31" }, key, name, labels, new Map(), "2026-11-04");
+    const sources = groupIncomeSources(income, { start: "2026-10-01", end: "2026-10-31" }, key, key, name, labels, new Map(), "2026-11-04");
     expect(sources.map((s) => [s.name, s.total, s.deposits.length])).toEqual([
       ["Main job", 6300, 3],
       ["ZELLE FROM TENANT", 1200, 1],
@@ -65,7 +65,7 @@ describe("groupIncomeSources", () => {
 
   it("still lists a source whose paycheck is late", () => {
     const covered = new Map([[1, "2026-11-25"]]);
-    const sources = groupIncomeSources(income, { start: "2026-11-01", end: "2026-11-30" }, key, name, new Map(), covered, "2026-11-30");
+    const sources = groupIncomeSources(income, { start: "2026-11-01", end: "2026-11-30" }, key, key, name, new Map(), covered, "2026-11-30");
     expect(sources.map((s) => [s.name, s.total, s.schedule?.late])).toEqual([["ACME PAYROLL", 0, true]]);
   });
 });
@@ -78,5 +78,16 @@ describe("looksLikePaycheck", () => {
     for (const m of ["ZELLE FROM JOHN", "VENMO CASHOUT", "TRANSFER FROM SAVINGS", "AMAZON REFUND", "ONLINE DEPOSIT", "PAYPAL"]) {
       expect(looksLikePaycheck(m)).toBe(false);
     }
+  });
+});
+
+describe("grouping by the name shown", () => {
+  it("treats differently worded deposits from one payer as one source, keeping its nickname", () => {
+    const shown = (m: string) => (m.startsWith("ACME") ? "Acme" : m);
+    const exact = (m: string) => m;
+    const list = [tx("2026-10-02", "ACME PAYROLL 0412", 2000), tx("2026-10-16", "ACME PAYROLL PPD", 2000)];
+    const labels = new Map([["ACME PAYROLL 0412", { name: "Main job", kind: null }]]);
+    const sources = groupIncomeSources(list, { start: "2026-10-01", end: "2026-10-31" }, shown, exact, shown, labels, new Map(), "2026-11-04");
+    expect(sources.map((s) => [s.name, s.total, s.key])).toEqual([["Main job", 4000, "ACME PAYROLL 0412"]]);
   });
 });
