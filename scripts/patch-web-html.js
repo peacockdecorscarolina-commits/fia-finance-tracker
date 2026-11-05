@@ -70,6 +70,61 @@ if (!html.includes("--app-height\", full")) {
   html = html.replace("</head>", `  ${fitScript}\n</head>`);
 }
 
+// Tapping the iPhone status bar scrolls a web page to the top -- but every
+// screen here scrolls inside its own box while the page itself is locked
+// (body overflow hidden), so the tap had nothing to move. On iOS the page
+// gets exactly 1px of room and is kept scrolled down that 1px; the status
+// bar tap scrolls it back to 0, and that's passed on to the scroll box of
+// the screen showing. A finger dragging at the top of a list, or the
+// keyboard closing, also moves the page, so those are ignored.
+// localStorage "fia-top-tap-test" turns it on elsewhere, for testing.
+const topTapTags = `<style>
+    html.fia-top-tap { overflow-y: auto; overscroll-behavior: none; }
+    html.fia-top-tap body { overflow: visible; height: auto; min-height: calc(var(--app-height, 100dvh) + 1px); overscroll-behavior: none; }
+  </style>
+  <script>
+(function () {
+  var test = false;
+  try { test = localStorage.getItem("fia-top-tap-test") === "1"; } catch (e) {}
+  var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (!ios && !test) return;
+  document.documentElement.classList.add("fia-top-tap");
+  var touching = false, lastTouch = 0, lastTyping = 0;
+  function typing() {
+    var el = document.activeElement;
+    return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+  }
+  function arm() { if (window.scrollY < 1) window.scrollTo(0, 1); }
+  function scrollScreenToTop() {
+    var el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    while (el && el !== document.body) {
+      var overflow = getComputedStyle(el).overflowY;
+      if ((overflow === "auto" || overflow === "scroll") && el.scrollHeight > el.clientHeight && el.scrollTop > 0) {
+        el.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      el = el.parentElement;
+    }
+  }
+  document.addEventListener("touchstart", function () { touching = true; }, { passive: true });
+  document.addEventListener("touchend", function () { touching = false; lastTouch = Date.now(); }, { passive: true });
+  document.addEventListener("focusin", function () { if (typing()) lastTyping = Date.now(); });
+  document.addEventListener("focusout", function () { lastTyping = Date.now(); });
+  window.addEventListener("scroll", function () {
+    if (window.scrollY > 0) return;
+    var now = Date.now();
+    var fromTap = !touching && now - lastTouch > 600 && now - lastTyping > 1000 && !typing();
+    if (fromTap) scrollScreenToTop();
+    setTimeout(arm, 400);
+  }, { passive: true });
+  window.addEventListener("load", function () { setTimeout(arm, 300); });
+  window.addEventListener("resize", function () { setTimeout(arm, 300); });
+})();
+  </script>`;
+if (!html.includes("fia-top-tap")) {
+  html = html.replace("</head>", `  ${topTapTags}\n</head>`);
+}
+
 // manifest.webmanifest (in public/) is what makes Chrome on Android and
 // computers offer a real "Install" -- app.json's "web" keys don't produce
 // one. sw.js lets the installed app open offline; once it's running, the
