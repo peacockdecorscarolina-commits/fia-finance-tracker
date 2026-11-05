@@ -185,8 +185,15 @@ export function TransactionRow({
           <Text style={styles.avatarEmoji}>{categoryStyle.emoji}</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.merchant} numberOfLines={2}>
+          {/* The name opens this merchant's history. */}
+          <Text
+            style={styles.merchant}
+            numberOfLines={2}
+            accessibilityRole="link"
+            onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: transaction.merchant } })}
+          >
             {formatMerchantName(transaction.merchant)}
+            <Text style={styles.merchantChevron}> ›</Text>
           </Text>
           <Text style={styles.meta}>
             {transaction.date} · {transaction.accountName}
@@ -496,6 +503,7 @@ function makeStyles(colors: ThemeColors) {
     avatar: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
     avatarEmoji: { fontSize: 16 },
     merchant: { fontSize: 14, fontWeight: "600", color: colors.textPrimary, marginBottom: 2 },
+    merchantChevron: { color: colors.textSecondary, fontWeight: "700" },
     meta: { fontSize: 12, color: colors.textSecondary, marginBottom: 6 },
     chipRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
     categoryChip: {
