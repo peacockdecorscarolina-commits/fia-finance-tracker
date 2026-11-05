@@ -91,6 +91,14 @@ export async function backupToDrive(db: SQLiteDatabase, replaceAnyway = false): 
   if (!res.ok) throw new Error("Failed to upload backup to Drive");
 }
 
+// What the Drive backup holds (counts and date), or null when there's none
+// -- for offering a restore without downloading the whole thing.
+export async function getDriveBackupInfo(): Promise<BackupSummary | null> {
+  const accessToken = await getValidAccessToken();
+  const file = await findBackupFile(accessToken);
+  return file ? driveBackupSummary(accessToken, file) : null;
+}
+
 export async function restoreFromDrive(db: SQLiteDatabase): Promise<{ exportedAt: string }> {
   const accessToken = await getValidAccessToken();
   const file = await findBackupFile(accessToken);
