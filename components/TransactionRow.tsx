@@ -250,6 +250,13 @@ export function TransactionRow({
             <Text style={styles.actionLinkText}>{editingPaidBack ? "Cancel" : "Paid back"}</Text>
           </Pressable>
         )}
+        <Pressable
+          onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: transaction.merchant } })}
+          style={styles.actionBtn}
+        >
+          <Ionicons name="time-outline" size={13} color={colors.accent} />
+          <Text style={styles.actionLinkText}>History</Text>
+        </Pressable>
         <Pressable onPress={toggleRecurringPanel} style={styles.actionBtn}>
           <Ionicons name="repeat" size={13} color={colors.accent} />
           <Text style={styles.actionLinkText}>{pickingRecurring ? "Cancel" : "Subscription"}</Text>

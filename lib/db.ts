@@ -12,6 +12,7 @@ import {
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
 import { closingOnOrAfter, statementStatus, type StatementStatus } from "./statementReminders";
 import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
+import { monthInsights, topMerchants, type Insight, type TopMerchant } from "./merchantInsights";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { formatMerchantName, merchantMatchText } from "./formatMerchant";
@@ -461,6 +462,47 @@ export async function getIncomeSources(db: SQLiteDatabase, start: string, end: s
     new Map(covered.map((c) => [c.accountId, c.last])),
     today
   );
+}
+
+// Charges for start..end that count as spending: no income, card payments,
+// linked transfers or ignored ones.
+async function getSpending(db: SQLiteDatabase, start: string, end: string): Promise<Transaction[]> {
+  const list = await getTransactions(db, { start, end, excludeIncome: true, excludeCategoryNames: [PAYMENT_CATEGORY_NAME] });
+  return list.filter((t) => t.amount < 0 && !t.ignored && t.linkedTransactionId === null);
+}
+
+// Every transaction from the same merchant as `merchant` (matched the way
+// merchant memory matches), newest first.
+export async function getMerchantTransactions(db: SQLiteDatabase, merchant: string): Promise<Transaction[]> {
+  const key = normalizeMerchantKey(merchant);
+  return (await getTransactions(db)).filter((t) => normalizeMerchantKey(t.merchant) === key);
+}
+
+export async function getTopMerchants(db: SQLiteDatabase, start: string, end: string, limit = 5): Promise<TopMerchant[]> {
+  return topMerchants(await getSpending(db, start, end), normalizeMerchantKey, formatMerchantName, limit);
+}
+
+// Plain-language notes on a month ("YYYY-MM") against the user's usual.
+export async function getMonthInsights(db: SQLiteDatabase, month: string): Promise<Insight[]> {
+  const [y, m] = month.split("-").map(Number);
+  const before = [1, 2, 3].map((i) => new Date(Date.UTC(y, m - 1 - i, 1)).toISOString().slice(0, 7));
+  const start = `${month}-01`;
+  const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  const [categories, earlier, spending, seenRows] = await Promise.all([
+    getCategorySummary(db, month),
+    Promise.all(before.map((b) => getCategorySummary(db, b))),
+    getSpending(db, start, end),
+    db.getAllAsync<{ merchant: string }>("SELECT DISTINCT merchant FROM transactions WHERE date < ?", start),
+  ]);
+  return monthInsights({
+    categories,
+    earlier,
+    spending,
+    seenBefore: new Set(seenRows.map((r) => normalizeMerchantKey(r.merchant))),
+    keyFor: normalizeMerchantKey,
+    displayName: formatMerchantName,
+    inProgress: end >= todayISO(),
+  });
 }
 
 // A closing date on the 28th-31st counts as the same day as a later
