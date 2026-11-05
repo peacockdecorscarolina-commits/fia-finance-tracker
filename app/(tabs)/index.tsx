@@ -9,6 +9,8 @@ import { BenefitReminder } from "../../components/BenefitReminder";
 import { CheckInCard } from "../../components/CheckInCard";
 import { StatementReminder } from "../../components/StatementReminder";
 import { DataSafetyBanner } from "../../components/DataSafetyBanner";
+import { GettingStarted } from "../../components/GettingStarted";
+import { RestoreOffer } from "../../components/RestoreOffer";
 import { EmptyState } from "../../components/EmptyState";
 import { Greeting } from "../../components/Greeting";
 import { LineChart } from "../../components/LineChart";
@@ -302,28 +304,12 @@ export default function TransactionsScreen() {
         </View>
       </View>
 
+      <RestoreOffer />
+      <GettingStarted />
       <DataSafetyBanner />
       <CheckInCard key={checkInKey} />
       <BenefitReminder />
       <StatementReminder onChanged={() => setCheckInKey((k) => k + 1)} />
-
-      {/* New users start with no accounts -- point them at the first step. */}
-      {!loading && accounts.length === 0 && (
-        <PressScale onPress={() => router.push("/accounts")}>
-          <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.getStarted}>
-            <View style={styles.getStartedIcon}>
-              <Ionicons name="card-outline" size={20} color="#FFFFFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.getStartedTitle}>Add your first card</Text>
-              <Text style={styles.getStartedText}>
-                Add the cards and bank accounts you want to track, then upload a statement for each.
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#FFFFFFCC" />
-          </LinearGradient>
-        </PressScale>
-      )}
 
       <SegmentedControl options={PERIODS} value={period} onChange={setPeriod} />
 
@@ -569,8 +555,8 @@ export default function TransactionsScreen() {
           contentContainerStyle={styles.list}
           ListHeaderComponent={listHeader}
           ListEmptyComponent={
-            // With no accounts yet, the "Add your first card" banner is the
-            // next step -- this would only repeat it, below the fold.
+            // With no accounts yet, Getting started (above) is the next
+            // step -- this would only repeat it, below the fold.
             loading || accounts.length === 0 ? null : (
               <EmptyState
                 icon="🧾"
@@ -645,24 +631,6 @@ function makeStyles(colors: ThemeColors) {
     borderRadius: radius.card,
   },
   statRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
-  getStarted: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    borderRadius: radius.card,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  getStartedIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF26",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  getStartedTitle: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
-  getStartedText: { fontSize: 12, color: "#FFFFFFCC", marginTop: 2, lineHeight: 17 },
   statBox: {
     flex: 1,
     backgroundColor: colors.card,
