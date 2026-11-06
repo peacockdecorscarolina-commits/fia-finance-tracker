@@ -10,6 +10,7 @@ const status = (readyMonths: string[], missingMonths: string[] = [], over: Parti
   statementDates: [],
   firstDate: "2026-01-01",
   lastStatementDate: null,
+  coveredThrough: null,
   nextExpected: null,
   readyMonths,
   missingMonths,
@@ -105,5 +106,28 @@ describe("upcomingStatements", () => {
     );
     const noDay = status([], [], { lastStatementDate: "2026-10-20", nextExpected: "2026-11-20" });
     expect(upcomingStatements(noDay, "2026-11", "2026-11-04")?.line).toBe("Nov 20 statement · out around Nov 25");
+  });
+});
+
+describe("mid-month statements without a closing day", () => {
+  const card = (coveredThrough: string, nextExpected: string) => status([], [], { coveredThrough, nextExpected });
+  it("waits for the next statement when uploads stop mid-month", () => {
+    const s = card("2026-10-14", "2026-11-14");
+    expect(monthEndStatementNeeded(s, "2026-10")).toBe("2026-11-14");
+    expect(statementsDone([s], "2026-10")).toBe(false);
+    const state = accountMonthState(s, "2026-10", "2026-11-05");
+    expect(state?.kind).toBe("waiting");
+    expect(state?.line).toContain("Uploaded through Oct 14");
+    expect(state?.line).toContain("out around Nov 19");
+  });
+  it("counts uploads reaching the last week as the whole month", () => {
+    expect(monthEndStatementNeeded(card("2026-10-27", "2026-11-27"), "2026-10")).toBeNull();
+    expect(accountMonthState(card("2026-10-27", "2026-11-27"), "2026-10", "2026-11-05")?.kind).toBe("upToDate");
+  });
+  it("is done once the next statement is in", () => {
+    expect(monthEndStatementNeeded(card("2026-11-14", "2026-12-14"), "2026-10")).toBeNull();
+  });
+  it("respects a skipped next month", () => {
+    expect(monthEndStatementNeeded(card("2026-10-14", "2026-12-14"), "2026-10")).toBeNull();
   });
 });

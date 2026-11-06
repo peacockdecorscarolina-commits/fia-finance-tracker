@@ -35,6 +35,8 @@ export type StatementStatus = {
   statementDates: string[];
   firstDate: string | null;
   lastStatementDate: string | null;
+  // The latest date uploads cover: the last closing or transaction.
+  coveredThrough: string | null;
   // When the next statement should close.
   nextExpected: string | null;
   // Statements that have come out but aren't uploaded, oldest first (YYYY-MM).
@@ -103,7 +105,7 @@ export function statementStatus(h: StatementHistory, today: string): StatementSt
   const lastTransaction = h.transactionDates[h.transactionDates.length - 1] ?? null;
   const empty = { accountId: h.accountId, accountName: h.accountName, remindersOn: h.remindersOn, statementDay: h.statementDay, statementDates: h.statementDates, firstDate: [h.transactionDates[0], h.statementDates[0]].filter(Boolean).sort()[0] ?? null, lastStatementDate, readyMonths: [], missingMonths: [] };
   const base = [lastStatementDate, lastTransaction].filter((d): d is string => d !== null).sort().pop();
-  if (!base) return { ...empty, nextExpected: null };
+  if (!base) return { ...empty, coveredThrough: null, nextExpected: null };
 
   const skipped = new Set(h.skippedMonths);
   // The k-th statement closing after `base`.
@@ -118,7 +120,7 @@ export function statementStatus(h: StatementHistory, today: string): StatementSt
   let k = 1;
   while (skipped.has(closingAfter(k).slice(0, 7)) && k < 24) k++;
   const nextExpected = closingAfter(k);
-  if (!h.remindersOn) return { ...empty, nextExpected };
+  if (!h.remindersOn) return { ...empty, coveredThrough: base, nextExpected };
 
   const readyMonths: string[] = [];
   for (let k = 1; k <= 12; k++) {
@@ -147,7 +149,7 @@ export function statementStatus(h: StatementHistory, today: string): StatementSt
 
   const oldest = addMonths(today, -MISSING_LOOKBACK_MONTHS).slice(0, 7);
   const missingMonths = [...missing].filter((m) => !skipped.has(m) && m >= oldest).sort();
-  return { ...empty, nextExpected, readyMonths, missingMonths };
+  return { ...empty, coveredThrough: base, nextExpected, readyMonths, missingMonths };
 }
 
 export function monthName(month: string, withYear = false): string {
