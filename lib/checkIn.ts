@@ -25,14 +25,28 @@ function lastDayOf(month: string): string {
 }
 
 // A statement closing mid-month splits the month: October's last days are on
-// the statement closing in November. With the account's statement day
-// known, this is that statement's closing date while it isn't in yet
-// (uploaded, or its month marked "No statement"), else null.
+// the statement closing in November. This is that statement's closing date
+// while it isn't in yet (uploaded, or its month marked "No statement"), else
+// null. With the account's statement day known it's exact. Without it, an
+// account whose uploads stop more than GUESS_GAP_DAYS before the month ends
+// is taken to close mid-month, with the next statement a month on.
+export const GUESS_GAP_DAYS = 7;
+
 export function monthEndStatementNeeded(s: StatementStatus, month: string): string | null {
-  if (!s.remindersOn || s.statementDay === null || !s.nextExpected) return null;
+  if (!s.remindersOn || !s.nextExpected) return null;
+  if (s.statementDay === null) return guessedMonthEnd(s, month);
   const needed = closingOnOrAfter(lastDayOf(month), s.statementDay);
   // The next statement expected comes after it, so it's covered.
   return s.nextExpected > needed ? null : needed;
+}
+
+function guessedMonthEnd(s: StatementStatus, month: string): string | null {
+  const covered = s.coveredThrough;
+  if (!covered || covered.slice(0, 7) !== month) return null;
+  if (covered > addDays(lastDayOf(month), -GUESS_GAP_DAYS)) return null;
+  // Its next month was marked "No statement".
+  if (s.nextExpected !== addMonths(covered, 1)) return null;
+  return s.nextExpected;
 }
 
 // Statements for that month are in when no account is still waiting on one
@@ -65,6 +79,12 @@ export function accountMonthState(s: StatementStatus, month: string, today: stri
   if (needed) {
     const out = addDays(needed, READY_AFTER_DAYS);
     const when = out <= today ? "should be out now" : `out around ${shortDate(out)}`;
+    if (s.statementDay === null) {
+      return {
+        kind: "waiting",
+        line: `Uploaded through ${shortDate(s.coveredThrough!)} · the rest of ${name} is on the next statement, ${when} · Set its closing day on Home for exact dates`,
+      };
+    }
     const which =
       needed.slice(0, 7) === month
         ? `Its ${name} statement closes ${shortDate(needed)}`
