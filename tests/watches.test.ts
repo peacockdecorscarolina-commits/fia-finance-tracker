@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountMatches, describeWatch, matchesWatch, nameMatches, noteWithWatch } from "../lib/watches";
+import { amountMatches, describeWatch, matchesWatch, nameMatches, noteWithWatch, watchTitle } from "../lib/watches";
 
 const watch = (lookFor: string, over: { amount?: number | null; direction?: "in" | "out" | null } = {}) => ({
   lookFor,
@@ -58,5 +58,21 @@ describe("describeWatch", () => {
   it("sums up the details", () => {
     expect(describeWatch({ amount: 45, direction: "in", keepWatching: false })).toBe("Money in · about $45.00");
     expect(describeWatch({ amount: null, direction: null, keepWatching: true })).toBe("every time");
+  });
+});
+
+describe("amount-only watches", () => {
+  it("match any vendor close to the amount", () => {
+    const w = watch("", { amount: 45 });
+    expect(matchesWatch(w, { merchant: "TARGET", amount: -45.12 })).toBe(true);
+    expect(matchesWatch(w, { merchant: "VENMO", amount: 47 })).toBe(true);
+    expect(matchesWatch(w, { merchant: "TARGET", amount: -60 })).toBe(false);
+  });
+  it("need an amount when there's no vendor", () => {
+    expect(matchesWatch(watch(""), { merchant: "TARGET", amount: -45 })).toBe(false);
+  });
+  it("are titled by the amount", () => {
+    expect(watchTitle({ lookFor: "", amount: 45 })).toBe("Any vendor, about $45.00");
+    expect(watchTitle({ lookFor: " Amazon ", amount: 45 })).toBe("Amazon");
   });
 });

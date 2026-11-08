@@ -1555,7 +1555,7 @@ const TRANSACTION_SELECT = `
        WHERE transaction_tags.transaction_id = transactions.id) as tagList,
     (SELECT watch_flags.watch_id FROM watch_flags
        WHERE watch_flags.transaction_id = transactions.id AND watch_flags.status = 'flagged' LIMIT 1) as watchId,
-    (SELECT COALESCE(NULLIF(watches.note, ''), watches.look_for) FROM watch_flags JOIN watches ON watches.id = watch_flags.watch_id
+    (SELECT COALESCE(NULLIF(watches.note, ''), NULLIF(watches.look_for, ''), printf('About $%.2f', watches.amount)) FROM watch_flags JOIN watches ON watches.id = watch_flags.watch_id
        WHERE watch_flags.transaction_id = transactions.id AND watch_flags.status = 'flagged' LIMIT 1) as watchNote
   FROM transactions
   JOIN accounts ON accounts.id = transactions.account_id

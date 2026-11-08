@@ -17,7 +17,7 @@ import { formatMerchantName } from "../lib/formatMerchant";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 import type { Transaction } from "../lib/types";
-import { describeWatch, type WatchDirection } from "../lib/watches";
+import { describeWatch, watchTitle, type WatchDirection } from "../lib/watches";
 
 const ACCENT = "#4C1D95";
 const DANGER = "#DC2626";
@@ -98,12 +98,13 @@ export default function WatchListScreen() {
 
   const amountValue = amount.trim() ? Number(amount.replace(/[$,]/g, "")) : null;
   const amountOk = amountValue === null || (Number.isFinite(amountValue) && amountValue > 0);
-  const canSave = lookFor.trim().length > 0 && amountOk;
+  // A vendor, an amount, or both.
+  const canSave = (lookFor.trim().length > 0 || amountValue !== null) && amountOk;
 
   async function save() {
     if (!canSave) return;
     await addWatch(db, { lookFor, note, amount: amountValue, direction, keepWatching });
-    setJustAdded(lookFor.trim());
+    setJustAdded(watchTitle({ lookFor, amount: amountValue }));
     setAdding(false);
     load();
   }
@@ -136,7 +137,8 @@ export default function WatchListScreen() {
         {adding ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Watch for a transaction</Text>
-            <Text style={styles.fieldLabel}>Look for</Text>
+            <Text style={styles.hint}>Fill in a vendor, an amount, or both.</Text>
+            <Text style={styles.fieldLabel}>Vendor</Text>
             <TextInput
               value={lookFor}
               onChangeText={setLookFor}
@@ -154,7 +156,7 @@ export default function WatchListScreen() {
               style={[styles.input, styles.multiline]}
               multiline
             />
-            <Text style={styles.fieldLabel}>Amount (optional)</Text>
+            <Text style={styles.fieldLabel}>Amount</Text>
             <TextInput
               value={amount}
               onChangeText={setAmount}
@@ -232,7 +234,7 @@ export default function WatchListScreen() {
               <View key={w.id} style={styles.watchRow}>
                 <Ionicons name="eye-outline" size={18} color={ACCENT} style={{ marginTop: 2 }} />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={styles.watchName}>{w.lookFor}</Text>
+                  <Text style={styles.watchName}>{watchTitle(w)}</Text>
                   {!!w.note && <Text style={styles.watchNote}>{w.note}</Text>}
                   <Text style={styles.meta}>
                     {[describeWatch(w), `since ${shortDate(w.createdAt)}`].filter(Boolean).join(" · ")}
@@ -263,7 +265,7 @@ export default function WatchListScreen() {
               <View key={w.id} style={styles.watchRow}>
                 <Ionicons name="checkmark-circle" size={18} color="#16A34A" style={{ marginTop: 2 }} />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={styles.watchName}>{w.lookFor}</Text>
+                  <Text style={styles.watchName}>{watchTitle(w)}</Text>
                   {!!w.note && <Text style={styles.watchNote}>{w.note}</Text>}
                   <FoundList list={finds.get(w.id)} styles={styles} />
                   <Pressable

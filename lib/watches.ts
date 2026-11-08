@@ -9,6 +9,7 @@ export type WatchDirection = "in" | "out";
 
 export type Watch = {
   id: number;
+  // The vendor's name; empty for a watch on the amount alone.
   lookFor: string;
   note: string;
   // Roughly this much, either way (see amountMatches).
@@ -49,6 +50,8 @@ export function matchesWatch(
   if (watch.direction === "in" && t.amount <= 0) return false;
   if (watch.direction === "out" && t.amount >= 0) return false;
   if (watch.amount !== null && !amountMatches(watch.amount, t.amount)) return false;
+  // No vendor: the amount alone decides (and a watch needs one or the other).
+  if (!watch.lookFor.trim()) return watch.amount !== null;
   return nameMatches(watch.lookFor, t.merchant);
 }
 
@@ -59,6 +62,12 @@ export function noteWithWatch(existing: string | null, watchNote: string): strin
   if (!current) return watchNote;
   if (current.includes(watchNote)) return current;
   return `${current}\n${watchNote}`;
+}
+
+// What a watch is looking for, as its title: the vendor, or the amount.
+export function watchTitle(w: Pick<Watch, "lookFor" | "amount">): string {
+  if (w.lookFor.trim()) return w.lookFor.trim();
+  return w.amount !== null ? `Any vendor, about $${w.amount.toFixed(2)}` : "";
 }
 
 // "Money in · about $45" for a watch's details line.
