@@ -16,7 +16,8 @@ module.exports = function handler(req, res) {
   if (start <= now) start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, DAY));
   const date = `${start.getUTCFullYear()}${pad(start.getUTCMonth() + 1)}${pad(start.getUTCDate())}`;
   const stamp = now.toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
-  const host = req.headers["x-forwarded-host"] || req.headers.host || "fia-finance-tracker.vercel.app";
+  const asked = String(req.headers["x-forwarded-host"] || req.headers.host || "");
+  const host = /^[a-z0-9.-]+(:\d+)?$/i.test(asked) ? asked : "fia-finance-tracker.vercel.app";
   const link = `https://${host}/check-in`;
 
   // No time zone on DTSTART: 9 AM wherever the person's calendar is.

@@ -94,15 +94,33 @@ function pageItemsToText(items) {
   return lines.join("\n");
 }
 
+const USERINFO_URL = process.env.GOOGLE_USERINFO_URL || "https://openidconnect.googleapis.com/v1/userinfo";
+
+// Only people signed in to Fia (with Google) can have statements read, so
+// this isn't a free PDF reader for anyone on the internet.
+async function signedIn(accessToken) {
+  if (typeof accessToken !== "string" || !accessToken) return false;
+  try {
+    const infoRes = await fetch(USERINFO_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
+    return infoRes.ok;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
   }
 
-  const { pdfBase64 } = req.body || {};
+  const { pdfBase64, accessToken } = req.body || {};
   if (!pdfBase64) {
     res.status(400).json({ error: "Missing pdfBase64" });
+    return;
+  }
+  if (!(await signedIn(accessToken))) {
+    res.status(401).json({ error: "Sign in to Fia again to read statements." });
     return;
   }
 

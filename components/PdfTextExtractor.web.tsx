@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle } from "react";
+import { getValidAccessToken } from "../lib/googleAuth";
 
 export type PdfTextExtractorHandle = {
   extractText: (uri: string) => Promise<string>;
@@ -42,7 +43,8 @@ export const PdfTextExtractor = forwardRef<PdfTextExtractorHandle, object>((_pro
       const res = await fetch("/api/parse-statement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfBase64 }),
+        // The server reads statements only for people signed in to Fia.
+        body: JSON.stringify({ pdfBase64, accessToken: await getValidAccessToken().catch(() => "") }),
       });
       const data = await res.json();
       if (!res.ok) {

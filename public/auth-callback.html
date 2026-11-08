@@ -32,6 +32,14 @@
           statusEl.textContent = "No authorization code was returned by Google.";
           return;
         }
+        // Only finish a sign-in this device started (see signIn in
+        // lib/googleAuth.ts): Google hands back the state Fia sent.
+        var expectedState = localStorage.getItem("fia_oauth_state");
+        localStorage.removeItem("fia_oauth_state");
+        if (!expectedState || params.get("state") !== expectedState) {
+          statusEl.innerHTML = "This sign-in didn't start in Fia on this device.<p><a href=\"/\">Back to Fia</a> and tap Sign in again.</p>";
+          return;
+        }
 
         try {
           var res = await fetch("/api/google-token", {
@@ -68,7 +76,7 @@
 
         var next = localStorage.getItem("fia_after_sign_in") || "/sync";
         localStorage.removeItem("fia_after_sign_in");
-        window.location.href = next.charAt(0) === "/" ? next : "/sync";
+        window.location.href = /^\/(?![\/\\])/.test(next) ? next : "/sync";
       })();
     </script>
   </body>
