@@ -14,7 +14,15 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const { grant_type: grantType } = req.body || {};
+  const body = req.body || {};
+  // Every value passed on to Google must be plain text.
+  for (const key of ["grant_type", "code", "code_verifier", "redirect_uri", "refresh_token"]) {
+    if (body[key] !== undefined && typeof body[key] !== "string") {
+      res.status(400).json({ error: `Invalid ${key}` });
+      return;
+    }
+  }
+  const { grant_type: grantType } = body;
   const params = new URLSearchParams({
     client_id: clientId,
     client_secret: clientSecret,
@@ -46,12 +54,20 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-  });
-  const data = await tokenRes.json();
+  let tokenRes;
+  let data;
+  try {
+    tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+    data = await tokenRes.json();
+  } catch (err) {
+    console.error("google-token: couldn't reach Google", err);
+    res.status(502).json({ error: "Couldn't reach Google. Try again in a bit." });
+    return;
+  }
 
   if (!tokenRes.ok) {
     res.status(tokenRes.status).json(data);
