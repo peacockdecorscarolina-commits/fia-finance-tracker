@@ -117,7 +117,7 @@ function checkIn(email) {
     const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, USER_COLUMNS.length).getValues() : [];
     const index = rows.findIndex((r) => String(r[0]).toLowerCase() === email);
     if (index === -1) {
-      sheet.appendRow([email, "active", now, now, 1, "", ""]);
+      sheet.appendRow([asText(email), "active", now, now, 1, "", ""]);
       MailApp.sendEmail(Session.getEffectiveUser().getEmail(), "New Fia user: " + email, email + " just started using Fia.\n\n" + book.getUrl());
       return reply({ ok: true, status: "active" });
     }

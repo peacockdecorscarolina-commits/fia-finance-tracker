@@ -94,6 +94,9 @@ function pageItemsToText(items) {
   return lines.join("\n");
 }
 
+// Far more than any statement; stops a huge document tying up the server.
+const MAX_PAGES = 300;
+
 const USERINFO_URL = process.env.GOOGLE_USERINFO_URL || "https://openidconnect.googleapis.com/v1/userinfo";
 
 // Only people signed in to Fia (with Google) can have statements read, so
@@ -115,7 +118,7 @@ module.exports = async function handler(req, res) {
   }
 
   const { pdfBase64, accessToken } = req.body || {};
-  if (!pdfBase64) {
+  if (typeof pdfBase64 !== "string" || !pdfBase64) {
     res.status(400).json({ error: "Missing pdfBase64" });
     return;
   }
@@ -124,6 +127,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  let loadingTask = null;
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
@@ -141,13 +145,18 @@ module.exports = async function handler(req, res) {
     }
 
     const data = new Uint8Array(Buffer.from(pdfBase64, "base64"));
-    const doc = await pdfjsLib.getDocument({
+    loadingTask = pdfjsLib.getDocument({
       data,
       disableFontFace: true,
       useWorkerFetch: false,
       isEvalSupported: false,
-    }).promise;
+    });
+    const doc = await loadingTask.promise;
 
+    if (doc.numPages > MAX_PAGES) {
+      res.status(413).json({ error: `That PDF has ${doc.numPages} pages. Fia reads statements up to ${MAX_PAGES} pages.` });
+      return;
+    }
     const pages = [];
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
@@ -162,5 +171,8 @@ module.exports = async function handler(req, res) {
     res.status(200).json({ text: pages.join("\n") });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  } finally {
+    // Frees the document's memory: the server copy is reused between requests.
+    if (loadingTask) loadingTask.destroy().catch(() => {});
   }
 };
