@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { autoBackup } from "../lib/autoBackup";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import {
   confirmWatchFlag,
@@ -194,6 +195,7 @@ export function TransactionRow({
     if (!watchFlag) return;
     if (isIt) setNote(await confirmWatchFlag(db, watchFlag.id, transaction.id));
     else await dismissWatchFlag(db, watchFlag.id, transaction.id);
+    autoBackup(db);
     setWatchFlag(null);
     onWatchAnswered?.();
   }

@@ -4,6 +4,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { TransactionRow } from "../components/TransactionRow";
+import { autoBackup } from "../lib/autoBackup";
 import {
   addWatch,
   deleteWatch,
@@ -53,6 +54,13 @@ export default function WatchListScreen() {
   const [keepWatching, setKeepWatching] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null);
   const [justAdded, setJustAdded] = useState<string | null>(null);
+
+  // After any change: reload, and back it up to Drive like an upload.
+  const changed = useCallback(() => {
+    autoBackup(db);
+    return load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db]);
 
   const load = useCallback(async () => {
     const [list, flags] = await Promise.all([getWatches(db), getFlaggedTransactions(db)]);
@@ -106,7 +114,7 @@ export default function WatchListScreen() {
     await addWatch(db, { lookFor, note, amount: amountValue, direction, keepWatching });
     setJustAdded(watchTitle({ lookFor, amount: amountValue }));
     setAdding(false);
-    load();
+    changed();
   }
 
   const open = watches.filter((w) => !w.closedAt);
@@ -249,7 +257,7 @@ export default function WatchListScreen() {
                     if (confirmingDelete !== w.id) return setConfirmingDelete(w.id);
                     await deleteWatch(db, w.id);
                     setConfirmingDelete(null);
-                    load();
+                    changed();
                   }}
                   styles={styles}
                 />
@@ -271,7 +279,7 @@ export default function WatchListScreen() {
                   <Pressable
                     onPress={async () => {
                       await reopenWatch(db, w.id);
-                      load();
+                      changed();
                     }}
                   >
                     <Text style={styles.link}>Watch again</Text>
@@ -283,7 +291,7 @@ export default function WatchListScreen() {
                     if (confirmingDelete !== w.id) return setConfirmingDelete(w.id);
                     await deleteWatch(db, w.id);
                     setConfirmingDelete(null);
-                    load();
+                    changed();
                   }}
                   styles={styles}
                 />
