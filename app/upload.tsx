@@ -97,6 +97,8 @@ export default function UploadScreen() {
   >(null);
   const [closingDayInput, setClosingDayInput] = useState("");
   const [closingDaySaved, setClosingDaySaved] = useState<number | null>(null);
+  // How many transactions on the watch list the last upload turned up.
+  const [watchedFound, setWatchedFound] = useState(0);
 
   // The balance a statement prints (owed, for a card), as of its closing
   // date -- or, if no closing date is printed, its last transaction's date.
@@ -211,7 +213,7 @@ export default function UploadScreen() {
 
   async function save() {
     if (!accountId) return;
-    await insertExtractedTransactions(db, accountId, extracted);
+    setWatchedFound(await insertExtractedTransactions(db, accountId, extracted));
     const account = accounts.find((a) => a.id === accountId);
     if (account) {
       const text = statementTextRef.current;
@@ -360,6 +362,14 @@ export default function UploadScreen() {
               <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
               <Text style={styles.savedText}>Saved! Check the Transactions tab.</Text>
             </View>
+            {watchedFound > 0 && (
+              <Pressable onPress={() => router.push("/watch-list")} style={styles.watchFound}>
+                <Text style={styles.watchFoundText}>
+                  👀 Found {watchedFound} transaction{watchedFound === 1 ? "" : "s"} you were watching for
+                </Text>
+                <Text style={styles.watchFoundLink}>Check {watchedFound === 1 ? "it" : "them"} ›</Text>
+              </Pressable>
+            )}
             {endingBalance && (
               <Text style={styles.balanceUpdatedText}>
                 {isCard
@@ -730,6 +740,9 @@ function makeStyles(colors: ThemeColors) {
   errorText: { color: "#DC2626", fontSize: 13, marginTop: spacing.sm },
   savedRow: { flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center" },
   savedText: { textAlign: "center", color: "#16A34A", fontWeight: "600" },
+  watchFound: { backgroundColor: "#FEF3C7", borderRadius: radius.chip, padding: spacing.sm, marginTop: spacing.sm, gap: 2, alignItems: "center" },
+  watchFoundText: { fontSize: 13, fontWeight: "700", color: "#92400E", textAlign: "center" },
+  watchFoundLink: { fontSize: 13, fontWeight: "800", color: "#4C1D95" },
   balanceUpdatedText: { textAlign: "center", color: colors.textSecondary, fontSize: 12, marginTop: spacing.xs },
   findTransfersLink: {
     flexDirection: "row",

@@ -13,6 +13,7 @@ import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "
 import { closingOnOrAfter, statementStatus, type StatementStatus } from "./statementReminders";
 import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
 import { monthInsights, topMerchants, type Insight, type TopMerchant } from "./merchantInsights";
+import { matchesWatch, noteWithWatch, type Watch, type WatchDirection } from "./watches";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { isReadOnly, notifyBlockedWrite } from "./access";
@@ -173,6 +174,27 @@ export async function initDatabase(db: SQLiteDatabase) {
       account_id INTEGER NOT NULL REFERENCES accounts(id),
       month TEXT NOT NULL,
       PRIMARY KEY (account_id, month)
+    );
+    -- The watch list (see lib/watches.ts). A watch only looks at
+    -- transactions added after it (id above after_transaction_id).
+    CREATE TABLE IF NOT EXISTS watches (
+      id INTEGER PRIMARY KEY NOT NULL,
+      look_for TEXT NOT NULL,
+      note TEXT NOT NULL,
+      amount REAL,
+      direction TEXT,
+      keep_watching INTEGER NOT NULL DEFAULT 0,
+      after_transaction_id INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      closed_at TEXT
+    );
+    -- A transaction a watch matched: "flagged" until the user says
+    -- "confirmed" (that's it) or "dismissed" (not this one).
+    CREATE TABLE IF NOT EXISTS watch_flags (
+      watch_id INTEGER NOT NULL REFERENCES watches(id),
+      transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+      status TEXT NOT NULL,
+      PRIMARY KEY (watch_id, transaction_id)
     );
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY NOT NULL,
@@ -1441,11 +1463,12 @@ export async function deleteAssetBalance(db: SQLiteDatabase, id: number) {
 // faster than a write per row, and a failure partway leaves nothing half
 // saved. Merchant memory and category ids are read once up front instead of
 // once per row.
+// Returns how many transactions on the watch list it found.
 export async function insertExtractedTransactions(
   db: SQLiteDatabase,
   accountId: number,
   extracted: ExtractedTransaction[]
-) {
+): Promise<number> {
   const memory = new Map(
     (await db.getAllAsync<{ merchant_key: string; category_id: number }>(
       "SELECT merchant_key, category_id FROM merchant_category_map"
@@ -1485,6 +1508,7 @@ export async function insertExtractedTransactions(
       );
     }
   });
+  return scanWatches(db);
 }
 
 // For entries that don't come from a statement upload (a recurring car
@@ -1503,6 +1527,7 @@ export async function insertManualTransaction(
     transaction.amount,
     transaction.categoryId
   );
+  await scanWatches(db);
 }
 
 const TRANSACTION_SELECT = `
@@ -1527,7 +1552,11 @@ const TRANSACTION_SELECT = `
     transactions.reimbursed_via as reimbursedVia,
     (SELECT group_concat(tags.name, char(31)) FROM transaction_tags
        JOIN tags ON tags.id = transaction_tags.tag_id
-       WHERE transaction_tags.transaction_id = transactions.id) as tagList
+       WHERE transaction_tags.transaction_id = transactions.id) as tagList,
+    (SELECT watch_flags.watch_id FROM watch_flags
+       WHERE watch_flags.transaction_id = transactions.id AND watch_flags.status = 'flagged' LIMIT 1) as watchId,
+    (SELECT COALESCE(NULLIF(watches.note, ''), NULLIF(watches.look_for, ''), printf('About $%.2f', watches.amount)) FROM watch_flags JOIN watches ON watches.id = watch_flags.watch_id
+       WHERE watch_flags.transaction_id = transactions.id AND watch_flags.status = 'flagged' LIMIT 1) as watchNote
   FROM transactions
   JOIN accounts ON accounts.id = transactions.account_id
   JOIN categories ON categories.id = transactions.category_id
@@ -1600,10 +1629,15 @@ export async function getAllTags(db: SQLiteDatabase): Promise<{ name: string; co
 // Drops links to deleted transactions and tags nothing uses. Matters beyond
 // tidiness: SQLite can hand a deleted transaction's id to the next insert,
 // which would otherwise inherit the old transaction's tags.
+// Runs after transactions are deleted. Also clears their watch flags, since
+// a deleted id can be reused by the next upload, and pulls each watch's
+// starting point back so a re-uploaded statement still gets checked.
 async function pruneTags(db: SQLiteDatabase) {
   await db.execAsync(`
     DELETE FROM transaction_tags WHERE transaction_id NOT IN (SELECT id FROM transactions);
     DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM transaction_tags);
+    DELETE FROM watch_flags WHERE transaction_id NOT IN (SELECT id FROM transactions);
+    UPDATE watches SET after_transaction_id = MIN(after_transaction_id, (SELECT COALESCE(MAX(id), 0) FROM transactions));
   `);
 }
 
@@ -2323,6 +2357,18 @@ export type DataSnapshot = {
   // Optional so backups made before the name setting existed still restore.
   userName?: string | null;
   recurringOverrides?: { merchantKey: string; status: RecurringOverride }[];
+  // The watch list, with the transactions each one flagged (found by
+  // account, date, merchant and amount, since ids change on restore).
+  watches?: {
+    lookFor: string;
+    note: string;
+    amount: number | null;
+    direction: WatchDirection | null;
+    keepWatching: boolean;
+    createdAt: string;
+    closedAt: string | null;
+    flags: { accountName: string; date: string; merchant: string; amount: number; status: string }[];
+  }[];
 };
 
 export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
@@ -2462,7 +2508,44 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
       `SELECT accounts.name as accountName, statement_skips.month as month
        FROM statement_skips JOIN accounts ON accounts.id = statement_skips.account_id`
     ),
+    watches: await exportWatches(db),
   };
+}
+
+async function exportWatches(db: SQLiteDatabase): Promise<NonNullable<DataSnapshot["watches"]>> {
+  const rows = await db.getAllAsync<WatchRow>(`${WATCH_SELECT} ORDER BY id`);
+  const flags = await db.getAllAsync<{ watchId: number; accountName: string; date: string; merchant: string; amount: number; status: string }>(
+    `SELECT watch_flags.watch_id as watchId, accounts.name as accountName, transactions.date as date,
+       transactions.merchant as merchant, transactions.amount as amount, watch_flags.status as status
+     FROM watch_flags
+     JOIN transactions ON transactions.id = watch_flags.transaction_id
+     JOIN accounts ON accounts.id = transactions.account_id`
+  );
+  return rows.map((r) => {
+    const { id, ...w } = toWatch(r);
+    return { ...w, flags: flags.filter((f) => f.watchId === id).map(({ watchId: _, ...f }) => f) };
+  });
+}
+
+// After a restore's transactions are in: watches look only at what comes
+// in from now on, and their old flags find their transactions again.
+async function restoreWatches(db: SQLiteDatabase, watches: NonNullable<DataSnapshot["watches"]>) {
+  const last = (await db.getFirstAsync<{ last: number | null }>("SELECT MAX(id) as last FROM transactions"))?.last ?? 0;
+  for (const w of watches) {
+    const id = await addWatch(db, w, last);
+    await db.runAsync("UPDATE watches SET created_at = ?, closed_at = ? WHERE id = ?", w.createdAt, w.closedAt, id);
+    for (const f of w.flags) {
+      const tx = await db.getFirstAsync<{ id: number }>(
+        `SELECT transactions.id as id FROM transactions JOIN accounts ON accounts.id = transactions.account_id
+         WHERE accounts.name = ? AND transactions.date = ? AND transactions.merchant = ? AND ABS(transactions.amount - ?) < 0.005`,
+        f.accountName,
+        f.date,
+        f.merchant,
+        f.amount
+      );
+      if (tx) await db.runAsync("INSERT OR IGNORE INTO watch_flags (watch_id, transaction_id, status) VALUES (?, ?, ?)", id, tx.id, f.status);
+    }
+  }
 }
 
 // Replaces all local data with the given snapshot -- used to restore from a
@@ -2470,7 +2553,7 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
 // for restoring onto a fresh/empty database, not merging.
 export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
   await db.execAsync(
-    "DELETE FROM income_sources; DELETE FROM statement_closings; DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
+    "DELETE FROM watch_flags; DELETE FROM watches; DELETE FROM income_sources; DELETE FROM statement_closings; DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
   );
 
   const categoryIds = new Map<string, number>();
@@ -2558,6 +2641,8 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     }
   }
 
+  await restoreWatches(db, snapshot.watches ?? []);
+
   const assetIds = new Map<string, number>();
   for (const asset of snapshot.assets ?? []) {
     const result = await db.runAsync("INSERT INTO assets (name, type) VALUES (?, ?)", asset.name, asset.type);
@@ -2638,4 +2723,143 @@ export async function getAccountSummary(
     INCOME_CATEGORY_NAME,
     PAYMENT_CATEGORY_NAME
   );
+}
+
+// ---- Watch list (see lib/watches.ts) ----
+
+type WatchRow = {
+  id: number;
+  lookFor: string;
+  note: string;
+  amount: number | null;
+  direction: WatchDirection | null;
+  keepWatching: number;
+  createdAt: string;
+  closedAt: string | null;
+};
+
+const WATCH_SELECT = `SELECT id, look_for as lookFor, note, amount, direction, keep_watching as keepWatching,
+  created_at as createdAt, closed_at as closedAt FROM watches`;
+
+function toWatch(r: WatchRow): Watch {
+  return { ...r, keepWatching: r.keepWatching === 1 };
+}
+
+export type WatchWithFinds = Watch & { flagged: number; confirmed: number };
+
+export async function getWatches(db: SQLiteDatabase): Promise<WatchWithFinds[]> {
+  const rows = await db.getAllAsync<WatchRow>(`${WATCH_SELECT} ORDER BY closed_at IS NOT NULL, COALESCE(closed_at, created_at) DESC`);
+  const counts = await db.getAllAsync<{ watchId: number; status: string; n: number }>(
+    `SELECT watch_flags.watch_id as watchId, watch_flags.status as status, COUNT(*) as n
+     FROM watch_flags JOIN transactions ON transactions.id = watch_flags.transaction_id
+     GROUP BY watch_flags.watch_id, watch_flags.status`
+  );
+  const count = (id: number, status: string) => counts.find((c) => c.watchId === id && c.status === status)?.n ?? 0;
+  return rows.map((r) => ({ ...toWatch(r), flagged: count(r.id, "flagged"), confirmed: count(r.id, "confirmed") }));
+}
+
+export async function addWatch(
+  db: SQLiteDatabase,
+  w: { lookFor: string; note: string; amount: number | null; direction: WatchDirection | null; keepWatching: boolean },
+  afterTransactionId?: number
+): Promise<number> {
+  const after =
+    afterTransactionId ?? (await db.getFirstAsync<{ last: number | null }>("SELECT MAX(id) as last FROM transactions"))?.last ?? 0;
+  const result = await db.runAsync(
+    `INSERT INTO watches (look_for, note, amount, direction, keep_watching, after_transaction_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    w.lookFor.trim(),
+    w.note.trim(),
+    w.amount,
+    w.direction,
+    w.keepWatching ? 1 : 0,
+    after,
+    todayISO()
+  );
+  return result.lastInsertRowId;
+}
+
+export async function deleteWatch(db: SQLiteDatabase, id: number) {
+  await db.runAsync("DELETE FROM watch_flags WHERE watch_id = ?", id);
+  await db.runAsync("DELETE FROM watches WHERE id = ?", id);
+}
+
+// Checks transactions added since each open watch was made, flagging new
+// matches. Returns how many it flagged.
+export async function scanWatches(db: SQLiteDatabase): Promise<number> {
+  const open = (await db.getAllAsync<WatchRow & { afterId: number }>(
+    `SELECT id, look_for as lookFor, note, amount, direction, keep_watching as keepWatching,
+       created_at as createdAt, closed_at as closedAt, after_transaction_id as afterId
+     FROM watches WHERE closed_at IS NULL`
+  ));
+  let found = 0;
+  for (const w of open) {
+    const candidates = await db.getAllAsync<{ id: number; merchant: string; amount: number }>(
+      `SELECT id, merchant, amount FROM transactions
+       WHERE id > ? AND id NOT IN (SELECT transaction_id FROM watch_flags WHERE watch_id = ?)`,
+      w.afterId,
+      w.id
+    );
+    for (const t of candidates) {
+      if (!matchesWatch(toWatch(w), t)) continue;
+      await db.runAsync("INSERT OR IGNORE INTO watch_flags (watch_id, transaction_id, status) VALUES (?, ?, 'flagged')", w.id, t.id);
+      found++;
+    }
+  }
+  return found;
+}
+
+export async function getFlaggedCount(db: SQLiteDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) as n FROM watch_flags JOIN transactions ON transactions.id = watch_flags.transaction_id
+     WHERE watch_flags.status = 'flagged'`
+  );
+  return row?.n ?? 0;
+}
+
+// Transactions a watch flagged, waiting for "That's it" or "Not this one".
+export async function getFlaggedTransactions(db: SQLiteDatabase): Promise<Transaction[]> {
+  const rows = await db.getAllAsync<TransactionRow>(
+    `${TRANSACTION_SELECT}
+     WHERE transactions.id IN (SELECT transaction_id FROM watch_flags WHERE status = 'flagged')
+     ORDER BY transactions.date DESC`
+  );
+  return rows.map(toTransaction);
+}
+
+// "That's it": the watch's note goes on the transaction, and a one-time
+// watch closes (its other flags with it). Returns the transaction's note.
+export async function confirmWatchFlag(db: SQLiteDatabase, watchId: number, transactionId: number): Promise<string | null> {
+  const watch = await db.getFirstAsync<WatchRow>(`${WATCH_SELECT} WHERE id = ?`, watchId);
+  const tx = await db.getFirstAsync<{ note: string | null }>("SELECT note FROM transactions WHERE id = ?", transactionId);
+  if (!watch || !tx) return tx?.note ?? null;
+  // A watch with no note of its own leaves the transaction's note alone.
+  const note = watch.note ? noteWithWatch(tx.note, watch.note) : tx.note;
+  await db.runAsync("UPDATE transactions SET note = ? WHERE id = ?", note, transactionId);
+  await db.runAsync("UPDATE watch_flags SET status = 'confirmed' WHERE watch_id = ? AND transaction_id = ?", watchId, transactionId);
+  if (watch.keepWatching !== 1) {
+    await db.runAsync("UPDATE watches SET closed_at = ? WHERE id = ?", todayISO(), watchId);
+    await db.runAsync("UPDATE watch_flags SET status = 'dismissed' WHERE watch_id = ? AND status = 'flagged'", watchId);
+  }
+  return note;
+}
+
+// "Not this one": unflagged, and the watch keeps looking.
+export async function dismissWatchFlag(db: SQLiteDatabase, watchId: number, transactionId: number) {
+  await db.runAsync("UPDATE watch_flags SET status = 'dismissed' WHERE watch_id = ? AND transaction_id = ?", watchId, transactionId);
+}
+
+// Opens a finished watch again, to keep looking.
+export async function reopenWatch(db: SQLiteDatabase, id: number) {
+  await db.runAsync("UPDATE watches SET closed_at = NULL WHERE id = ?", id);
+}
+
+export async function getWatchFinds(db: SQLiteDatabase, watchId: number): Promise<Transaction[]> {
+  const rows = await db.getAllAsync<TransactionRow>(
+    `${TRANSACTION_SELECT}
+     WHERE transactions.id IN (SELECT transaction_id FROM watch_flags WHERE watch_id = ? AND status = 'confirmed')
+     ORDER BY transactions.date DESC`,
+    watchId
+  );
+  return rows.map(toTransaction);
 }
