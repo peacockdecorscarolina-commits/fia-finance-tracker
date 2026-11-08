@@ -85,7 +85,7 @@ export default function MerchantScreen() {
               <View style={styles.statRow}>
                 <View style={styles.stat}>
                   <Text style={styles.statValue}>{history.visits}</Text>
-                  <Text style={styles.statLabel}>{history.visits === 1 ? "visit" : "visits"}</Text>
+                  <Text style={styles.statLabel}>{history.visits === 1 ? "charge" : "charges"}</Text>
                 </View>
                 <View style={styles.stat}>
                   <Text style={styles.statValue}>{formatMoney(history.average)}</Text>
