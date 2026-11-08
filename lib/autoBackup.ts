@@ -59,3 +59,8 @@ export async function autoBackupIfStale(db: SQLiteDatabase) {
   if (last && Date.now() - new Date(last).getTime() < STALE_MS) return;
   backupNow(db).catch(() => {});
 }
+
+// When this device last backed up to (or restored from) Drive, or null.
+export async function lastDriveSync(db: SQLiteDatabase): Promise<string | null> {
+  return getSetting(db, LAST_SYNC_KEY);
+}
