@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import { MoreMenu } from "../../components/MoreMenu";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Dimensions, FlatList, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Dimensions, FlatList, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedAmount } from "../../components/AnimatedAmount";
 import { BenefitReminder } from "../../components/BenefitReminder";
 import { CheckInCard } from "../../components/CheckInCard";
@@ -44,7 +45,6 @@ import {
   type MonthlyTotal,
 } from "../../lib/db";
 import { autoBackupIfStale } from "../../lib/autoBackup";
-import { downloadCsv, transactionsToCsv } from "../../lib/exportCsv";
 import { LOAN_KIND_ICON } from "../../lib/loan";
 import { getPeriodRange, monthRange, PERIODS, type Period } from "../../lib/period";
 import { radius, spacing, tabBarClearance } from "../../lib/theme";
@@ -242,37 +242,6 @@ export default function TransactionsScreen() {
     load();
   }
 
-  async function handleExportCsv() {
-    const all = await getTransactions(db);
-    downloadCsv(`transactions-${new Date().toISOString().slice(0, 10)}.csv`, transactionsToCsv(all));
-  }
-
-  const moreItems: MoreItem[] = [
-    { icon: "search-outline", label: "Search", onPress: () => router.push({ pathname: "/all-transactions", params: { search: "1" } }) },
-    { icon: "repeat-outline", label: "Subscriptions", onPress: () => router.push("/subscriptions") },
-    { icon: "calendar-outline", label: "Monthly check-in", onPress: () => router.push("/check-in") },
-    { icon: "cash-outline", label: "Income", onPress: () => router.push("/income") },
-    { icon: "card-outline", label: "Manage accounts", onPress: () => router.push("/accounts") },
-    { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
-    { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },
-    { icon: "swap-horizontal-outline", label: "Move", onPress: () => router.push("/move-transactions") },
-    { icon: "trash-outline", label: "Delete", onPress: () => router.push("/delete-transactions") },
-    { icon: "chatbubble-ellipses-outline", label: "Send feedback", onPress: () => router.push({ pathname: "/feedback", params: { from: "Menu" } }) },
-    ...(Platform.OS === "web"
-      ? [
-          { icon: "cloud-outline" as const, label: "Sync", onPress: () => router.push("/sync") },
-          { icon: "download-outline" as const, label: "Export CSV", onPress: handleExportCsv },
-          {
-            icon: "refresh-outline" as const,
-            label: "Refresh App",
-            onPress: () => {
-              window.location.href = `${window.location.pathname}?refreshed=${Date.now()}`;
-            },
-          },
-        ]
-      : []),
-  ];
-
   const addItems: MoreItem[] = [
     { icon: "create-outline", label: "Add transaction", onPress: () => router.push("/add-transaction") },
     { icon: "cloud-upload-outline", label: "Upload statement", onPress: () => router.push("/upload") },
@@ -291,7 +260,7 @@ export default function TransactionsScreen() {
           </Pressable>
           <StreakBadge style={styles.headerIconBtn} />
           <SyncButton style={styles.headerIconBtn} />
-          <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
+          <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn} accessibilityLabel="More">
             <Ionicons name="ellipsis-horizontal" size={20} color={colors.textPrimary} />
           </Pressable>
           <Pressable onPress={() => router.push("/review")} style={styles.headerIconBtn}>
@@ -586,7 +555,7 @@ export default function TransactionsScreen() {
         <Ionicons name="add" size={28} color="#FFFFFF" />
       </Pressable>
 
-      <MoreSheet visible={moreOpen} onClose={() => setMoreOpen(false)} items={moreItems} />
+      <MoreMenu visible={moreOpen} onClose={() => setMoreOpen(false)} />
       <MoreSheet visible={addOpen} onClose={() => setAddOpen(false)} items={addItems} title="Add" />
     </SafeAreaView>
   );

@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import { MoreMenu } from "./MoreMenu";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
-import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EmptyState } from "./EmptyState";
 import { Greeting } from "./Greeting";
 import { SegmentedControl } from "./SegmentedControl";
@@ -419,33 +420,6 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const pickerMonths = monthsBetween(pickerEdges[pickerEdges.length - 1], pickerEdges[0]);
   const pickerYears = [...new Set(pickerMonths.map((m) => m.slice(0, 4)))];
 
-  const moreItems: MoreItem[] = [
-    { icon: "search-outline", label: "Search", onPress: () => router.push({ pathname: "/all-transactions", params: { search: "1" } }) },
-    { icon: "repeat-outline", label: "Subscriptions", onPress: () => router.push("/subscriptions") },
-    { icon: "calendar-outline", label: "Monthly check-in", onPress: () => router.push("/check-in") },
-    { icon: "cash-outline", label: "Income", onPress: () => router.push("/income") },
-    { icon: "eye-outline", label: "Watch list", onPress: () => router.push("/watch-list") },
-    { icon: "card-outline", label: "Manage accounts", onPress: () => router.push("/accounts") },
-    { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
-    { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },
-    { icon: "swap-horizontal-outline", label: "Move", onPress: () => router.push("/move-transactions") },
-    { icon: "git-compare-outline", label: "Find Transfers", onPress: () => router.push("/find-transfers") },
-    { icon: "trash-outline", label: "Delete", onPress: () => router.push("/delete-transactions") },
-    { icon: "chatbubble-ellipses-outline", label: "Send feedback", onPress: () => router.push({ pathname: "/feedback", params: { from: "Menu" } }) },
-    ...(Platform.OS === "web"
-      ? [
-          { icon: "cloud-outline" as const, label: "Sync", onPress: () => router.push("/sync") },
-          {
-            icon: "refresh-outline" as const,
-            label: "Refresh App",
-            onPress: () => {
-              window.location.href = `${window.location.pathname}?refreshed=${Date.now()}`;
-            },
-          },
-        ]
-      : []),
-  ];
-
   const addItems: MoreItem[] = [
     { icon: "create-outline", label: "Add transaction", onPress: () => router.push("/add-transaction") },
     { icon: "cloud-upload-outline", label: "Upload statement", onPress: () => router.push("/upload") },
@@ -462,7 +436,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
             </Pressable>
             <StreakBadge style={styles.headerIconBtn} />
             <SyncButton style={styles.headerIconBtn} />
-            <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn}>
+            <Pressable onPress={() => setMoreOpen(true)} style={styles.headerIconBtn} accessibilityLabel="More">
               <Ionicons name="ellipsis-horizontal" size={20} color={colors.textPrimary} />
             </Pressable>
             <Pressable onPress={() => router.push("/review")} style={styles.headerIconBtn}>
@@ -997,7 +971,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         <Ionicons name="add" size={28} color="#FFFFFF" />
       </Pressable>
 
-      <MoreSheet visible={moreOpen} onClose={() => setMoreOpen(false)} items={moreItems} />
+      <MoreMenu visible={moreOpen} onClose={() => setMoreOpen(false)} />
       <MoreSheet visible={addOpen} onClose={() => setAddOpen(false)} items={addItems} title="Add" />
     </SafeAreaView>
   );
