@@ -5,18 +5,8 @@ export type PdfTextExtractorHandle = {
   extractText: (uri: string) => Promise<string>;
 };
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Failed to read the selected file."));
-    reader.onloadend = () => {
-      // reader.result is "data:application/pdf;base64,<data>" -- strip the prefix.
-      const result = reader.result as string;
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.readAsDataURL(blob);
-  });
-}
+// Vercel turns away requests over about 4.5 MB; this leaves room to spare.
+export const MAX_PDF_BYTES = 4.3 * 1024 * 1024;
 
 // Web build of the PDF text extractor. Text extraction runs server-side
 // (api/parse-statement.js, plain Node.js) rather than in the browser --
@@ -29,24 +19,36 @@ function blobToBase64(blob: Blob): Promise<string> {
 export const PdfTextExtractor = forwardRef<PdfTextExtractorHandle, object>((_props, ref) => {
   useImperativeHandle(ref, () => ({
     extractText: async (uri: string) => {
-      let pdfBase64: string;
+      let blob: Blob;
       try {
         const response = await fetch(uri);
-        const blob = await response.blob();
-        pdfBase64 = await blobToBase64(blob);
+        blob = await response.blob();
       } catch (err) {
         throw new Error(
           `Failed to read the selected file: ${err instanceof Error ? err.message : String(err)}`
         );
       }
+      if (blob.size > MAX_PDF_BYTES) {
+        const mb = (blob.size / (1024 * 1024)).toFixed(1);
+        throw new Error(
+          `This PDF is ${mb} MB, and Fia reads PDFs up to 4 MB. Try your bank's CSV download instead, or download the statement again without images.`
+        );
+      }
 
+      // The raw file, not base64 (a third bigger), so larger PDFs fit. The
+      // server reads statements only for people signed in to Fia.
       const res = await fetch("/api/parse-statement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // The server reads statements only for people signed in to Fia.
-        body: JSON.stringify({ pdfBase64, accessToken: await getValidAccessToken().catch(() => "") }),
+        headers: {
+          "Content-Type": "application/octet-stream",
+          Authorization: `Bearer ${await getValidAccessToken().catch(() => "")}`,
+        },
+        body: blob,
       });
-      const data = await res.json();
+      if (res.status === 413) {
+        throw new Error("This PDF is too big for Fia to read (over 4 MB). Try your bank's CSV download instead.");
+      }
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error || "Failed to process the PDF.");
       }
