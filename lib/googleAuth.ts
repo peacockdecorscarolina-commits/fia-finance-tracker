@@ -78,9 +78,21 @@ async function exchangeToken(body: Record<string, string>): Promise<StoredTokens
 // page out of bfcache -- browsers won't cache a page that has one, forcing
 // a real teardown instead of a suspend. Combined with explicitly closing
 // the database first, this should leave nothing to race against.
+// Proves a sign-in coming back to auth-callback.html started on this
+// device: without it, a link carrying someone else's Google code could sign
+// this device into their account, and its backups would go to their Drive.
+const OAUTH_STATE_KEY = "fia_oauth_state";
+
+function randomState(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function signIn(db: SQLiteDatabase, returnTo = "/sync"): Promise<void> {
   localStorage.setItem(AFTER_SIGN_IN_KEY, returnTo);
+  const state = randomState();
+  localStorage.setItem(OAUTH_STATE_KEY, state);
   const params = new URLSearchParams({
+    state,
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: `${window.location.origin}/auth-callback.html`,
     response_type: "code",

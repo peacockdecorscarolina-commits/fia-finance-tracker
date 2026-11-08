@@ -58,6 +58,10 @@ module.exports = async function handler(req, res) {
     }
     fields[key] = value;
   }
+  if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
+    res.status(400).json({ error: "That email doesn't look right." });
+    return;
+  }
   const needs = { suggestion: "message", problem: "message", card: "cardName", bank: "bankName" }[body.type];
   if (!fields[needs]) {
     res.status(400).json({ error: "Something's missing from that message." });
