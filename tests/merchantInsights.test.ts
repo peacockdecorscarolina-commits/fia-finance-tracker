@@ -63,7 +63,7 @@ describe("monthInsights", () => {
       "Shopping was $120 less than usual ($300).",
       "You tried 2 new places, like NEW BISTRO and TACO PLACE.",
       "Biggest purchase: $640 at BEST BUY on Oct 12.",
-      "Most visits: STARBUCKS, 4 times ($24).",
+      "Most often: STARBUCKS, 4 charges ($24).",
     ]);
   });
 

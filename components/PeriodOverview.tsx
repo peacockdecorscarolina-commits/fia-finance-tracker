@@ -775,7 +775,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                     {m.name}
                   </Text>
                   <Text style={styles.incomeMeta}>
-                    {m.visits} {m.visits === 1 ? "visit" : "visits"}
+                    {m.visits} {m.visits === 1 ? "charge" : "charges"}
                   </Text>
                 </View>
                 <Text style={styles.incomeAmount}>{formatMoney(m.total)}</Text>

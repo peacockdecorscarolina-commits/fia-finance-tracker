@@ -180,7 +180,7 @@ export function monthInsights(input: {
   }
   const regular = [...visits.values()].sort((a, b) => b.count - a.count)[0];
   if (regular && regular.count >= 4) {
-    insights.push({ emoji: "🔁", text: `Most visits: ${regular.name}, ${regular.count} times (${money(regular.total)}).` });
+    insights.push({ emoji: "🔁", text: `Most often: ${regular.name}, ${regular.count} charges (${money(regular.total)}).` });
   }
   return insights;
 }
