@@ -63,7 +63,19 @@ type Item = {
   onPress: () => void;
   badge?: MenuBadge | null;
   danger?: boolean;
+  // Its own light color (the Track items): the tile or grid cell's
+  // background and the icon's color, the same in light and dark.
+  tint?: { bg: string; fg: string };
 };
+
+const TINT = {
+  purple: { bg: "#EDE9FE", fg: "#4C1D95" },
+  yellow: { bg: "#FEF3C7", fg: "#92400E" },
+  blue: { bg: "#E0F2FE", fg: "#075985" },
+  green: { bg: "#DCFCE7", fg: "#166534" },
+};
+// Text on a tinted background stays dark in dark mode too.
+const ON_TINT = "#1E1B2E";
 
 type Section = { title: string; items: Item[] };
 
@@ -145,10 +157,10 @@ export function MoreMenu({ visible, onClose }: { visible: boolean; onClose: () =
     {
       title: "Track",
       items: [
-        { key: "checkin", label: "Monthly check-in", short: "Check-in", icon: "calendar-outline", onPress: go("/check-in"), badge: stats?.checkIn },
-        { key: "watch", label: "Watch list", short: "Watch list", icon: "eye-outline", onPress: go("/watch-list"), badge: stats?.watch },
-        { key: "search", label: "Search", short: "Search", icon: "search-outline", onPress: go({ pathname: "/all-transactions", params: { search: "1" } }) },
-        { key: "subs", label: "Subscriptions", short: "Subscriptions", icon: "repeat-outline", onPress: go("/subscriptions"), badge: stats?.subscriptions },
+        { key: "checkin", label: "Monthly check-in", short: "Check-in", icon: "calendar-outline", onPress: go("/check-in"), badge: stats?.checkIn, tint: TINT.purple },
+        { key: "watch", label: "Watch list", short: "Watch list", icon: "eye-outline", onPress: go("/watch-list"), badge: stats?.watch, tint: TINT.yellow },
+        { key: "search", label: "Search", short: "Search", icon: "search-outline", onPress: go({ pathname: "/all-transactions", params: { search: "1" } }), tint: TINT.blue },
+        { key: "subs", label: "Subscriptions", short: "Subscriptions", icon: "repeat-outline", onPress: go("/subscriptions"), badge: stats?.subscriptions, tint: TINT.green },
       ],
     },
     {
@@ -276,14 +288,22 @@ export function MoreMenu({ visible, onClose }: { visible: boolean; onClose: () =
               <>
                 <View style={styles.tiles}>
                   {sections[0].items.map((item) => (
-                    <Pressable key={item.key} onPress={press(item)} style={styles.tile}>
-                      <View style={styles.tileIcon}>
-                        <Ionicons name={item.icon} size={20} color={colors.accent} />
+                    <Pressable key={item.key} onPress={press(item)} style={[styles.tile, item.tint && { backgroundColor: item.tint.bg }]}>
+                      <View style={[styles.tileIcon, item.tint && { backgroundColor: "#FFFFFF" }]}>
+                        <Ionicons name={item.icon} size={20} color={item.tint?.fg ?? colors.accent} />
                       </View>
-                      <Text style={styles.tileLabel} numberOfLines={1}>
+                      <Text style={[styles.tileLabel, item.tint && { color: ON_TINT }]} numberOfLines={1}>
                         {item.short}
                       </Text>
-                      {item.badge ? <Pill badge={item.badge} styles={styles} /> : <View style={{ height: 20 }} />}
+                      {item.badge && item.tint ? (
+                        <Text style={[styles.tileSub, { color: item.tint.fg }]} numberOfLines={1}>
+                          {item.key === "subs" ? `${item.badge.text} active` : item.badge.text}
+                        </Text>
+                      ) : item.badge ? (
+                        <Pill badge={item.badge} styles={styles} />
+                      ) : (
+                        <View style={{ height: 18 }} />
+                      )}
                     </Pressable>
                   ))}
                 </View>
@@ -299,9 +319,14 @@ export function MoreMenu({ visible, onClose }: { visible: boolean; onClose: () =
                   <Text style={styles.sectionTitle}>{s.title}</Text>
                   <View style={styles.grid}>
                     {s.items.map((item) => (
-                      <Pressable key={item.key} onPress={press(item)} style={styles.cell} accessibilityLabel={item.label}>
-                        <Ionicons name={item.icon} size={22} color={item.danger ? DANGER : colors.accent} />
-                        <Text style={styles.cellLabel} numberOfLines={1}>
+                      <Pressable
+                        key={item.key}
+                        onPress={press(item)}
+                        style={[styles.cell, item.tint && { backgroundColor: item.tint.bg }]}
+                        accessibilityLabel={item.label}
+                      >
+                        <Ionicons name={item.icon} size={22} color={item.danger ? DANGER : item.tint?.fg ?? colors.accent} />
+                        <Text style={[styles.cellLabel, item.tint && { color: ON_TINT }]} numberOfLines={1}>
                           {item.short}
                         </Text>
                         {item.badge && (
@@ -338,7 +363,13 @@ function ListSection({
       <View style={styles.group}>
         {section.items.map((item, i) => (
           <Pressable key={item.key} onPress={press(item)} style={[styles.row, i > 0 && styles.rowDivider]}>
-            <Ionicons name={item.icon} size={20} color={item.danger ? DANGER : colors.accent} />
+            {item.tint ? (
+              <View style={[styles.rowBubble, { backgroundColor: item.tint.bg }]}>
+                <Ionicons name={item.icon} size={17} color={item.tint.fg} />
+              </View>
+            ) : (
+              <Ionicons name={item.icon} size={20} color={item.danger ? DANGER : colors.accent} />
+            )}
             <Text style={[styles.rowLabel, item.danger && { color: DANGER }]} numberOfLines={1}>
               {item.label}
             </Text>
@@ -404,6 +435,8 @@ function makeStyles(colors: ThemeColors) {
     tile: { width: "48%", flexGrow: 1, minHeight: 104, borderRadius: 18, padding: 14, gap: 8, backgroundColor: colors.background, alignItems: "flex-start" },
     tileIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
     tileLabel: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
+    tileSub: { fontSize: 12, fontWeight: "700", height: 18 },
+    rowBubble: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center", marginLeft: -5, marginRight: -5 },
     grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
     cell: {
       width: "23%",

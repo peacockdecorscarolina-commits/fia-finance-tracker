@@ -94,8 +94,18 @@ function doPost(e) {
   };
   // Hitting Reply in the email then answers the person directly.
   if (data.email) mail.replyTo = data.email;
-  MailApp.sendEmail(mail);
+  sendQuietly(mail);
   return reply({ ok: true });
+}
+
+// Google allows about 100 emails a day on a free account. Past that the
+// row is still in the Sheet; only the email is skipped.
+function sendQuietly(mail) {
+  try {
+    MailApp.sendEmail(mail);
+  } catch (err) {
+    console.warn("Email not sent: " + err);
+  }
 }
 
 const USERS_TAB = "Users";
@@ -118,7 +128,7 @@ function checkIn(email) {
     const index = rows.findIndex((r) => String(r[0]).toLowerCase() === email);
     if (index === -1) {
       sheet.appendRow([asText(email), "active", now, now, 1, "", ""]);
-      MailApp.sendEmail(Session.getEffectiveUser().getEmail(), "New Fia user: " + email, email + " just started using Fia.\n\n" + book.getUrl());
+      sendQuietly({ to: Session.getEffectiveUser().getEmail(), subject: "New Fia user: " + email, body: email + " just started using Fia.\n\n" + book.getUrl() });
       return reply({ ok: true, status: "active" });
     }
     const row = rows[index];

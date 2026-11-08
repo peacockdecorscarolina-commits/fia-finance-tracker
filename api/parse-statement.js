@@ -111,15 +111,35 @@ async function signedIn(accessToken) {
   }
 }
 
+// The PDF and the sign-in, from either form the app sends: the raw file
+// with "Authorization: Bearer <token>" (current), or JSON {pdfBase64,
+// accessToken} (older versions of the app).
+async function readRequest(req) {
+  const auth = String((req.headers && req.headers.authorization) || "");
+  const headerToken = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (Buffer.isBuffer(req.body)) return { pdf: req.body, accessToken: headerToken };
+  if (req.body && typeof req.body === "object") {
+    const { pdfBase64, accessToken } = req.body;
+    const pdf = typeof pdfBase64 === "string" && pdfBase64 ? Buffer.from(pdfBase64, "base64") : null;
+    return { pdf, accessToken: typeof accessToken === "string" ? accessToken : headerToken };
+  }
+  if (req.body === undefined && typeof req[Symbol.asyncIterator] === "function") {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    return { pdf: Buffer.concat(chunks), accessToken: headerToken };
+  }
+  return { pdf: null, accessToken: headerToken };
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
   }
 
-  const { pdfBase64, accessToken } = req.body || {};
-  if (typeof pdfBase64 !== "string" || !pdfBase64) {
-    res.status(400).json({ error: "Missing pdfBase64" });
+  const { pdf, accessToken } = await readRequest(req);
+  if (!pdf || pdf.length === 0) {
+    res.status(400).json({ error: "Missing PDF" });
     return;
   }
   if (!(await signedIn(accessToken))) {
@@ -144,7 +164,7 @@ module.exports = async function handler(req, res) {
       globalThis.pdfjsWorker = { WorkerMessageHandler: pdfjsWorkerModule.WorkerMessageHandler };
     }
 
-    const data = new Uint8Array(Buffer.from(pdfBase64, "base64"));
+    const data = new Uint8Array(pdf);
     loadingTask = pdfjsLib.getDocument({
       data,
       disableFontFace: true,
@@ -154,7 +174,7 @@ module.exports = async function handler(req, res) {
     const doc = await loadingTask.promise;
 
     if (doc.numPages > MAX_PAGES) {
-      res.status(413).json({ error: `That PDF has ${doc.numPages} pages. Fia reads statements up to ${MAX_PAGES} pages.` });
+      res.status(422).json({ error: `That PDF has ${doc.numPages} pages. Fia reads statements up to ${MAX_PAGES} pages.` });
       return;
     }
     const pages = [];
