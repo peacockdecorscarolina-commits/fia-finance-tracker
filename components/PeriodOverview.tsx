@@ -424,6 +424,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
     { icon: "repeat-outline", label: "Subscriptions", onPress: () => router.push("/subscriptions") },
     { icon: "calendar-outline", label: "Monthly check-in", onPress: () => router.push("/check-in") },
     { icon: "cash-outline", label: "Income", onPress: () => router.push("/income") },
+    { icon: "eye-outline", label: "Watch list", onPress: () => router.push("/watch-list") },
     { icon: "card-outline", label: "Manage accounts", onPress: () => router.push("/accounts") },
     { icon: "pricetag-outline", label: "Categories", onPress: () => router.push("/categories") },
     { icon: "trending-up-outline", label: "Savings & Investments", onPress: () => router.push("/net-worth") },

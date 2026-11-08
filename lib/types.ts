@@ -59,6 +59,10 @@ export type Transaction = {
   // and what's owed on a card count only the rest.
   reimbursed: number | null;
   reimbursedVia: string | null;
+  // Set while a watch has flagged this transaction and it's not yet
+  // confirmed or waved off: the watch and its note.
+  watchId: number | null;
+  watchNote: string | null;
 };
 
 // Shape returned by the extraction step (currently on-device, rule-based —

@@ -24,6 +24,8 @@ export function tx(date: string, merchant: string, amount: number, extra: Partia
     tags: [],
     reimbursed: null,
     reimbursedVia: null,
+    watchId: null,
+    watchNote: null,
     ...extra,
   };
 }

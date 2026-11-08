@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import {
+  confirmWatchFlag,
+  dismissWatchFlag,
   getAllTags,
   getRecurringOverride,
   normalizeTag,
@@ -41,6 +43,7 @@ export function TransactionRow({
   onFindTransferCandidates,
   onLinkTransfer,
   onUnlinkTransfer,
+  onWatchAnswered,
 }: {
   transaction: Transaction;
   onToggleIgnored?: (transaction: Transaction) => void;
@@ -50,6 +53,8 @@ export function TransactionRow({
   onFindTransferCandidates?: (transaction: Transaction) => Promise<Transaction[]>;
   onLinkTransfer?: (transaction: Transaction, candidateId: number) => void;
   onUnlinkTransfer?: (transaction: Transaction) => void;
+  // After "That's it" or "Not this one" on a watch's flag.
+  onWatchAnswered?: () => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -70,6 +75,13 @@ export function TransactionRow({
   const [tagsDraft, setTagsDraft] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [knownTags, setKnownTags] = useState<string[]>([]);
+  // A watch flagged this one: shown until "That's it" or "Not this one".
+  const [watchFlag, setWatchFlag] = useState(
+    transaction.watchId !== null ? { id: transaction.watchId, note: transaction.watchNote ?? "" } : null
+  );
+  useEffect(() => {
+    setWatchFlag(transaction.watchId !== null ? { id: transaction.watchId, note: transaction.watchNote ?? "" } : null);
+  }, [transaction.watchId, transaction.watchNote]);
   const tagsKey = transaction.tags.join(",");
   useEffect(() => {
     setNote(transaction.note);
@@ -178,8 +190,42 @@ export function TransactionRow({
     setLinkCandidates(candidates);
   }
 
+  async function answerWatch(isIt: boolean) {
+    if (!watchFlag) return;
+    if (isIt) setNote(await confirmWatchFlag(db, watchFlag.id, transaction.id));
+    else await dismissWatchFlag(db, watchFlag.id, transaction.id);
+    setWatchFlag(null);
+    onWatchAnswered?.();
+  }
+
+  // A new watch, filled in from this transaction: a charge's refund, or
+  // the next one like it.
+  function watchForThis() {
+    const name = formatMerchantName(transaction.merchant);
+    router.push({
+      pathname: "/watch-list",
+      params: isCharge
+        ? { lookFor: name, amount: charge.toFixed(2), direction: "in", note: `Refund for the ${transaction.date} charge` }
+        : { lookFor: name, direction: "in" },
+    });
+  }
+
   return (
-    <View style={[styles.card, transaction.ignored && styles.ignoredCard]}>
+    <View style={[styles.card, transaction.ignored && styles.ignoredCard, watchFlag && styles.watchedCard]}>
+      {watchFlag && (
+        <View style={styles.watchBox}>
+          <Text style={styles.watchTitle}>👀 On your watch list</Text>
+          <Text style={styles.watchNote}>{watchFlag.note}</Text>
+          <View style={styles.watchActions}>
+            <Pressable onPress={() => answerWatch(true)} style={styles.watchYes}>
+              <Text style={styles.watchYesText}>{"That's it ✓"}</Text>
+            </Pressable>
+            <Pressable onPress={() => answerWatch(false)} style={styles.watchNo}>
+              <Text style={styles.watchNoText}>Not this one</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
       <View style={styles.row}>
         <View style={[styles.avatar, { backgroundColor: hexToRgba(categoryStyle.color, 0.14) }]}>
           <Text style={styles.avatarEmoji}>{categoryStyle.emoji}</Text>
@@ -263,6 +309,10 @@ export function TransactionRow({
         >
           <Ionicons name="time-outline" size={13} color={colors.accent} />
           <Text style={styles.actionLinkText}>History</Text>
+        </Pressable>
+        <Pressable onPress={watchForThis} style={styles.actionBtn}>
+          <Ionicons name="eye-outline" size={13} color={colors.accent} />
+          <Text style={styles.actionLinkText}>{isCharge ? "Watch for refund" : "Watch"}</Text>
         </Pressable>
         <Pressable onPress={toggleRecurringPanel} style={styles.actionBtn}>
           <Ionicons name="repeat" size={13} color={colors.accent} />
@@ -566,6 +616,15 @@ function makeStyles(colors: ThemeColors) {
     recurringOptionActive: { borderColor: "#4C1D95", backgroundColor: "#EDE9FE" },
     recurringOptionTextActive: { color: "#4C1D95" },
     tagChipText: { fontSize: 12, fontWeight: "700", color: "#4C1D95" },
+    watchedCard: { borderWidth: 1.5, borderColor: "#F59E0B" },
+    watchBox: { backgroundColor: "#FEF3C7", borderRadius: radius.chip, padding: spacing.sm, gap: 4, marginBottom: spacing.sm },
+    watchTitle: { fontSize: 12, fontWeight: "800", color: "#92400E" },
+    watchNote: { fontSize: 13, color: "#78350F", fontStyle: "italic", lineHeight: 18 },
+    watchActions: { flexDirection: "row", gap: spacing.sm, marginTop: 4 },
+    watchYes: { flex: 1, alignItems: "center", paddingVertical: 8, borderRadius: radius.pill, backgroundColor: "#4C1D95" },
+    watchYesText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+    watchNo: { flex: 1, alignItems: "center", paddingVertical: 8, borderRadius: radius.pill, backgroundColor: "#FFFFFF" },
+    watchNoText: { fontSize: 13, fontWeight: "700", color: "#92400E" },
     paidBackText: { fontSize: 12, color: "#16A34A", fontWeight: "600", marginTop: 6 },
     noteText: { fontSize: 12, color: colors.textSecondary, marginTop: 6, fontStyle: "italic", lineHeight: 17 },
     noteEditor: { gap: spacing.sm, marginTop: spacing.xs },

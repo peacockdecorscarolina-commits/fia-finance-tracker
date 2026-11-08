@@ -11,6 +11,7 @@ import { StatementReminder } from "../../components/StatementReminder";
 import { DataSafetyBanner } from "../../components/DataSafetyBanner";
 import { GettingStarted } from "../../components/GettingStarted";
 import { RestoreOffer } from "../../components/RestoreOffer";
+import { WatchFoundCard } from "../../components/WatchFoundCard";
 import { EmptyState } from "../../components/EmptyState";
 import { Greeting } from "../../components/Greeting";
 import { LineChart } from "../../components/LineChart";
@@ -307,6 +308,7 @@ export default function TransactionsScreen() {
       <RestoreOffer />
       <GettingStarted />
       <DataSafetyBanner />
+      <WatchFoundCard />
       <CheckInCard key={checkInKey} />
       <BenefitReminder />
       <StatementReminder onChanged={() => setCheckInKey((k) => k + 1)} />
