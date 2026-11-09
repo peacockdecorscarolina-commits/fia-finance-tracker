@@ -2115,12 +2115,13 @@ export async function getCategoryMonthlyTotals(
   db: SQLiteDatabase,
   categoryName: string,
   months: number,
-  accountId?: number
+  accountId?: number,
+  person?: PersonFilter
 ): Promise<{ month: string; total: number }[]> {
   const rows = await db.getAllAsync<{ month: string; total: number }>(
     `SELECT
        substr(transactions.date, 1, 7) as month,
-       SUM(-${SPEND_AMOUNT}) as total
+       SUM(-${SPEND_AMOUNT} * ${personShareSql(person)}) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.ignored = 0 AND ${NOT_BANK_INFLOW} AND LOWER(categories.name) = LOWER(?)

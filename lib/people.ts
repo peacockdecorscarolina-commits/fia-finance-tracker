@@ -44,6 +44,18 @@ export function forPerson<T extends { amount: number; reimbursed: number | null;
   return out;
 }
 
+// Carries "looking at this person" along when a screen opens another.
+export function personParams(person: Person | undefined, peopleCount: number): Record<string, string> {
+  if (!person) return {};
+  return { person: String(person.id), personName: person.isMe ? "Your" : `${person.name}'s`, peopleCount: String(peopleCount) };
+}
+
+export function personFilterFromParams(person: string | undefined, peopleCount: string | undefined): PersonFilter | undefined {
+  const personId = Number(person);
+  const count = Number(peopleCount);
+  return person && Number.isFinite(personId) && count >= 1 ? { personId, peopleCount: count } : undefined;
+}
+
 function cents(value: number): number {
   return Math.round(value * 100) / 100;
 }

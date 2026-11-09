@@ -49,6 +49,7 @@ export function TransactionRow({
   onUnlinkTransfer,
   onWatchAnswered,
   onPersonChanged,
+  historyParams,
 }: {
   transaction: Transaction;
   onToggleIgnored?: (transaction: Transaction) => void;
@@ -60,6 +61,8 @@ export function TransactionRow({
   onUnlinkTransfer?: (transaction: Transaction) => void;
   // After "That's it" or "Not this one" on a watch's flag.
   onWatchAnswered?: () => void;
+  // Added to the link to this store's history (e.g. whose spending it's for).
+  historyParams?: Record<string, string>;
   // After choosing who this transaction belongs to.
   onPersonChanged?: () => void;
 }) {
@@ -262,7 +265,7 @@ export function TransactionRow({
             style={styles.merchant}
             numberOfLines={2}
             accessibilityRole="link"
-            onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: transaction.merchant } })}
+            onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: transaction.merchant, ...historyParams } })}
           >
             {formatMerchantName(transaction.merchant)}
             <Text style={styles.merchantChevron}> ›</Text>
@@ -331,7 +334,7 @@ export function TransactionRow({
           </Pressable>
         )}
         <Pressable
-          onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: transaction.merchant } })}
+          onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: transaction.merchant, ...historyParams } })}
           style={styles.actionBtn}
         >
           <Ionicons name="time-outline" size={13} color={colors.accent} />
