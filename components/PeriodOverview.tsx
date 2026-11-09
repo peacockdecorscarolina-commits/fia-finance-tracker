@@ -308,6 +308,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   // Whose spending Summary is showing. Everyone unless a second person exists.
   const people = usePeople();
   const [viewingPerson, setViewingPerson] = useState<number | "everyone">("everyone");
+  const [personMenuOpen, setPersonMenuOpen] = useState(false);
   const viewed = section === "spending" && viewingPerson !== "everyone" ? people.find((p) => p.id === viewingPerson) : undefined;
   const personFilter: PersonFilter | undefined =
     viewed && people.length > 1 ? { personId: viewed.id, peopleCount: people.length } : undefined;
@@ -525,29 +526,25 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
           </ScrollView>
         )}
 
-        {section === "spending" && people.length > 1 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.personFilter}>
-            {[{ id: "everyone" as const, label: "Everyone" }, ...people.map((p) => ({ id: p.id, label: p.name }))].map((choice) => {
-              const on = (viewed ? viewed.id : "everyone") === choice.id;
-              return (
-                <Pressable
-                  key={String(choice.id)}
-                  onPress={() => setViewingPerson(choice.id)}
-                  style={[styles.personFilterChip, on && styles.personFilterChipOn]}
-                  accessibilityLabel={`Show ${choice.label}`}
-                >
-                  <Text style={[styles.personFilterText, on && styles.personFilterTextOn]}>{choice.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
-
         {section === "spending" && (
         <LinearGradient colors={HERO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
           <View style={styles.heroTopRow}>
             <View>
-              <Text style={styles.heroLabel}>{viewed ? (viewed.isMe ? "Your spending" : `${viewed.name}'s spending`) : "Total spent"}</Text>
+              {people.length > 1 ? (
+                <Pressable
+                  onPress={() => setPersonMenuOpen((v) => !v)}
+                  style={styles.personTrigger}
+                  hitSlop={8}
+                  accessibilityLabel="Choose whose spending to show"
+                >
+                  <Text style={styles.personTriggerText} numberOfLines={1}>
+                    {viewed ? (viewed.isMe ? "Your spending" : `${viewed.name}'s spending`) : "Total spent: Everyone"}
+                  </Text>
+                  <Ionicons name={personMenuOpen ? "chevron-up" : "chevron-down"} size={13} color="#FFFFFF" />
+                </Pressable>
+              ) : (
+                <Text style={styles.heroLabel}>Total spent</Text>
+              )}
               <Text style={styles.heroValue}>{formatMoney(total)}</Text>
               {showDelta && (
                 <Text style={[styles.heroDelta, { color: pctChange <= 0 ? "#86EFAC" : "#FCA5A5" }]}>
@@ -561,6 +558,29 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
               <Text style={styles.heroValueSm}>{formatMoney(paymentTotal)}</Text>
             </View>
           </View>
+          {personMenuOpen && people.length > 1 && (
+            <View style={styles.personMenu}>
+              {[{ id: "everyone" as const, label: "Everyone" }, ...people.map((p) => ({ id: p.id, label: p.name }))].map((choice) => {
+                const on = (viewed ? viewed.id : "everyone") === choice.id;
+                return (
+                  <Pressable
+                    key={String(choice.id)}
+                    onPress={() => {
+                      setViewingPerson(choice.id);
+                      setPersonMenuOpen(false);
+                    }}
+                    style={styles.personMenuRow}
+                    accessibilityLabel={`Show ${choice.label}`}
+                  >
+                    <Text style={styles.personMenuText} numberOfLines={1}>
+                      {choice.label}
+                    </Text>
+                    {on && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
           <Pressable style={styles.heroBottomRow} onPress={() => router.push("/balances")}>
             <View style={{ flex: 1 }}>
               <Text style={styles.heroLabel}>Owed on cards{view === "Year" || month < currentMonth() ? ` · end of ${view === "Year" ? year : formatMonthLabel(month)}` : ""}</Text>
@@ -1064,11 +1084,11 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
 
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    personFilter: { flexDirection: "row", gap: 6, paddingVertical: 2 },
-    personFilterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.card },
-    personFilterChipOn: { backgroundColor: "#4C1D95" },
-    personFilterText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
-    personFilterTextOn: { color: "#FFFFFF" },
+    personTrigger: { flexDirection: "row", alignItems: "center", gap: 4, maxWidth: 190 },
+    personTriggerText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF", flexShrink: 1 },
+    personMenu: { backgroundColor: "#FFFFFF24", borderRadius: radius.chip, paddingHorizontal: spacing.sm, paddingVertical: 2 },
+    personMenuRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, minHeight: 44 },
+    personMenuText: { flex: 1, fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
     settleCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
     settleTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     settleTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
