@@ -480,6 +480,9 @@ export async function getStatementStatuses(db: SQLiteDatabase, today: string): P
      UNION SELECT account_id as accountId, date FROM statement_closings
      ORDER BY date`
   );
+  const uploaded = await db.getAllAsync<{ accountId: number; date: string }>(
+    "SELECT account_id as accountId, date FROM statement_closings"
+  );
   const skips = await db.getAllAsync<{ accountId: number; month: string }>(
     "SELECT account_id as accountId, month FROM statement_skips"
   );
@@ -491,6 +494,7 @@ export async function getStatementStatuses(db: SQLiteDatabase, today: string): P
         accountName: a.name,
         transactionDates: byAccount(txDates, a.id).map((r) => r.date),
         statementDates: byAccount(closings, a.id).map((r) => r.date),
+        uploadedClosings: byAccount(uploaded, a.id).map((r) => r.date),
         skippedMonths: byAccount(skips, a.id).map((r) => r.month),
         remindersOn: a.remindersOn === 1,
         statementDay: a.statementDay,

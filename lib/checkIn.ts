@@ -1,4 +1,4 @@
-import { addDays, addMonths, closingOnOrAfter, onDay, READY_AFTER_DAYS, type StatementStatus } from "./statementReminders";
+import { addDays, addMonths, CLOSING_DRIFT_DAYS, closingOnOrAfter, onDay, READY_AFTER_DAYS, type StatementStatus } from "./statementReminders";
 
 // The monthly check-in: once last month's statements are out, upload them,
 // clear the review pile, see the month's recap. Month M's check-in opens on
@@ -113,7 +113,10 @@ export function upcomingStatements(s: StatementStatus, month: string, today: str
     for (let d = s.nextExpected; d.slice(0, 7) <= month; d = addMonths(d, 1)) if (d.slice(0, 7) === month) closings.push(d);
   }
   if (closings.length === 0) return null;
-  const uploaded = (d: string) => s.lastStatementDate !== null && d <= s.lastStatementDate;
+  // In, counting one that closed a few days before its usual day.
+  const uploaded = (d: string) =>
+    s.lastStatementDate !== null &&
+    (d <= s.lastStatementDate || (d <= addDays(s.lastStatementDate, CLOSING_DRIFT_DAYS) && s.nextExpected! > d));
   const parts = closings.map((d) => {
     const rest = d.slice(0, 7) !== month ? ` (has the rest of ${name})` : "";
     if (uploaded(d)) return `✅ ${shortDate(d)} statement in`;

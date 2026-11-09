@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { accountMonthState, checkInMonth, checkInStreak, monthEndStatementNeeded, statementsDone, upcomingStatements } from "../lib/checkIn";
-import type { StatementStatus } from "../lib/statementReminders";
+import { statementStatus, type StatementStatus } from "../lib/statementReminders";
 
 const status = (readyMonths: string[], missingMonths: string[] = [], over: Partial<StatementStatus> = {}): StatementStatus => ({
   accountId: 1,
@@ -129,5 +129,49 @@ describe("mid-month statements without a closing day", () => {
   });
   it("respects a skipped next month", () => {
     expect(monthEndStatementNeeded(card("2026-10-14", "2026-12-14"), "2026-10")).toBeNull();
+  });
+});
+
+describe("closing dates that move around", () => {
+  const TODAY = "2026-11-09";
+  const history = (statementDates: string[], day: number, over = {}) => ({
+    accountId: 1,
+    accountName: "Wells Fargo Checking",
+    transactionDates: ["2026-10-02", "2026-11-01"],
+    statementDates,
+    skippedMonths: [],
+    remindersOn: true,
+    statementDay: day,
+    ...over,
+  });
+
+  it("counts a statement that closed a day or two before the usual day", () => {
+    for (const closed of ["2026-11-05", "2026-11-04", "2026-11-01"]) {
+      const s = statementStatus(history(["2026-10-06", closed], 6), TODAY);
+      expect(s.nextExpected).toBe("2026-12-06");
+      expect(s.readyMonths).toEqual([]);
+      expect(monthEndStatementNeeded(s, "2026-10")).toBeNull();
+      expect(statementsDone([s], "2026-10")).toBe(true);
+    }
+  });
+  it("shows it as in when looking ahead", () => {
+    const s = statementStatus(history(["2026-11-05"], 6), TODAY);
+    expect(upcomingStatements(s, "2026-11", TODAY)?.line).toContain("Nov 6 statement in");
+  });
+  it("still waits when the last statement is too far before the usual day", () => {
+    const s = statementStatus(history(["2026-10-30"], 6), TODAY);
+    expect(s.nextExpected).toBe("2026-11-06");
+    expect(monthEndStatementNeeded(s, "2026-10")).toBe("2026-11-06");
+  });
+  it("doesn't count a balance typed in by hand as that statement", () => {
+    const s = statementStatus(history(["2026-11-04"], 6, { uploadedClosings: [] }), TODAY);
+    expect(s.nextExpected).toBe("2026-11-06");
+  });
+  it("leaves a statement on or after the usual day alone", () => {
+    expect(statementStatus(history(["2026-11-06"], 6), TODAY).nextExpected).toBe("2026-12-06");
+    expect(statementStatus(history(["2026-11-08"], 6), TODAY).nextExpected).toBe("2026-12-06");
+  });
+  it("handles the end of a month", () => {
+    expect(statementStatus(history(["2026-11-28"], 31), "2026-12-02").nextExpected).toBe("2026-12-31");
   });
 });
