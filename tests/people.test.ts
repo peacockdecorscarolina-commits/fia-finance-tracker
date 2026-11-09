@@ -1,0 +1,75 @@
+import { describe, expect, it } from "vitest";
+import { forPerson, ownerForNew, personNameProblem, settleUp, shareOf, SHARED } from "../lib/people";
+import { tx } from "./helpers";
+
+const sarah = { personId: 2, peopleCount: 2 };
+
+describe("shareOf", () => {
+  it("is all of your own, half of shared, none of anyone else's", () => {
+    expect(shareOf(2, sarah)).toBe(1);
+    expect(shareOf(SHARED, sarah)).toBe(0.5);
+    expect(shareOf(1, sarah)).toBe(0);
+    expect(shareOf(null, sarah)).toBe(0);
+  });
+  it("splits shared equally among three", () => {
+    expect(shareOf(SHARED, { personId: 2, peopleCount: 3 })).toBeCloseTo(1 / 3);
+  });
+});
+
+describe("forPerson", () => {
+  it("keeps their own whole and scales shared", () => {
+    const rows = [
+      tx("2026-10-01", "A", -40, { personId: 2 }),
+      tx("2026-10-02", "B", -100, { personId: SHARED }),
+      tx("2026-10-03", "C", -7, { personId: 1 }),
+      tx("2026-10-04", "D", -9),
+    ];
+    expect(forPerson(rows, sarah).map((t) => [t.merchant, t.amount])).toEqual([["A", -40], ["B", -50]]);
+  });
+  it("scales what was paid back on a shared charge too", () => {
+    const [t] = forPerson([tx("2026-10-02", "B", -100, { personId: SHARED, reimbursed: 20 })], sarah);
+    expect(t.reimbursed).toBe(10);
+  });
+  it("leaves the original rows alone", () => {
+    const row = tx("2026-10-02", "B", -100, { personId: SHARED });
+    forPerson([row], sarah);
+    expect(row.amount).toBe(-100);
+  });
+});
+
+describe("ownerForNew", () => {
+  it("goes store, then card, then nobody", () => {
+    expect(ownerForNew(2, 1)).toBe(2);
+    expect(ownerForNew(SHARED, 1)).toBe(SHARED);
+    expect(ownerForNew(undefined, 1)).toBe(1);
+    expect(ownerForNew(undefined, null)).toBeNull();
+  });
+});
+
+describe("settleUp", () => {
+  it("owes half of what's shared, to the cent", () => {
+    expect(settleUp(168.01, 2, 0)).toEqual({ owed: 84.01, settled: 0, remaining: 84.01, isSettled: false });
+  });
+  it("is settled once the amount is paid", () => {
+    expect(settleUp(168, 2, 84).isSettled).toBe(true);
+  });
+  it("owes the difference when more is shared after settling", () => {
+    const s = settleUp(200, 2, 84);
+    expect(s.remaining).toBe(16);
+    expect(s.isSettled).toBe(false);
+  });
+  it("isn't settled when nothing's shared", () => {
+    expect(settleUp(0, 2, 0).isSettled).toBe(false);
+  });
+});
+
+describe("personNameProblem", () => {
+  it("wants a new, real name", () => {
+    expect(personNameProblem("  ", [])).toMatch(/name/);
+    expect(personNameProblem("sarah", ["Sarah"])).toMatch(/already/);
+    expect(personNameProblem("Shared", [])).toMatch(/Pick another/);
+    expect(personNameProblem("Everyone", [])).toMatch(/Pick another/);
+    expect(personNameProblem("x".repeat(31), [])).toMatch(/under/);
+    expect(personNameProblem("Sarah", ["Me"])).toBeNull();
+  });
+});

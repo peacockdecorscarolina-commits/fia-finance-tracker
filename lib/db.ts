@@ -14,6 +14,7 @@ import { closingOnOrAfter, statementStatus, type StatementStatus } from "./state
 import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
 import { monthInsights, topMerchants, type Insight, type TopMerchant } from "./merchantInsights";
 import { matchesWatch, noteWithWatch, type Watch, type WatchDirection } from "./watches";
+import { forPerson, ownerForNew, SHARED, settleUp, type Person, type PersonFilter, type SettleUp } from "./people";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { isReadOnly, notifyBlockedWrite } from "./access";
@@ -175,6 +176,25 @@ export async function initDatabase(db: SQLiteDatabase) {
       month TEXT NOT NULL,
       PRIMARY KEY (account_id, month)
     );
+    -- Who spent what (see lib/people.ts). person_id elsewhere is one of
+    -- these, or -1 for Shared.
+    CREATE TABLE IF NOT EXISTS people (
+      id INTEGER PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      is_me INTEGER NOT NULL DEFAULT 0
+    );
+    -- Who a store's charges belong to, keyed by the name shown for it.
+    CREATE TABLE IF NOT EXISTS merchant_person_map (
+      merchant_key TEXT PRIMARY KEY NOT NULL,
+      person_id INTEGER NOT NULL
+    );
+    -- What someone has settled up for a month (YYYY-MM).
+    CREATE TABLE IF NOT EXISTS settle_ups (
+      month TEXT NOT NULL,
+      person_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      PRIMARY KEY (month, person_id)
+    );
     -- The watch list (see lib/watches.ts). A watch only looks at
     -- transactions added after it (id above after_transaction_id).
     CREATE TABLE IF NOT EXISTS watches (
@@ -224,6 +244,10 @@ export async function initDatabase(db: SQLiteDatabase) {
     );
   }
 
+  if (!columns.some((c) => c.name === "person_id")) {
+    await db.execAsync("ALTER TABLE transactions ADD COLUMN person_id INTEGER");
+  }
+
   // Migration for databases created before the `loan_amount` column existed.
   const categoryColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(categories)");
   if (!categoryColumns.some((c) => c.name === "loan_amount")) {
@@ -266,6 +290,10 @@ export async function initDatabase(db: SQLiteDatabase) {
   if (!accountColumns.some((c) => c.name === "include_in_savings")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN include_in_savings INTEGER NOT NULL DEFAULT 1");
   }
+  if (!accountColumns.some((c) => c.name === "default_person_id")) {
+    await db.execAsync("ALTER TABLE accounts ADD COLUMN default_person_id INTEGER");
+  }
+  await seedMe(db);
   if (!accountColumns.some((c) => c.name === "statement_day")) {
     await db.execAsync("ALTER TABLE accounts ADD COLUMN statement_day INTEGER");
     await db.execAsync("ALTER TABLE accounts ADD COLUMN statement_day_set_by TEXT");
@@ -553,9 +581,10 @@ export async function getIncomeSources(db: SQLiteDatabase, start: string, end: s
 
 // Charges for start..end that count as spending: no income, card payments,
 // linked transfers or ignored ones.
-async function getSpending(db: SQLiteDatabase, start: string, end: string): Promise<Transaction[]> {
+async function getSpending(db: SQLiteDatabase, start: string, end: string, person?: PersonFilter): Promise<Transaction[]> {
   const list = await getTransactions(db, { start, end, excludeIncome: true, excludeCategoryNames: [PAYMENT_CATEGORY_NAME] });
-  return list.filter((t) => t.amount < 0 && !t.ignored && t.linkedTransactionId === null);
+  const spending = list.filter((t) => t.amount < 0 && !t.ignored && t.linkedTransactionId === null);
+  return person ? forPerson(spending, person) : spending;
 }
 
 // Every transaction from the same merchant as `merchant` (by the name shown),
@@ -565,20 +594,26 @@ export async function getMerchantTransactions(db: SQLiteDatabase, merchant: stri
   return (await getTransactions(db)).filter((t) => merchantGroupKey(t.merchant) === group);
 }
 
-export async function getTopMerchants(db: SQLiteDatabase, start: string, end: string, limit = 5): Promise<TopMerchant[]> {
-  return topMerchants(await getSpending(db, start, end), merchantGroupKey, formatMerchantName, limit);
+export async function getTopMerchants(
+  db: SQLiteDatabase,
+  start: string,
+  end: string,
+  limit = 5,
+  person?: PersonFilter
+): Promise<TopMerchant[]> {
+  return topMerchants(await getSpending(db, start, end, person), merchantGroupKey, formatMerchantName, limit);
 }
 
 // Plain-language notes on a month ("YYYY-MM") against the user's usual.
-export async function getMonthInsights(db: SQLiteDatabase, month: string): Promise<Insight[]> {
+export async function getMonthInsights(db: SQLiteDatabase, month: string, person?: PersonFilter): Promise<Insight[]> {
   const [y, m] = month.split("-").map(Number);
   const before = [1, 2, 3].map((i) => new Date(Date.UTC(y, m - 1 - i, 1)).toISOString().slice(0, 7));
   const start = `${month}-01`;
   const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   const [categories, earlier, spending, seenRows] = await Promise.all([
-    getCategorySummary(db, month),
-    Promise.all(before.map((b) => getCategorySummary(db, b))),
-    getSpending(db, start, end),
+    getCategorySummary(db, month, undefined, person),
+    Promise.all(before.map((b) => getCategorySummary(db, b, undefined, person))),
+    getSpending(db, start, end, person),
     db.getAllAsync<{ merchant: string }>("SELECT DISTINCT merchant FROM transactions WHERE date < ?", start),
   ]);
   return monthInsights({
@@ -1488,6 +1523,8 @@ export async function insertExtractedTransactions(
     ? await db.getFirstAsync<{ id: number }>("SELECT id FROM categories WHERE LOWER(name) = LOWER(?)", INCOME_CATEGORY_NAME)
     : null;
   const incomeId = incomeRow?.id ?? null;
+  const storeOwners = await getStoreOwners(db);
+  const cardDefault = await getCardDefaultPerson(db, accountId);
   await db.withTransactionAsync(async () => {
     for (const t of extracted) {
       const key = normalizeMerchantKey(t.merchant);
@@ -1498,13 +1535,14 @@ export async function insertExtractedTransactions(
         await db.runAsync("INSERT OR IGNORE INTO merchant_category_map (merchant_key, category_id) VALUES (?, ?)", key, incomeId);
       }
       await db.runAsync(
-        "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, ?, 0)",
+        "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored, person_id) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
         accountId,
         t.date,
         t.merchant,
         t.amount,
         known ?? categoryIds.get(t.category)!,
-        known !== undefined ? 0 : t.needsReview ? 1 : 0
+        known !== undefined ? 0 : t.needsReview ? 1 : 0,
+        ownerForNew(storeOwners.get(merchantGroupKey(t.merchant)), cardDefault)
       );
     }
   });
@@ -1519,13 +1557,15 @@ export async function insertManualTransaction(
   db: SQLiteDatabase,
   transaction: { accountId: number; date: string; merchant: string; amount: number; categoryId: number }
 ) {
+  const storeOwners = await getStoreOwners(db);
   await db.runAsync(
-    "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, 0, 0)",
+    "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored, person_id) VALUES (?, ?, ?, ?, ?, 0, 0, ?)",
     transaction.accountId,
     transaction.date,
     transaction.merchant,
     transaction.amount,
-    transaction.categoryId
+    transaction.categoryId,
+    ownerForNew(storeOwners.get(merchantGroupKey(transaction.merchant)), await getCardDefaultPerson(db, transaction.accountId))
   );
   await scanWatches(db);
 }
@@ -1556,7 +1596,9 @@ const TRANSACTION_SELECT = `
     (SELECT watch_flags.watch_id FROM watch_flags
        WHERE watch_flags.transaction_id = transactions.id AND watch_flags.status = 'flagged' LIMIT 1) as watchId,
     (SELECT COALESCE(NULLIF(watches.note, ''), NULLIF(watches.look_for, ''), printf('About $%.2f', watches.amount)) FROM watch_flags JOIN watches ON watches.id = watch_flags.watch_id
-       WHERE watch_flags.transaction_id = transactions.id AND watch_flags.status = 'flagged' LIMIT 1) as watchNote
+       WHERE watch_flags.transaction_id = transactions.id AND watch_flags.status = 'flagged' LIMIT 1) as watchNote,
+    transactions.person_id as personId,
+    (SELECT people.name FROM people WHERE people.id = transactions.person_id) as personName
   FROM transactions
   JOIN accounts ON accounts.id = transactions.account_id
   JOIN categories ON categories.id = transactions.category_id
@@ -1836,10 +1878,16 @@ export async function getTransactions(
     // "payments" aggregation in getIncomeExpenseTotals/getPaymentTotal, so
     // the drill-down list matches what those totals actually added up.
     paymentCategoriesOnly?: boolean;
+    // This person's own transactions and the shared ones.
+    personId?: number;
   }
 ): Promise<Transaction[]> {
   const clauses: string[] = [];
   const params: (string | number)[] = [];
+  if (filters?.personId !== undefined) {
+    clauses.push("(transactions.person_id = ? OR transactions.person_id = ?)");
+    params.push(filters.personId, SHARED);
+  }
   if (filters?.accountId !== undefined) {
     clauses.push("transactions.account_id = ?");
     params.push(filters.accountId);
@@ -2200,10 +2248,11 @@ export type CategoryTotal = { categoryName: string; total: number };
 export async function getCategorySummary(
   db: SQLiteDatabase,
   month: string,
-  accountId?: number
+  accountId?: number,
+  person?: PersonFilter
 ): Promise<CategoryTotal[]> {
   return db.getAllAsync<CategoryTotal>(
-    `SELECT categories.name as categoryName, SUM(-${SPEND_AMOUNT}) as total
+    `SELECT categories.name as categoryName, SUM(-${SPEND_AMOUNT} * ${personShareSql(person)}) as total
      FROM transactions
      JOIN categories ON categories.id = transactions.category_id
      WHERE transactions.date LIKE ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
@@ -2211,12 +2260,21 @@ export async function getCategorySummary(
        AND categories.loan_amount IS NULL
        ${accountId !== undefined ? "AND transactions.account_id = ?" : ""}
      GROUP BY categories.name
+     ${person ? "HAVING total != 0" : ""}
      ORDER BY total DESC`,
     `${month}%`,
     INCOME_CATEGORY_NAME,
     PAYMENT_CATEGORY_NAME,
     ...(accountId !== undefined ? [accountId] : [])
   );
+}
+
+// How much of a transaction counts for a person, in SQL (see shareOf).
+function personShareSql(person?: PersonFilter): string {
+  if (!person) return "1";
+  return `(CASE WHEN transactions.person_id = ${Number(person.personId)} THEN 1.0
+    WHEN transactions.person_id = ${SHARED} THEN 1.0 / ${Math.max(1, Number(person.peopleCount))}
+    ELSE 0 END)`;
 }
 
 // Total paid toward cards/debt for a given month -- the Payment category,
@@ -2351,12 +2409,19 @@ export type DataSnapshot = {
     tags?: string[];
     reimbursed?: number | null;
     reimbursedVia?: string | null;
+    person?: string | null;
   }[];
   assets: { name: string; type: AssetType }[];
   assetBalances: { assetName: string; date: string; balance: number }[];
   // Optional so backups made before the name setting existed still restore.
   userName?: string | null;
   recurringOverrides?: { merchantKey: string; status: RecurringOverride }[];
+  // Who spent what, by name since ids change on restore. SHARED_NAME
+  // stands for Shared. Optional so older backups still restore.
+  people?: { name: string; isMe: boolean }[];
+  accountPeople?: { accountName: string; person: string }[];
+  merchantPeople?: { merchantKey: string; person: string }[];
+  settleUps?: { month: string; person: string; amount: number }[];
   // The watch list, with the transactions each one flagged (found by
   // account, date, merchant and amount, since ids change on restore).
   watches?: {
@@ -2432,8 +2497,10 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     tagList: string | null;
     reimbursed: number | null;
     reimbursedVia: string | null;
+    personId: number | null;
   }>(
     `SELECT
+       transactions.person_id as personId,
        transactions.note as note,
        transactions.reimbursed as reimbursed,
        transactions.reimbursed_via as reimbursedVia,
@@ -2453,14 +2520,33 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
      ORDER BY transactions.id`
   );
 
+  const people = await getPeople(db);
+  const personName = (id: number | null) =>
+    id === SHARED ? SHARED_NAME : (people.find((p) => p.id === id)?.name ?? null);
+
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
+    people: people.map((p) => ({ name: p.name, isMe: p.isMe })),
+    accountPeople: await exportAccountPeople(db, personName),
+    merchantPeople: (await db.getAllAsync<{ merchantKey: string; personId: number }>(
+      "SELECT merchant_key as merchantKey, person_id as personId FROM merchant_person_map"
+    )).flatMap((m) => {
+      const person = personName(m.personId);
+      return person ? [{ merchantKey: m.merchantKey, person }] : [];
+    }),
+    settleUps: (await db.getAllAsync<{ month: string; personId: number; amount: number }>(
+      "SELECT month, person_id as personId, amount FROM settle_ups"
+    )).flatMap((s) => {
+      const person = personName(s.personId);
+      return person ? [{ month: s.month, person, amount: s.amount }] : [];
+    }),
     accounts,
     categories,
     merchantCategoryMap,
-    transactions: transactions.map(({ tagList, ...t }) => ({
+    transactions: transactions.map(({ tagList, personId, ...t }) => ({
       ...t,
+      person: personName(personId),
       needsReview: t.needsReview === 1,
       ignored: t.ignored === 1,
       tags: tagList ? tagList.split("\u001f") : [],
@@ -2553,8 +2639,10 @@ async function restoreWatches(db: SQLiteDatabase, watches: NonNullable<DataSnaps
 // for restoring onto a fresh/empty database, not merging.
 export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
   await db.execAsync(
-    "DELETE FROM watch_flags; DELETE FROM watches; DELETE FROM income_sources; DELETE FROM statement_closings; DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
+    "DELETE FROM merchant_person_map; DELETE FROM settle_ups; DELETE FROM watch_flags; DELETE FROM watches; DELETE FROM income_sources; DELETE FROM statement_closings; DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
   );
+
+  const personIdFor = await restorePeople(db, snapshot);
 
   const categoryIds = new Map<string, number>();
   for (const category of snapshot.categories) {
@@ -2586,6 +2674,12 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
       account.statementDaySetBy ?? null
     );
     accountIds.set(account.name, result.lastInsertRowId);
+  }
+
+  for (const a of snapshot.accountPeople ?? []) {
+    const accountId = accountIds.get(a.accountName);
+    const personId = personIdFor(a.person);
+    if (accountId !== undefined && personId !== null) await setAccountDefaultPerson(db, accountId, personId);
   }
 
   // Older backups have no balances; then whatever this device has stays.
@@ -2624,14 +2718,15 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     const categoryId = categoryIds.get(t.categoryName);
     if (accountId === undefined || categoryId === undefined) continue;
     const inserted = await db.runAsync(
-      "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored, person_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       accountId,
       t.date,
       t.merchant,
       t.amount,
       categoryId,
       t.needsReview ? 1 : 0,
-      t.ignored ? 1 : 0
+      t.ignored ? 1 : 0,
+      personIdFor(t.person ?? null)
     );
     if (t.note || t.tags?.length) {
       await setTransactionNote(db, inserted.lastInsertRowId, t.note ?? "", t.tags ?? []);
@@ -2701,6 +2796,7 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     }
   }
   await restoreMigration();
+  notifyPeopleChanged();
 }
 
 export type AccountTotal = { accountName: string; total: number };
@@ -2862,4 +2958,172 @@ export async function getWatchFinds(db: SQLiteDatabase, watchId: number): Promis
     watchId
   );
   return rows.map(toTransaction);
+}
+
+// ---- People: who spent what (see lib/people.ts) ----
+
+// Stands for Shared in backups, where people go by name.
+const SHARED_NAME = "__shared__";
+
+// "Me" is there from the start, so a second person is all it takes.
+async function seedMe(db: SQLiteDatabase) {
+  await db.runAsync("INSERT INTO people (name, is_me) SELECT 'Me', 1 WHERE NOT EXISTS (SELECT 1 FROM people)");
+}
+
+const peopleListeners = new Set<() => void>();
+export function onPeopleChanged(listener: () => void): () => void {
+  peopleListeners.add(listener);
+  return () => peopleListeners.delete(listener);
+}
+function notifyPeopleChanged() {
+  peopleListeners.forEach((l) => l());
+}
+
+export async function getPeople(db: SQLiteDatabase): Promise<Person[]> {
+  const rows = await db.getAllAsync<{ id: number; name: string; isMe: number }>(
+    "SELECT id, name, is_me as isMe FROM people ORDER BY is_me DESC, id"
+  );
+  return rows.map((r) => ({ ...r, isMe: r.isMe === 1 }));
+}
+
+export async function addPerson(db: SQLiteDatabase, name: string): Promise<number> {
+  const result = await db.runAsync("INSERT INTO people (name, is_me) VALUES (?, 0)", name.trim());
+  notifyPeopleChanged();
+  return result.lastInsertRowId;
+}
+
+export async function renamePerson(db: SQLiteDatabase, id: number, name: string) {
+  await db.runAsync("UPDATE people SET name = ? WHERE id = ?", name.trim(), id);
+  notifyPeopleChanged();
+}
+
+// Their transactions stay and go back to nobody's. "Me" can't be removed.
+export async function deletePerson(db: SQLiteDatabase, id: number) {
+  await db.runAsync("UPDATE transactions SET person_id = NULL WHERE person_id = ?", id);
+  await db.runAsync("UPDATE accounts SET default_person_id = NULL WHERE default_person_id = ?", id);
+  await db.runAsync("DELETE FROM merchant_person_map WHERE person_id = ?", id);
+  await db.runAsync("DELETE FROM settle_ups WHERE person_id = ?", id);
+  await db.runAsync("DELETE FROM people WHERE id = ? AND is_me = 0", id);
+  notifyPeopleChanged();
+}
+
+export async function getAccountDefaults(db: SQLiteDatabase): Promise<{ id: number; name: string; defaultPersonId: number | null }[]> {
+  return db.getAllAsync("SELECT id, name, default_person_id as defaultPersonId FROM accounts ORDER BY name");
+}
+
+export async function setAccountDefaultPerson(db: SQLiteDatabase, accountId: number, personId: number | null) {
+  await db.runAsync("UPDATE accounts SET default_person_id = ? WHERE id = ?", personId, accountId);
+}
+
+async function getCardDefaultPerson(db: SQLiteDatabase, accountId: number): Promise<number | null> {
+  const row = await db.getFirstAsync<{ personId: number | null }>("SELECT default_person_id as personId FROM accounts WHERE id = ?", accountId);
+  return row?.personId ?? null;
+}
+
+async function getStoreOwners(db: SQLiteDatabase): Promise<Map<string, number>> {
+  const rows = await db.getAllAsync<{ key: string; personId: number }>("SELECT merchant_key as key, person_id as personId FROM merchant_person_map");
+  return new Map(rows.map((r) => [r.key, r.personId]));
+}
+
+// Who this store's future charges go to, or null when it hasn't been set.
+export async function getStoreOwner(db: SQLiteDatabase, merchant: string): Promise<number | null> {
+  const row = await db.getFirstAsync<{ personId: number }>(
+    "SELECT person_id as personId FROM merchant_person_map WHERE merchant_key = ?",
+    merchantGroupKey(merchant)
+  );
+  return row?.personId ?? null;
+}
+
+// Sets who a transaction belongs to. With `remember`, the store's future
+// charges go to them too, and so do its past ones nobody's been given yet;
+// anything already assigned stays as it is.
+export async function setTransactionPerson(
+  db: SQLiteDatabase,
+  transaction: { id: number; merchant: string },
+  personId: number | null,
+  remember: boolean
+) {
+  await db.runAsync("UPDATE transactions SET person_id = ? WHERE id = ?", personId, transaction.id);
+  if (!remember) return;
+  const key = merchantGroupKey(transaction.merchant);
+  if (personId === null) {
+    await db.runAsync("DELETE FROM merchant_person_map WHERE merchant_key = ?", key);
+    return;
+  }
+  await db.runAsync("INSERT OR REPLACE INTO merchant_person_map (merchant_key, person_id) VALUES (?, ?)", key, personId);
+  const rows = await db.getAllAsync<{ id: number; merchant: string }>("SELECT id, merchant FROM transactions WHERE person_id IS NULL");
+  for (const r of rows) {
+    if (merchantGroupKey(r.merchant) === key) await db.runAsync("UPDATE transactions SET person_id = ? WHERE id = ?", personId, r.id);
+  }
+}
+
+// What's shared in a month (YYYY-MM) and where each other person stands.
+export async function getSettleUps(
+  db: SQLiteDatabase,
+  month: string
+): Promise<{ sharedTotal: number; people: (SettleUp & { person: Person })[] }> {
+  const people = await getPeople(db);
+  const row = await db.getFirstAsync<{ total: number | null }>(
+    `SELECT SUM(-${SPEND_AMOUNT}) as total
+     FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE transactions.date LIKE ? AND transactions.person_id = ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
+       AND categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       AND categories.loan_amount IS NULL`,
+    `${month}%`,
+    SHARED,
+    INCOME_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME
+  );
+  const sharedTotal = Math.max(0, row?.total ?? 0);
+  const settled = await db.getAllAsync<{ personId: number; amount: number }>(
+    "SELECT person_id as personId, amount FROM settle_ups WHERE month = ?",
+    month
+  );
+  return {
+    sharedTotal,
+    people: people
+      .filter((p) => !p.isMe)
+      .map((person) => ({
+        person,
+        ...settleUp(sharedTotal, people.length, settled.find((s) => s.personId === person.id)?.amount ?? 0),
+      })),
+  };
+}
+
+export async function markSettled(db: SQLiteDatabase, month: string, personId: number, amount: number) {
+  await db.runAsync("INSERT OR REPLACE INTO settle_ups (month, person_id, amount) VALUES (?, ?, ?)", month, personId, amount);
+}
+
+export async function undoSettled(db: SQLiteDatabase, month: string, personId: number) {
+  await db.runAsync("DELETE FROM settle_ups WHERE month = ? AND person_id = ?", month, personId);
+}
+
+async function exportAccountPeople(db: SQLiteDatabase, personName: (id: number | null) => string | null) {
+  const rows = await getAccountDefaults(db);
+  return rows.flatMap((a) => {
+    const person = personName(a.defaultPersonId);
+    return person ? [{ accountName: a.name, person }] : [];
+  });
+}
+
+// Puts a backup's people back and returns name -> id for everything that
+// points at them. An older backup has none, so this device's people stay.
+async function restorePeople(db: SQLiteDatabase, snapshot: DataSnapshot): Promise<(name: string | null) => number | null> {
+  if (snapshot.people?.length) {
+    await db.runAsync("DELETE FROM people");
+    for (const p of snapshot.people) await db.runAsync("INSERT INTO people (name, is_me) VALUES (?, ?)", p.name, p.isMe ? 1 : 0);
+  }
+  await seedMe(db);
+  const byName = new Map((await getPeople(db)).map((p) => [p.name, p.id]));
+  const idFor = (name: string | null) => (name === SHARED_NAME ? SHARED : name === null ? null : (byName.get(name) ?? null));
+  for (const m of snapshot.merchantPeople ?? []) {
+    const id = idFor(m.person);
+    if (id !== null) await db.runAsync("INSERT OR REPLACE INTO merchant_person_map (merchant_key, person_id) VALUES (?, ?)", m.merchantKey, id);
+  }
+  for (const s of snapshot.settleUps ?? []) {
+    const id = idFor(s.person);
+    if (id !== null) await markSettled(db, s.month, id, s.amount);
+  }
+  return idFor;
 }

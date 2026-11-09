@@ -1,4 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import { autoBackup } from "../lib/autoBackup";
+import type { PersonFilter } from "../lib/people";
+import { usePeople } from "../lib/usePeople";
 import { MoreMenu } from "./MoreMenu";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
@@ -21,6 +24,9 @@ import {
   getAssetSummaries,
   getAssetTypeHistory,
   getCategorySummary,
+  getSettleUps,
+  markSettled,
+  undoSettled,
   getNeedsReviewCount,
   getCardPaymentsTotal,
   getCardsOwed,
@@ -299,6 +305,13 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const [insights, setInsights] = useState<Insight[]>([]);
   const [cards, setCards] = useState<CardOverview[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Whose spending Summary is showing. Everyone unless a second person exists.
+  const people = usePeople();
+  const [viewingPerson, setViewingPerson] = useState<number | "everyone">("everyone");
+  const viewed = section === "spending" && viewingPerson !== "everyone" ? people.find((p) => p.id === viewingPerson) : undefined;
+  const personFilter: PersonFilter | undefined =
+    viewed && people.length > 1 ? { personId: viewed.id, peopleCount: people.length } : undefined;
+  const [settle, setSettle] = useState<Awaited<ReturnType<typeof getSettleUps>> | null>(null);
 
   useEffect(() => {
     getSetting(db, COLLAPSED_SECTIONS_KEY).then((raw) => {
@@ -368,22 +381,30 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
       const prevKey = view === "Year" ? String(Number(key) - 1) : shiftMonth(month, -1);
       const { start, end } = periodRange(key);
       Promise.all([
-        getCategorySummary(db, key).then(setCategoryTotals),
+        getCategorySummary(db, key, undefined, personFilter).then(setCategoryTotals),
         getAccountSummary(db, key).then(setAccountTotals),
-        getCategorySummary(db, prevKey).then((rows) => setPrevTotal(rows.reduce((sum, r) => sum + r.total, 0))),
+        getCategorySummary(db, prevKey, undefined, personFilter).then((rows) => setPrevTotal(rows.reduce((sum, r) => sum + r.total, 0))),
         getCardPaymentsTotal(db, start, end).then(setPaymentTotal),
         // Owed as of the period's end, or today while it's still going.
         getCardsOwed(db, end < todayIso() ? end : todayIso()).then(setCardsOwed),
-        getTransactions(db, { start, end }).then((list) => setRecent(list.slice(0, 5))),
+        getTransactions(db, { start, end, personId: personFilter?.personId }).then((list) => setRecent(list.slice(0, 5))),
         section === "spending" ? getIncomeSources(db, start, end, todayIso()).then(setIncomeSources) : Promise.resolve(),
-        section === "spending" ? getTopMerchants(db, start, end).then(setTopMerchantList) : Promise.resolve(),
+        section === "spending" ? getTopMerchants(db, start, end, 5, personFilter).then(setTopMerchantList) : Promise.resolve(),
+        // Settling up is by the month.
+        section === "spending" && view !== "Year" ? getSettleUps(db, month).then(setSettle) : Promise.resolve(setSettle(null)),
         // Insights compare a month with the months before it.
-        section === "spending" && view !== "Year" ? getMonthInsights(db, month).then(setInsights) : Promise.resolve(setInsights([])),
+        section === "spending" && view !== "Year" ? getMonthInsights(db, month, personFilter).then(setInsights) : Promise.resolve(setInsights([])),
         getAccounts(db).then(setAccounts),
         getAccountBalances(db, end).then(setAccountBalances),
       ]).then(() => setLoading(false));
-    }, [db, month, view, section])
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [db, month, view, section, personFilter?.personId, personFilter?.peopleCount])
   );
+
+  async function reloadSettle() {
+    if (month) setSettle(await getSettleUps(db, month));
+    autoBackup(db);
+  }
 
   if (month === null) {
     return <SafeAreaView style={styles.safeArea} />;
@@ -504,11 +525,29 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
           </ScrollView>
         )}
 
+        {section === "spending" && people.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.personFilter}>
+            {[{ id: "everyone" as const, label: "Everyone" }, ...people.map((p) => ({ id: p.id, label: p.name }))].map((choice) => {
+              const on = (viewed ? viewed.id : "everyone") === choice.id;
+              return (
+                <Pressable
+                  key={String(choice.id)}
+                  onPress={() => setViewingPerson(choice.id)}
+                  style={[styles.personFilterChip, on && styles.personFilterChipOn]}
+                  accessibilityLabel={`Show ${choice.label}`}
+                >
+                  <Text style={[styles.personFilterText, on && styles.personFilterTextOn]}>{choice.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
+
         {section === "spending" && (
         <LinearGradient colors={HERO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
           <View style={styles.heroTopRow}>
             <View>
-              <Text style={styles.heroLabel}>Total spent</Text>
+              <Text style={styles.heroLabel}>{viewed ? (viewed.isMe ? "Your spending" : `${viewed.name}'s spending`) : "Total spent"}</Text>
               <Text style={styles.heroValue}>{formatMoney(total)}</Text>
               {showDelta && (
                 <Text style={[styles.heroDelta, { color: pctChange <= 0 ? "#86EFAC" : "#FCA5A5" }]}>
@@ -697,6 +736,49 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         </View>
         )}
 
+        {section === "spending" && people.length > 1 && settle && settle.sharedTotal > 0 && (
+          <View style={styles.settleCard}>
+            <View style={styles.settleTop}>
+              <Text style={styles.settleTitle}>Shared this month</Text>
+              <Text style={styles.settleTotal}>{formatMoney(settle.sharedTotal)}</Text>
+            </View>
+            {settle.people.map((s) => (
+              <View key={s.person.id} style={styles.settleRow}>
+                <Text style={[styles.settleLine, s.isSettled && styles.settleDone]} numberOfLines={2}>
+                  {s.isSettled
+                    ? `✓ ${s.person.name} settled up ${formatMoney(s.settled)}`
+                    : s.remaining > 0
+                      ? `${s.person.name} owes you ${formatMoney(s.remaining)}`
+                      : `${s.person.name} paid ${formatMoney(-s.remaining)} too much`}
+                </Text>
+                {s.isSettled || s.remaining <= 0 ? (
+                  <Pressable
+                    onPress={async () => {
+                      await undoSettled(db, month, s.person.id);
+                      reloadSettle();
+                    }}
+                    hitSlop={8}
+                    accessibilityLabel={`Undo ${s.person.name} settled`}
+                  >
+                    <Text style={styles.settleUndo}>Undo</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    onPress={async () => {
+                      await markSettled(db, month, s.person.id, s.owed);
+                      reloadSettle();
+                    }}
+                    style={styles.settleBtn}
+                    accessibilityLabel={`Mark ${s.person.name} settled`}
+                  >
+                    <Text style={styles.settleBtnText}>Settled</Text>
+                  </Pressable>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
         {section === "spending" && insights.length > 0 && (
         <View>
           {sectionHeader("insights", "What stood out", `${insights.length} notes`)}
@@ -739,7 +821,10 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                         key={c.categoryName}
                         style={styles.legendRow}
                         onPress={() =>
-                          router.push({ pathname: "/category/[name]", params: { name: c.categoryName, month: periodKey } })
+                          router.push({
+                            pathname: "/category/[name]",
+                            params: { name: c.categoryName, month: periodKey, ...(viewed ? { person: String(viewed.id), personName: viewed.isMe ? "Your" : `${viewed.name}'s` } : {}) },
+                          })
                         }
                       >
                         <View style={[styles.legendDot, { backgroundColor: style.color }]} />
@@ -979,6 +1064,21 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
 
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
+    personFilter: { flexDirection: "row", gap: 6, paddingVertical: 2 },
+    personFilterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.card },
+    personFilterChipOn: { backgroundColor: "#4C1D95" },
+    personFilterText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
+    personFilterTextOn: { color: "#FFFFFF" },
+    settleCard: { backgroundColor: colors.card, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
+    settleTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    settleTitle: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
+    settleTotal: { fontSize: 15, fontWeight: "800", color: colors.textPrimary },
+    settleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, minHeight: 36 },
+    settleLine: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+    settleDone: { color: "#16A34A" },
+    settleBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: "#4C1D95" },
+    settleBtnText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+    settleUndo: { fontSize: 13, fontWeight: "700", color: colors.accent },
   safeArea: { flex: 1, backgroundColor: colors.background },
   container: {
     paddingHorizontal: spacing.md,
