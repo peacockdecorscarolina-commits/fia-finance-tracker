@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { personFilterFromParams } from "../../lib/people";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
@@ -53,7 +54,7 @@ export default function CategoryDrillDownScreen() {
   // `account` (a card's name) limits the list and trend to that card, when
   // opened from the card's own page.
   // `person`: opened from Summary while looking at one person's spending.
-  const { name, month, start: startParam, end: endParam, account, person, personName } = useLocalSearchParams<{
+  const { name, month, start: startParam, end: endParam, account, person, personName, peopleCount } = useLocalSearchParams<{
     name: string;
     month?: string;
     start?: string;
@@ -61,6 +62,7 @@ export default function CategoryDrillDownScreen() {
     account?: string;
     person?: string;
     personName?: string;
+    peopleCount?: string;
   }>();
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -99,12 +101,14 @@ export default function CategoryDrillDownScreen() {
     getAccounts(db).then((accounts) => {
       const accountId = account ? accounts.find((a) => a.name === account)?.id : undefined;
       getTransactions(db, { categoryName: name, start, end, accountId, personId: person ? Number(person) : undefined }).then(setTransactions);
-      if (name) getCategoryMonthlyTotals(db, name, TREND_MONTHS, accountId).then(setMonthlyTrend);
+      if (name) {
+        getCategoryMonthlyTotals(db, name, TREND_MONTHS, accountId, personFilterFromParams(person, peopleCount)).then(setMonthlyTrend);
+      }
     });
     // Unfiltered: a tracked loan's payments count from whichever card paid them.
     getTransactions(db, { categoryName: name }).then(setAllTransactions);
     getCategories(db).then(setCategories);
-  }, [db, name, month, startParam, endParam, account, person]);
+  }, [db, name, month, startParam, endParam, account, person, peopleCount]);
 
   useFocusEffect(load);
 
@@ -409,6 +413,7 @@ export default function CategoryDrillDownScreen() {
               onFindTransferCandidates={(t) => getTransferCandidates(db, t)}
               onLinkTransfer={handleLinkTransfer}
               onUnlinkTransfer={handleUnlinkTransfer}
+              historyParams={person && personName && peopleCount ? { person, personName, peopleCount } : undefined}
             />
           )}
         />

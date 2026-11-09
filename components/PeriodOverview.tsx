@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { autoBackup } from "../lib/autoBackup";
-import type { PersonFilter } from "../lib/people";
+import { personParams, type PersonFilter } from "../lib/people";
 import { usePeople } from "../lib/usePeople";
 import { MoreMenu } from "./MoreMenu";
 import { router, useFocusEffect } from "expo-router";
@@ -312,6 +312,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const viewed = section === "spending" && viewingPerson !== "everyone" ? people.find((p) => p.id === viewingPerson) : undefined;
   const personFilter: PersonFilter | undefined =
     viewed && people.length > 1 ? { personId: viewed.id, peopleCount: people.length } : undefined;
+  const viewParams = personParams(personFilter ? viewed : undefined, people.length);
   const [settle, setSettle] = useState<Awaited<ReturnType<typeof getSettleUps>> | null>(null);
 
   useEffect(() => {
@@ -843,7 +844,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                         onPress={() =>
                           router.push({
                             pathname: "/category/[name]",
-                            params: { name: c.categoryName, month: periodKey, ...(viewed ? { person: String(viewed.id), personName: viewed.isMe ? "Your" : `${viewed.name}'s` } : {}) },
+                            params: { name: c.categoryName, month: periodKey, ...viewParams },
                           })
                         }
                       >
@@ -871,7 +872,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
             {topMerchantList.map((m, i) => (
               <Pressable
                 key={m.key}
-                onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: m.merchant } })}
+                onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: m.merchant, ...viewParams } })}
                 style={styles.incomeRow}
               >
                 <Text style={styles.merchantRank}>{i + 1}</Text>
@@ -1048,7 +1049,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                   <Pressable
                     key={t.id}
                     style={styles.txRow}
-                    onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: t.merchant } })}
+                    onPress={() => router.push({ pathname: "/merchant/[name]", params: { name: t.merchant, ...viewParams } })}
                   >
                     <View style={[styles.txIcon, { backgroundColor: style.color }]}>
                       <Text style={{ fontSize: 16 }}>{style.emoji}</Text>

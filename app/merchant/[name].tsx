@@ -9,6 +9,7 @@ import { getCategoryStyle } from "../../lib/categoryStyle";
 import { getMerchantTransactions, todayISO } from "../../lib/db";
 import { formatMerchantName } from "../../lib/formatMerchant";
 import { merchantHistory, type MerchantHistory } from "../../lib/merchantInsights";
+import { forPerson, personFilterFromParams } from "../../lib/people";
 import { radius, spacing } from "../../lib/theme";
 import type { Transaction } from "../../lib/types";
 import { useTheme, type ThemeColors } from "../../lib/ThemeContext";
@@ -36,7 +37,13 @@ export default function MerchantScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
-  const { name } = useLocalSearchParams<{ name: string }>();
+  // `person`: opened while looking at one person's spending.
+  const { name, person, personName, peopleCount } = useLocalSearchParams<{
+    name: string;
+    person?: string;
+    personName?: string;
+    peopleCount?: string;
+  }>();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [history, setHistory] = useState<MerchantHistory | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -44,11 +51,13 @@ export default function MerchantScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!name) return;
-      getMerchantTransactions(db, name).then((list) => {
+      const filter = personFilterFromParams(person, peopleCount);
+      getMerchantTransactions(db, name).then((all) => {
+        const list = filter ? forPerson(all, filter) : all;
         setTransactions(list);
         setHistory(merchantHistory(list, todayISO()));
       });
-    }, [db, name])
+    }, [db, name, person, peopleCount])
   );
 
   const title = formatMerchantName(name ?? "");
@@ -73,6 +82,8 @@ export default function MerchantScreen() {
           </Text>
           <View style={styles.headerBtn} />
         </View>
+
+        {personName ? <Text style={styles.personNote}>{personName} charges here. Shared charges count as a share.</Text> : null}
 
         {history && (
           <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
@@ -171,6 +182,7 @@ export default function MerchantScreen() {
 
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
+    personNote: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
     safeArea: { flex: 1, backgroundColor: colors.background },
     container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.md },
     headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },

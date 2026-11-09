@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forPerson, personNameProblem, settleUp, shareOf, SHARED } from "../lib/people";
+import { forPerson, personFilterFromParams, personNameProblem, personParams, settleUp, shareOf, SHARED } from "../lib/people";
 import { tx } from "./helpers";
 
 const sarah = { personId: 2, peopleCount: 2 };
@@ -62,5 +62,19 @@ describe("personNameProblem", () => {
     expect(personNameProblem("Everyone", [])).toMatch(/Pick another/);
     expect(personNameProblem("x".repeat(31), [])).toMatch(/under/);
     expect(personNameProblem("Sarah", ["Me"])).toBeNull();
+  });
+});
+
+describe("person params", () => {
+  it("round-trips through a link", () => {
+    const params = personParams({ id: 2, name: "Sarah", isMe: false }, 2);
+    expect(params).toEqual({ person: "2", personName: "Sarah's", peopleCount: "2" });
+    expect(personFilterFromParams(params.person, params.peopleCount)).toEqual({ personId: 2, peopleCount: 2 });
+  });
+  it("says Your for you, and nothing when no one's picked", () => {
+    expect(personParams({ id: 1, name: "Me", isMe: true }, 2).personName).toBe("Your");
+    expect(personParams(undefined, 2)).toEqual({});
+    expect(personFilterFromParams(undefined, undefined)).toBeUndefined();
+    expect(personFilterFromParams("x", "2")).toBeUndefined();
   });
 });
