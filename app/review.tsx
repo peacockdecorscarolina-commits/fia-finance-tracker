@@ -11,9 +11,13 @@ import {
   getCategories,
   getNeedsReview,
   ignoreAndResolveReview,
+  merchantGroupKey,
   normalizeMerchantKey,
   setMerchantCategory,
+  setTransactionPerson,
 } from "../lib/db";
+import { SHARED, type Person } from "../lib/people";
+import { usePeople } from "../lib/usePeople";
 import { radius, spacing } from "../lib/theme";
 import type { Category, Transaction } from "../lib/types";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
@@ -44,6 +48,7 @@ export default function ReviewScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [resolvedCount, setResolvedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const people = usePeople();
 
   const load = useCallback(() => {
     getNeedsReview(db).then((rows) => {
@@ -59,6 +64,18 @@ export default function ReviewScreen() {
   function removeResolved(ids: Set<number>) {
     setQueue((q) => q.filter((t) => !ids.has(t.id)));
     setResolvedCount((n) => n + ids.size);
+  }
+
+  // The store is remembered, so the same store's other cards in this stack
+  // are set too.
+  async function handlePerson(transaction: Transaction, personId: number) {
+    await setTransactionPerson(db, transaction, personId, true);
+    const key = merchantGroupKey(transaction.merchant);
+    setQueue((q) =>
+      q.map((t) =>
+        t.id === transaction.id || (t.personId === null && merchantGroupKey(t.merchant) === key) ? { ...t, personId } : t
+      )
+    );
   }
 
   async function handleTag(categoryId: number) {
@@ -126,6 +143,8 @@ export default function ReviewScreen() {
                   onTag={handleTag}
                   onIgnore={handleIgnore}
                   onSkip={handleSkip}
+                  people={people}
+                  onPerson={(personId) => handlePerson(t, personId)}
                 />
               ) : (
                 <PeekCard key={t.id} transaction={t} depth={i} styles={styles} />
@@ -182,10 +201,14 @@ function ReviewCard({
   onTag,
   onIgnore,
   onSkip,
+  people,
+  onPerson,
 }: {
   transaction: Transaction;
   categories: Category[];
   styles: ReturnType<typeof makeStyles>;
+  people: Person[];
+  onPerson: (personId: number) => void;
   onTag: (categoryId: number) => void;
   onIgnore: () => void;
   onSkip: () => void;
@@ -258,6 +281,21 @@ function ReviewCard({
         </Text>
       </View>
 
+      {people.length > 1 && (
+        <View style={styles.people}>
+          {[...people.map((p) => ({ id: p.id, label: p.name })), { id: SHARED, label: "Shared" }].map((choice) => {
+            const on = transaction.personId === choice.id;
+            return (
+              <Pressable key={choice.id} onPress={() => onPerson(choice.id)} style={[styles.personChip, on && styles.personChipOn]}>
+                <Text style={[styles.personChipText, on && styles.personChipTextOn]} numberOfLines={1}>
+                  {choice.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
       <View style={styles.chips}>
         {/* Money in: income categories first, since that's most often the answer. */}
         {(isNegative ? categories : [...categories].sort((a, b) => Number(b.isIncome) - Number(a.isIncome))).map((c) => {
@@ -291,6 +329,11 @@ function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: colors.background },
     container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
+    people: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: spacing.sm },
+    personChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, maxWidth: 140 },
+    personChipOn: { backgroundColor: ACCENT, borderColor: ACCENT },
+    personChipText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
+    personChipTextOn: { color: "#FFFFFF" },
     headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm },
     headerBtn: {
       width: 40,

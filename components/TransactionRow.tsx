@@ -10,11 +10,15 @@ import {
   dismissWatchFlag,
   getAllTags,
   getRecurringOverride,
+  getStoreOwner,
   normalizeTag,
   setRecurringOverride,
   setTransactionNote,
+  setTransactionPerson,
   setTransactionReimbursed,
 } from "../lib/db";
+import { SHARED } from "../lib/people";
+import { usePeople } from "../lib/usePeople";
 import type { RecurringOverride } from "../lib/subscriptions";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { radius, spacing } from "../lib/theme";
@@ -45,6 +49,7 @@ export function TransactionRow({
   onLinkTransfer,
   onUnlinkTransfer,
   onWatchAnswered,
+  onPersonChanged,
 }: {
   transaction: Transaction;
   onToggleIgnored?: (transaction: Transaction) => void;
@@ -56,6 +61,8 @@ export function TransactionRow({
   onUnlinkTransfer?: (transaction: Transaction) => void;
   // After "That's it" or "Not this one" on a watch's flag.
   onWatchAnswered?: () => void;
+  // After choosing who a transaction belongs to (others may have changed).
+  onPersonChanged?: () => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -83,6 +90,14 @@ export function TransactionRow({
   useEffect(() => {
     setWatchFlag(transaction.watchId !== null ? { id: transaction.watchId, note: transaction.watchNote ?? "" } : null);
   }, [transaction.watchId, transaction.watchNote]);
+  // Who it belongs to. Only shows once a second person has been added.
+  const people = usePeople();
+  const [personId, setPersonId] = useState(transaction.personId);
+  useEffect(() => {
+    setPersonId(transaction.personId);
+  }, [transaction.personId]);
+  const [pickingPerson, setPickingPerson] = useState(false);
+  const [rememberStore, setRememberStore] = useState(true);
   const tagsKey = transaction.tags.join(",");
   useEffect(() => {
     setNote(transaction.note);
@@ -191,6 +206,30 @@ export function TransactionRow({
     setLinkCandidates(candidates);
   }
 
+  // Remembering the store is on when it has no one yet, and off when it
+  // does, so one of someone else's charges doesn't change it for good.
+  function togglePersonPicker() {
+    if (pickingPerson) {
+      setPickingPerson(false);
+      return;
+    }
+    getStoreOwner(db, transaction.merchant).then((owner) => {
+      setRememberStore(owner === null);
+      setPickingPerson(true);
+    });
+  }
+
+  async function choosePerson(id: number | null) {
+    await setTransactionPerson(db, transaction, id, rememberStore);
+    setPersonId(id);
+    setPickingPerson(false);
+    autoBackup(db);
+    onPersonChanged?.();
+  }
+
+  const personLabel =
+    personId === SHARED ? "Shared" : (people.find((p) => p.id === personId)?.name ?? transaction.personName);
+
   async function answerWatch(isIt: boolean) {
     if (!watchFlag) return;
     if (isIt) setNote(await confirmWatchFlag(db, watchFlag.id, transaction.id));
@@ -256,6 +295,7 @@ export function TransactionRow({
             {transaction.needsReview && <Chip label="review" tone="warning" />}
             {transaction.ignored && <Chip label="ignored" />}
             {transaction.linkedTransactionId && <Chip label="transfer" tone="warning" />}
+            {people.length > 1 && personLabel ? <Chip label={personLabel} tone="positive" /> : null}
             {tags.map((tag) => (
               <Pressable
                 key={tag}
@@ -312,6 +352,12 @@ export function TransactionRow({
           <Ionicons name="time-outline" size={13} color={colors.accent} />
           <Text style={styles.actionLinkText}>History</Text>
         </Pressable>
+        {people.length > 1 && (
+          <Pressable onPress={togglePersonPicker} style={styles.actionBtn}>
+            <Ionicons name="person-outline" size={13} color={colors.accent} />
+            <Text style={styles.actionLinkText}>{pickingPerson ? "Cancel" : "Person"}</Text>
+          </Pressable>
+        )}
         <Pressable onPress={watchForThis} style={styles.actionBtn}>
           <Ionicons name="eye-outline" size={13} color={colors.accent} />
           <Text style={styles.actionLinkText}>{isCharge ? "Watch for refund" : "Watch"}</Text>
@@ -343,6 +389,30 @@ export function TransactionRow({
           </Pressable>
         )}
       </View>
+
+      {pickingPerson && (
+        <View style={styles.noteEditor}>
+          <Text style={styles.meta}>Whose is this?</Text>
+          <View style={styles.personChoices}>
+            {[...people.map((p) => ({ id: p.id as number | null, label: p.name })), { id: SHARED, label: "Shared" }, { id: null, label: "No one" }].map((choice) => {
+              const on = personId === choice.id;
+              return (
+                <Pressable
+                  key={String(choice.id)}
+                  onPress={() => choosePerson(choice.id)}
+                  style={[styles.personChoice, on && styles.personChoiceOn]}
+                >
+                  <Text style={[styles.personChoiceText, on && styles.personChoiceTextOn]}>{choice.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable onPress={() => setRememberStore((v) => !v)} style={styles.rememberRow} accessibilityRole="checkbox" accessibilityState={{ checked: rememberStore }}>
+            <Ionicons name={rememberStore ? "checkbox" : "square-outline"} size={18} color={colors.accent} />
+            <Text style={styles.meta}>Remember for {formatMerchantName(transaction.merchant)}</Text>
+          </Pressable>
+        </View>
+      )}
 
       {editingPaidBack && (
         <View style={styles.noteEditor}>
@@ -618,6 +688,12 @@ function makeStyles(colors: ThemeColors) {
     recurringOptionActive: { borderColor: "#4C1D95", backgroundColor: "#EDE9FE" },
     recurringOptionTextActive: { color: "#4C1D95" },
     tagChipText: { fontSize: 12, fontWeight: "700", color: "#4C1D95" },
+    personChoices: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+    personChoice: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
+    personChoiceOn: { backgroundColor: "#4C1D95", borderColor: "#4C1D95" },
+    personChoiceText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
+    personChoiceTextOn: { color: "#FFFFFF" },
+    rememberRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     watchedCard: { borderWidth: 1.5, borderColor: "#F59E0B" },
     watchBox: { backgroundColor: "#FEF3C7", borderRadius: radius.chip, padding: spacing.sm, gap: 4, marginBottom: spacing.sm },
     watchTitle: { fontSize: 12, fontWeight: "800", color: "#92400E" },

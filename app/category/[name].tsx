@@ -52,12 +52,15 @@ export default function CategoryDrillDownScreen() {
   // explicit start/end (Home's Week/Month/Year periods). Neither = all time.
   // `account` (a card's name) limits the list and trend to that card, when
   // opened from the card's own page.
-  const { name, month, start: startParam, end: endParam, account } = useLocalSearchParams<{
+  // `person`: opened from Summary while looking at one person's spending.
+  const { name, month, start: startParam, end: endParam, account, person, personName } = useLocalSearchParams<{
     name: string;
     month?: string;
     start?: string;
     end?: string;
     account?: string;
+    person?: string;
+    personName?: string;
   }>();
   const db = useSQLiteContext();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -95,13 +98,13 @@ export default function CategoryDrillDownScreen() {
       startParam && endParam ? { start: startParam, end: endParam } : month ? periodRange(month) : {};
     getAccounts(db).then((accounts) => {
       const accountId = account ? accounts.find((a) => a.name === account)?.id : undefined;
-      getTransactions(db, { categoryName: name, start, end, accountId }).then(setTransactions);
+      getTransactions(db, { categoryName: name, start, end, accountId, personId: person ? Number(person) : undefined }).then(setTransactions);
       if (name) getCategoryMonthlyTotals(db, name, TREND_MONTHS, accountId).then(setMonthlyTrend);
     });
     // Unfiltered: a tracked loan's payments count from whichever card paid them.
     getTransactions(db, { categoryName: name }).then(setAllTransactions);
     getCategories(db).then(setCategories);
-  }, [db, name, month, startParam, endParam, account]);
+  }, [db, name, month, startParam, endParam, account, person]);
 
   useFocusEffect(load);
 
@@ -169,6 +172,9 @@ export default function CategoryDrillDownScreen() {
 
   const listHeader = (
     <>
+      {personName ? (
+        <Text style={styles.personNote}>{personName} charges, plus shared ones. Shared charges show in full here and count as a share in Summary.</Text>
+      ) : null}
       {!category?.loanAmount && monthlyTrend.filter((m) => m.total > 0).length >= 2 && (
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Monthly spend</Text>
@@ -413,6 +419,7 @@ export default function CategoryDrillDownScreen() {
 
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
+    personNote: { fontSize: 12, color: colors.textSecondary, lineHeight: 17, marginBottom: spacing.sm },
     safeArea: { flex: 1, backgroundColor: colors.background },
     container: { flex: 1, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
     headerRow: {

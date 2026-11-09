@@ -9,6 +9,7 @@ import { checkInMonth, checkInStreak, statementsDone } from "../lib/checkIn";
 import {
   getAccounts,
   getCheckInsDone,
+  getPeople,
   getFlaggedCount,
   getNeedsReviewCount,
   getRecurring,
@@ -87,13 +88,14 @@ type Stats = {
   watch: MenuBadge | null;
   subscriptions: MenuBadge | null;
   accounts: MenuBadge | null;
+  people: MenuBadge | null;
   backup: MenuBadge;
 };
 
 async function loadStats(db: ReturnType<typeof useSQLiteContext>): Promise<Stats> {
   const today = todayISO();
   const month = checkInMonth(today);
-  const [name, email, doneMonths, statuses, reviewCount, flagged, recurring, accounts, lastSync] = await Promise.all([
+  const [name, email, doneMonths, statuses, reviewCount, flagged, recurring, accounts, lastSync, people] = await Promise.all([
     getUserName(db),
     cachedEmail(db),
     getCheckInsDone(db),
@@ -103,6 +105,7 @@ async function loadStats(db: ReturnType<typeof useSQLiteContext>): Promise<Stats
     getRecurring(db),
     getAccounts(db),
     lastDriveSync(db),
+    getPeople(db),
   ]);
   // Same steps as Home's check-in card; none until something's uploaded.
   let checkIn: MenuBadge | null = null;
@@ -122,6 +125,7 @@ async function loadStats(db: ReturnType<typeof useSQLiteContext>): Promise<Stats
     watch,
     subscriptions: countBadge(recurring.filter((r) => !r.isStopped).length),
     accounts: countBadge(accounts.length),
+    people: people.length > 1 ? countBadge(people.length) : null,
     backup: backupBadge(lastSync),
   };
 }
@@ -167,6 +171,7 @@ export function MoreMenu({ visible, onClose }: { visible: boolean; onClose: () =
       title: "Manage",
       items: [
         { key: "accounts", label: "Accounts", short: "Accounts", icon: "card-outline", onPress: go("/accounts"), badge: stats?.accounts },
+        { key: "people", label: "People", short: "People", icon: "people-outline", onPress: go("/people"), badge: stats?.people },
         { key: "categories", label: "Categories", short: "Categories", icon: "pricetag-outline", onPress: go("/categories") },
         { key: "income", label: "Income", short: "Income", icon: "cash-outline", onPress: go("/income") },
         { key: "savings", label: "Savings & Investments", short: "Savings", icon: "trending-up-outline", onPress: go("/net-worth") },

@@ -63,6 +63,10 @@ export type Transaction = {
   // confirmed or waved off: the watch and its note.
   watchId: number | null;
   watchNote: string | null;
+  // Who it belongs to: a person's id, SHARED (lib/people.ts), or null for
+  // nobody yet. The name is null unless it's a person.
+  personId: number | null;
+  personName: string | null;
 };
 
 // Shape returned by the extraction step (currently on-device, rule-based —
