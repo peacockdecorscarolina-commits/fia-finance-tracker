@@ -10,6 +10,10 @@
 // Months the user marked "No statement this month" count as uploaded.
 
 export const READY_AFTER_DAYS = 5;
+// Closing dates move around (Wells Fargo checking: the 6th, then the 8th,
+// then the 5th). A statement that closed up to this many days before the
+// usual day is that cycle's statement, not an early extra one.
+export const CLOSING_DRIFT_DAYS = 5;
 // Only look this far back for skipped months; older gaps aren't worth a nag.
 const MISSING_LOOKBACK_MONTHS = 24;
 
@@ -20,6 +24,9 @@ export type StatementHistory = {
   transactionDates: string[];
   // Statement closing dates (the dates statement balances were saved for), sorted.
   statementDates: string[];
+  // The closing dates that came from uploaded statements. statementDates
+  // also holds balances typed in by hand, which can be on any day.
+  uploadedClosings?: string[];
   skippedMonths: string[];
   remindersOn: boolean;
   // Day of the month statements close on, when known.
@@ -113,6 +120,9 @@ export function statementStatus(h: StatementHistory, today: string): StatementSt
   const closingAfter = (k: number) => {
     if (day === null) return addMonths(base, k);
     let d = nextOnDay(base, day);
+    if ((h.uploadedClosings ?? h.statementDates).includes(base) && d <= addDays(base, CLOSING_DRIFT_DAYS)) {
+      d = nextOnDay(d, day);
+    }
     for (let i = 1; i < k; i++) d = nextOnDay(d, day);
     return d;
   };
