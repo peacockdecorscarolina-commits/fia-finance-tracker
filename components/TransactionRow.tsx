@@ -10,7 +10,6 @@ import {
   dismissWatchFlag,
   getAllTags,
   getRecurringOverride,
-  getStoreOwner,
   normalizeTag,
   setRecurringOverride,
   setTransactionNote,
@@ -61,7 +60,7 @@ export function TransactionRow({
   onUnlinkTransfer?: (transaction: Transaction) => void;
   // After "That's it" or "Not this one" on a watch's flag.
   onWatchAnswered?: () => void;
-  // After choosing who a transaction belongs to (others may have changed).
+  // After choosing who this transaction belongs to.
   onPersonChanged?: () => void;
 }) {
   const { colors } = useTheme();
@@ -97,7 +96,6 @@ export function TransactionRow({
     setPersonId(transaction.personId);
   }, [transaction.personId]);
   const [pickingPerson, setPickingPerson] = useState(false);
-  const [rememberStore, setRememberStore] = useState(true);
   const tagsKey = transaction.tags.join(",");
   useEffect(() => {
     setNote(transaction.note);
@@ -206,21 +204,8 @@ export function TransactionRow({
     setLinkCandidates(candidates);
   }
 
-  // Remembering the store is on when it has no one yet, and off when it
-  // does, so one of someone else's charges doesn't change it for good.
-  function togglePersonPicker() {
-    if (pickingPerson) {
-      setPickingPerson(false);
-      return;
-    }
-    getStoreOwner(db, transaction.merchant).then((owner) => {
-      setRememberStore(owner === null);
-      setPickingPerson(true);
-    });
-  }
-
   async function choosePerson(id: number | null) {
-    await setTransactionPerson(db, transaction, id, rememberStore);
+    await setTransactionPerson(db, transaction.id, id);
     setPersonId(id);
     setPickingPerson(false);
     autoBackup(db);
@@ -353,7 +338,7 @@ export function TransactionRow({
           <Text style={styles.actionLinkText}>History</Text>
         </Pressable>
         {people.length > 1 && (
-          <Pressable onPress={togglePersonPicker} style={styles.actionBtn}>
+          <Pressable onPress={() => setPickingPerson((v) => !v)} style={styles.actionBtn}>
             <Ionicons name="person-outline" size={13} color={colors.accent} />
             <Text style={styles.actionLinkText}>{pickingPerson ? "Cancel" : "Person"}</Text>
           </Pressable>
@@ -407,10 +392,6 @@ export function TransactionRow({
               );
             })}
           </View>
-          <Pressable onPress={() => setRememberStore((v) => !v)} style={styles.rememberRow} accessibilityRole="checkbox" accessibilityState={{ checked: rememberStore }}>
-            <Ionicons name={rememberStore ? "checkbox" : "square-outline"} size={18} color={colors.accent} />
-            <Text style={styles.meta}>Remember for {formatMerchantName(transaction.merchant)}</Text>
-          </Pressable>
         </View>
       )}
 
@@ -693,7 +674,6 @@ function makeStyles(colors: ThemeColors) {
     personChoiceOn: { backgroundColor: "#4C1D95", borderColor: "#4C1D95" },
     personChoiceText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
     personChoiceTextOn: { color: "#FFFFFF" },
-    rememberRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     watchedCard: { borderWidth: 1.5, borderColor: "#F59E0B" },
     watchBox: { backgroundColor: "#FEF3C7", borderRadius: radius.chip, padding: spacing.sm, gap: 4, marginBottom: spacing.sm },
     watchTitle: { fontSize: 12, fontWeight: "800", color: "#92400E" },
