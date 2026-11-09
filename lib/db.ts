@@ -14,7 +14,7 @@ import { closingOnOrAfter, statementStatus, type StatementStatus } from "./state
 import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
 import { monthInsights, topMerchants, type Insight, type TopMerchant } from "./merchantInsights";
 import { matchesWatch, noteWithWatch, type Watch, type WatchDirection } from "./watches";
-import { forPerson, ownerForNew, SHARED, settleUp, type Person, type PersonFilter, type SettleUp } from "./people";
+import { forPerson, SHARED, settleUp, type Person, type PersonFilter, type SettleUp } from "./people";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { isReadOnly, notifyBlockedWrite } from "./access";
@@ -182,11 +182,6 @@ export async function initDatabase(db: SQLiteDatabase) {
       id INTEGER PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
       is_me INTEGER NOT NULL DEFAULT 0
-    );
-    -- Who a store's charges belong to, keyed by the name shown for it.
-    CREATE TABLE IF NOT EXISTS merchant_person_map (
-      merchant_key TEXT PRIMARY KEY NOT NULL,
-      person_id INTEGER NOT NULL
     );
     -- What someone has settled up for a month (YYYY-MM).
     CREATE TABLE IF NOT EXISTS settle_ups (
@@ -1523,7 +1518,6 @@ export async function insertExtractedTransactions(
     ? await db.getFirstAsync<{ id: number }>("SELECT id FROM categories WHERE LOWER(name) = LOWER(?)", INCOME_CATEGORY_NAME)
     : null;
   const incomeId = incomeRow?.id ?? null;
-  const storeOwners = await getStoreOwners(db);
   const cardDefault = await getCardDefaultPerson(db, accountId);
   await db.withTransactionAsync(async () => {
     for (const t of extracted) {
@@ -1542,7 +1536,7 @@ export async function insertExtractedTransactions(
         t.amount,
         known ?? categoryIds.get(t.category)!,
         known !== undefined ? 0 : t.needsReview ? 1 : 0,
-        ownerForNew(storeOwners.get(merchantGroupKey(t.merchant)), cardDefault)
+        cardDefault
       );
     }
   });
@@ -1557,7 +1551,6 @@ export async function insertManualTransaction(
   db: SQLiteDatabase,
   transaction: { accountId: number; date: string; merchant: string; amount: number; categoryId: number }
 ) {
-  const storeOwners = await getStoreOwners(db);
   await db.runAsync(
     "INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored, person_id) VALUES (?, ?, ?, ?, ?, 0, 0, ?)",
     transaction.accountId,
@@ -1565,7 +1558,7 @@ export async function insertManualTransaction(
     transaction.merchant,
     transaction.amount,
     transaction.categoryId,
-    ownerForNew(storeOwners.get(merchantGroupKey(transaction.merchant)), await getCardDefaultPerson(db, transaction.accountId))
+    await getCardDefaultPerson(db, transaction.accountId)
   );
   await scanWatches(db);
 }
@@ -2420,7 +2413,6 @@ export type DataSnapshot = {
   // stands for Shared. Optional so older backups still restore.
   people?: { name: string; isMe: boolean }[];
   accountPeople?: { accountName: string; person: string }[];
-  merchantPeople?: { merchantKey: string; person: string }[];
   settleUps?: { month: string; person: string; amount: number }[];
   // The watch list, with the transactions each one flagged (found by
   // account, date, merchant and amount, since ids change on restore).
@@ -2529,12 +2521,6 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     exportedAt: new Date().toISOString(),
     people: people.map((p) => ({ name: p.name, isMe: p.isMe })),
     accountPeople: await exportAccountPeople(db, personName),
-    merchantPeople: (await db.getAllAsync<{ merchantKey: string; personId: number }>(
-      "SELECT merchant_key as merchantKey, person_id as personId FROM merchant_person_map"
-    )).flatMap((m) => {
-      const person = personName(m.personId);
-      return person ? [{ merchantKey: m.merchantKey, person }] : [];
-    }),
     settleUps: (await db.getAllAsync<{ month: string; personId: number; amount: number }>(
       "SELECT month, person_id as personId, amount FROM settle_ups"
     )).flatMap((s) => {
@@ -2639,7 +2625,7 @@ async function restoreWatches(db: SQLiteDatabase, watches: NonNullable<DataSnaps
 // for restoring onto a fresh/empty database, not merging.
 export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot) {
   await db.execAsync(
-    "DELETE FROM merchant_person_map; DELETE FROM settle_ups; DELETE FROM watch_flags; DELETE FROM watches; DELETE FROM income_sources; DELETE FROM statement_closings; DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
+    "DELETE FROM settle_ups; DELETE FROM watch_flags; DELETE FROM watches; DELETE FROM income_sources; DELETE FROM statement_closings; DELETE FROM statement_skips; DELETE FROM custom_benefits; DELETE FROM benefit_marks; DELETE FROM transaction_tags; DELETE FROM tags; DELETE FROM transactions; DELETE FROM merchant_category_map; DELETE FROM categories; DELETE FROM accounts; DELETE FROM asset_balances; DELETE FROM assets;"
   );
 
   const personIdFor = await restorePeople(db, snapshot);
@@ -3001,7 +2987,6 @@ export async function renamePerson(db: SQLiteDatabase, id: number, name: string)
 export async function deletePerson(db: SQLiteDatabase, id: number) {
   await db.runAsync("UPDATE transactions SET person_id = NULL WHERE person_id = ?", id);
   await db.runAsync("UPDATE accounts SET default_person_id = NULL WHERE default_person_id = ?", id);
-  await db.runAsync("DELETE FROM merchant_person_map WHERE person_id = ?", id);
   await db.runAsync("DELETE FROM settle_ups WHERE person_id = ?", id);
   await db.runAsync("DELETE FROM people WHERE id = ? AND is_me = 0", id);
   notifyPeopleChanged();
@@ -3011,8 +2996,17 @@ export async function getAccountDefaults(db: SQLiteDatabase): Promise<{ id: numb
   return db.getAllAsync("SELECT id, name, default_person_id as defaultPersonId FROM accounts ORDER BY name");
 }
 
+// The card decides whose charges are whose: this applies to everything on
+// it, past and future. A charge someone set by hand to anyone else stays.
 export async function setAccountDefaultPerson(db: SQLiteDatabase, accountId: number, personId: number | null) {
+  const previous = await getCardDefaultPerson(db, accountId);
   await db.runAsync("UPDATE accounts SET default_person_id = ? WHERE id = ?", personId, accountId);
+  await db.runAsync(
+    "UPDATE transactions SET person_id = ? WHERE account_id = ? AND (person_id IS NULL OR person_id = ?)",
+    personId,
+    accountId,
+    previous
+  );
 }
 
 async function getCardDefaultPerson(db: SQLiteDatabase, accountId: number): Promise<number | null> {
@@ -3020,41 +3014,9 @@ async function getCardDefaultPerson(db: SQLiteDatabase, accountId: number): Prom
   return row?.personId ?? null;
 }
 
-async function getStoreOwners(db: SQLiteDatabase): Promise<Map<string, number>> {
-  const rows = await db.getAllAsync<{ key: string; personId: number }>("SELECT merchant_key as key, person_id as personId FROM merchant_person_map");
-  return new Map(rows.map((r) => [r.key, r.personId]));
-}
-
-// Who this store's future charges go to, or null when it hasn't been set.
-export async function getStoreOwner(db: SQLiteDatabase, merchant: string): Promise<number | null> {
-  const row = await db.getFirstAsync<{ personId: number }>(
-    "SELECT person_id as personId FROM merchant_person_map WHERE merchant_key = ?",
-    merchantGroupKey(merchant)
-  );
-  return row?.personId ?? null;
-}
-
-// Sets who a transaction belongs to. With `remember`, the store's future
-// charges go to them too, and so do its past ones nobody's been given yet;
-// anything already assigned stays as it is.
-export async function setTransactionPerson(
-  db: SQLiteDatabase,
-  transaction: { id: number; merchant: string },
-  personId: number | null,
-  remember: boolean
-) {
-  await db.runAsync("UPDATE transactions SET person_id = ? WHERE id = ?", personId, transaction.id);
-  if (!remember) return;
-  const key = merchantGroupKey(transaction.merchant);
-  if (personId === null) {
-    await db.runAsync("DELETE FROM merchant_person_map WHERE merchant_key = ?", key);
-    return;
-  }
-  await db.runAsync("INSERT OR REPLACE INTO merchant_person_map (merchant_key, person_id) VALUES (?, ?)", key, personId);
-  const rows = await db.getAllAsync<{ id: number; merchant: string }>("SELECT id, merchant FROM transactions WHERE person_id IS NULL");
-  for (const r of rows) {
-    if (merchantGroupKey(r.merchant) === key) await db.runAsync("UPDATE transactions SET person_id = ? WHERE id = ?", personId, r.id);
-  }
+// An exception to the card's person, for this one transaction.
+export async function setTransactionPerson(db: SQLiteDatabase, transactionId: number, personId: number | null) {
+  await db.runAsync("UPDATE transactions SET person_id = ? WHERE id = ?", personId, transactionId);
 }
 
 // What's shared in a month (YYYY-MM) and where each other person stands.
@@ -3117,10 +3079,6 @@ async function restorePeople(db: SQLiteDatabase, snapshot: DataSnapshot): Promis
   await seedMe(db);
   const byName = new Map((await getPeople(db)).map((p) => [p.name, p.id]));
   const idFor = (name: string | null) => (name === SHARED_NAME ? SHARED : name === null ? null : (byName.get(name) ?? null));
-  for (const m of snapshot.merchantPeople ?? []) {
-    const id = idFor(m.person);
-    if (id !== null) await db.runAsync("INSERT OR REPLACE INTO merchant_person_map (merchant_key, person_id) VALUES (?, ?)", m.merchantKey, id);
-  }
   for (const s of snapshot.settleUps ?? []) {
     const id = idFor(s.person);
     if (id !== null) await markSettled(db, s.month, id, s.amount);

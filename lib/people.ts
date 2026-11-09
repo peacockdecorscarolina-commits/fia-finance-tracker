@@ -44,12 +44,6 @@ export function forPerson<T extends { amount: number; reimbursed: number | null;
   return out;
 }
 
-// Who a newly uploaded transaction belongs to: the store's remembered person,
-// else the card's usual one, else nobody -- Fia doesn't guess.
-export function ownerForNew(storeOwner: number | undefined, cardDefault: number | null): number | null {
-  return storeOwner ?? cardDefault ?? null;
-}
-
 function cents(value: number): number {
   return Math.round(value * 100) / 100;
 }

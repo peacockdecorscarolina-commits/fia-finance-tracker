@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forPerson, ownerForNew, personNameProblem, settleUp, shareOf, SHARED } from "../lib/people";
+import { forPerson, personNameProblem, settleUp, shareOf, SHARED } from "../lib/people";
 import { tx } from "./helpers";
 
 const sarah = { personId: 2, peopleCount: 2 };
@@ -34,15 +34,6 @@ describe("forPerson", () => {
     const row = tx("2026-10-02", "B", -100, { personId: SHARED });
     forPerson([row], sarah);
     expect(row.amount).toBe(-100);
-  });
-});
-
-describe("ownerForNew", () => {
-  it("goes store, then card, then nobody", () => {
-    expect(ownerForNew(2, 1)).toBe(2);
-    expect(ownerForNew(SHARED, 1)).toBe(SHARED);
-    expect(ownerForNew(undefined, 1)).toBe(1);
-    expect(ownerForNew(undefined, null)).toBeNull();
   });
 });
 

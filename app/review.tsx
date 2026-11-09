@@ -11,7 +11,6 @@ import {
   getCategories,
   getNeedsReview,
   ignoreAndResolveReview,
-  merchantGroupKey,
   normalizeMerchantKey,
   setMerchantCategory,
   setTransactionPerson,
@@ -66,16 +65,9 @@ export default function ReviewScreen() {
     setResolvedCount((n) => n + ids.size);
   }
 
-  // The store is remembered, so the same store's other cards in this stack
-  // are set too.
   async function handlePerson(transaction: Transaction, personId: number) {
-    await setTransactionPerson(db, transaction, personId, true);
-    const key = merchantGroupKey(transaction.merchant);
-    setQueue((q) =>
-      q.map((t) =>
-        t.id === transaction.id || (t.personId === null && merchantGroupKey(t.merchant) === key) ? { ...t, personId } : t
-      )
-    );
+    await setTransactionPerson(db, transaction.id, personId);
+    setQueue((q) => q.map((t) => (t.id === transaction.id ? { ...t, personId } : t)));
   }
 
   async function handleTag(categoryId: number) {

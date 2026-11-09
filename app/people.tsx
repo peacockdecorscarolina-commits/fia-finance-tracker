@@ -15,8 +15,8 @@ const DANGER = "#DC2626";
 
 type Card = { id: number; name: string; defaultPersonId: number | null };
 
-// For people sharing cards or money: who's in the household, and who usually
-// uses each card. With only "Me" here, none of this shows elsewhere in Fia.
+// For people sharing cards or money: who's in the household, and whose each
+// card is. With only "Me" here, none of this shows elsewhere in Fia.
 export default function PeopleScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -166,8 +166,8 @@ export default function PeopleScreen() {
 
         {people.length > 1 && cards.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Who usually uses each card?</Text>
-            <Text style={styles.hint}>New charges on the card go to this person, unless you’ve set someone for that store.</Text>
+            <Text style={styles.cardTitle}>Whose card is this?</Text>
+            <Text style={styles.hint}>All of a card’s charges go to this person, past and future.</Text>
             {cards.map((c) => (
               <View key={c.id} style={{ gap: 6, marginTop: spacing.xs }}>
                 <Text style={styles.cardName} numberOfLines={1}>
@@ -197,8 +197,8 @@ export default function PeopleScreen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>How it works</Text>
             <Text style={styles.hint}>
-              Tap Person on any transaction to choose who it belongs to, or mark it Shared. Fia remembers the store for
-              next time.
+              Each card’s charges go to its person. For an exception, like a shared dinner on one person’s card, tap
+              Person on that transaction.
             </Text>
             <Text style={styles.hint}>
               Shared charges are split equally. Summary shows each person’s spending and who owes you for shared charges.
