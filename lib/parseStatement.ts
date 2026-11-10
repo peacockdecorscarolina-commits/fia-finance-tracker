@@ -459,7 +459,10 @@ const DATE = String.raw`(\d{1,2}\/\d{1,2}\/(?:\d{4}|\d{2})|[A-Za-z]{3,9}\.?\s+\d
 
 // The date a card statement's balance is as of: its closing date, however
 // the issuer prints it.
-function findClosingDate(text: string): string | null {
+function findClosingDate(rawText: string): string | null {
+  // Bank statements also print a "Fee period 10/01/2026 - 10/31/2026" for the
+  // monthly service fee. That's a calendar month, not the statement's dates.
+  const text = rawText.replace(new RegExp(String.raw`Fee\s+period\s*:?\s*${DATE}\s*[-–—]\s*${DATE}`, "gi"), " ");
   const patterns = [
     new RegExp(String.raw`Opening\s*\/\s*Closing\s+Date\s*${DATE}\s*[-–—]\s*${DATE}`, "i"), // Chase: second date
     new RegExp(String.raw`(?:Statement\s+)?Closing\s+Date(?:\s+of\s+Billing\s+Cycle)?\s*[:]?\s*${DATE}`, "i"),
@@ -477,11 +480,12 @@ function findClosingDate(text: string): string | null {
   return null;
 }
 
-// When a statement closed: its printed closing/statement date or billing
-// period end, else a bank statement's "Ending balance on" date. Null when
-// it prints none -- then the app asks which day the account's statements close.
+// When a statement closed: a bank statement's "Ending balance on" date, which
+// is exactly when it ended, else its printed closing/statement date or
+// billing period end. Null when it prints none -- then the app asks which day
+// the account's statements close.
 export function findStatementClosingDate(text: string, statementYear?: number): string | null {
-  return findClosingDate(text) ?? findStatementEndingBalance(text, statementYear)?.date ?? null;
+  return findStatementEndingBalance(text, statementYear)?.date ?? findClosingDate(text);
 }
 
 // A card statement's balance (positive = owed) and the date it's as of.

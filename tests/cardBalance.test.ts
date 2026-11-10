@@ -33,6 +33,11 @@ describe("findStatementClosingDate", () => {
     expect(findStatementClosingDate("Statement Date: Oct 18, 2026")).toBe("2026-10-18");
     expect(findStatementClosingDate("Ending balance on 10/31 $1,234.56", 2026)).toBe("2026-10-31");
   });
+  it("isn't fooled by a bank statement's monthly fee period", () => {
+    const text = "Beginning balance on 9/9 $1,000.00\nEnding balance on 10/7 $900.00\nMonthly service fee summary\nFee period 09/01/2026 - 09/30/2026\nStandard monthly service fee $10.00";
+    expect(findStatementClosingDate(text, 2026)).toBe("2026-10-07");
+    expect(findStatementClosingDate("Fee period 09/01/2026 - 09/30/2026\n10/02 STARBUCKS 4.50")).toBeNull();
+  });
 
   it("returns null when the statement prints none", () => {
     expect(findStatementClosingDate("10/02 STARBUCKS 4.50\n10/05 SHELL 30.00")).toBeNull();

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addMonths, closingOnOrAfter, describeStatementStatus, monthToSkip, nextOnDay, statementStatus, type StatementHistory } from "../lib/statementReminders";
+import { misreadClosings } from "../lib/statementReminders";
 
 // A card used every few days from `from` to `to`, with statements closing on the 25th.
 function days(from: string, to: string, every = 3): string[] {
@@ -109,5 +110,26 @@ describe("statement day", () => {
     const s = statementStatus(card({ statementDates: ["2026-09-15"], statementDay: 15 }), "2026-12-01");
     expect(s.nextExpected).toBe("2026-10-15");
     expect(s.readyMonths).toEqual(["2026-10", "2026-11"]);
+  });
+});
+
+describe("misreadClosings", () => {
+  it("swaps a fee period's month-end for the statement's real closing", () => {
+    expect(misreadClosings(["2026-09-30", "2026-10-31"], ["2026-10-07", "2026-11-06"])).toEqual({
+      remove: ["2026-09-30", "2026-10-31"],
+      add: ["2026-10-07", "2026-11-06"],
+    });
+  });
+  it("keeps a real month-end statement, which has its balance on that day", () => {
+    expect(misreadClosings(["2026-10-31"], ["2026-10-31", "2026-11-30"])).toEqual({ remove: [], add: [] });
+  });
+  it("keeps dates that aren't the end of a month", () => {
+    expect(misreadClosings(["2026-10-15"], ["2026-11-06"])).toEqual({ remove: [], add: [] });
+  });
+  it("keeps a month-end with no statement after it", () => {
+    expect(misreadClosings(["2026-10-31"], ["2026-10-07"])).toEqual({ remove: [], add: [] });
+  });
+  it("has nothing to do the second time", () => {
+    expect(misreadClosings(["2026-10-07", "2026-11-06"], ["2026-10-07", "2026-11-06"])).toEqual({ remove: [], add: [] });
   });
 });
