@@ -2269,6 +2269,29 @@ export async function getCategorySummary(
   );
 }
 
+// Like getCategorySummary, for any range of dates.
+export async function getCategoryTotalsBetween(
+  db: SQLiteDatabase,
+  start: string,
+  end: string,
+  person?: PersonFilter
+): Promise<CategoryTotal[]> {
+  return db.getAllAsync<CategoryTotal>(
+    `SELECT categories.name as categoryName, SUM(-${SPEND_AMOUNT} * ${personShareSql(person)}) as total
+     FROM transactions
+     JOIN categories ON categories.id = transactions.category_id
+     WHERE transactions.date >= ? AND transactions.date <= ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
+       AND categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+       AND categories.loan_amount IS NULL
+     GROUP BY categories.name
+     ${person ? "HAVING total != 0" : ""}`,
+    start,
+    end,
+    INCOME_CATEGORY_NAME,
+    PAYMENT_CATEGORY_NAME
+  );
+}
+
 // The "View all" categories page for a period ("YYYY-MM" or "YYYY").
 export async function getCategoryDetails(
   db: SQLiteDatabase,
@@ -2279,20 +2302,7 @@ export async function getCategoryDetails(
   const comparison = comparisonPeriod(key, todayISO());
   const [current, previous, spending] = await Promise.all([
     getCategorySummary(db, key, undefined, person),
-    db.getAllAsync<CategoryTotal>(
-      `SELECT categories.name as categoryName, SUM(-${SPEND_AMOUNT} * ${personShareSql(person)}) as total
-       FROM transactions
-       JOIN categories ON categories.id = transactions.category_id
-       WHERE transactions.date >= ? AND transactions.date <= ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
-         AND categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
-         AND categories.loan_amount IS NULL
-       GROUP BY categories.name
-       ${person ? "HAVING total != 0" : ""}`,
-      comparison.start,
-      comparison.end,
-      INCOME_CATEGORY_NAME,
-      PAYMENT_CATEGORY_NAME
-    ),
+    getCategoryTotalsBetween(db, comparison.start, comparison.end, person),
     getSpending(db, start, end, person),
   ]);
   return {
