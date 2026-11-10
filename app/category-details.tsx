@@ -5,7 +5,6 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EmptyState } from "../components/EmptyState";
-import { SegmentedControl } from "../components/SegmentedControl";
 import { changeLine, sortCategoryRows, totalChangeLine, type CategoryDetails, type CategorySort, type ChangeTone } from "../lib/categoryDetails";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import { getCategoryDetails } from "../lib/db";
@@ -85,52 +84,67 @@ export default function CategoryDetailsScreen() {
 
         {personName ? <Text style={styles.note}>Shared charges count as a share.</Text> : null}
 
-        {canCompare && <SegmentedControl options={SORTS} value={sort} onChange={setSort} />}
+        {canCompare && (
+          <View style={styles.sortRow}>
+            {SORTS.map((option) => {
+              const on = option === sort;
+              return (
+                <Pressable key={option} onPress={() => setSort(option)} hitSlop={8} style={[styles.sortChip, on && styles.sortChipOn]}>
+                  <Text style={[styles.sortText, on && styles.sortTextOn]}>{option}</Text>
+                </Pressable>
+              );
+            })}
+            <Text style={styles.versus} numberOfLines={1}>
+              vs {data.label}
+            </Text>
+          </View>
+        )}
 
         {data && rows.length === 0 && (
           <EmptyState icon="📊" title="Nothing here yet" subtitle="No spending recorded for this period." />
         )}
 
-        {data &&
-          rows.map((row) => {
-            const color = getCategoryStyle(row.name).color;
-            const change = changeLine(row, data.label);
-            return (
-              <Pressable
-                key={row.name}
-                onPress={() => router.push({ pathname: "/category/[name]", params: { name: row.name, month: period, ...personLinks } })}
-                style={styles.card}
-                accessibilityLabel={`Open ${row.name}`}
-              >
-                <View style={styles.topRow}>
-                  <View style={[styles.dot, { backgroundColor: color }]} />
-                  <Text style={styles.name} numberOfLines={1}>
-                    {row.name}
-                  </Text>
-                  <Text style={styles.percent}>{row.percent.toFixed(1)}%</Text>
-                  <Text style={styles.amount}>{money(row.amount)}</Text>
-                </View>
-                <View style={styles.track}>
-                  <View style={[styles.fill, { width: `${row.bar * 100}%`, backgroundColor: color }]} />
-                </View>
-                <View style={styles.bottomRow}>
-                  {change ? (
-                    <View style={[styles.pill, { backgroundColor: TONE[change.tone].bg }]}>
-                      <Text style={[styles.pillText, { color: TONE[change.tone].fg }]} numberOfLines={1}>
-                        {change.text}
-                      </Text>
-                    </View>
-                  ) : null}
+        {data && rows.length > 0 && (
+          <View style={styles.list}>
+            {rows.map((row, i) => {
+              const color = getCategoryStyle(row.name).color;
+              const change = changeLine(row);
+              return (
+                <Pressable
+                  key={row.name}
+                  onPress={() => router.push({ pathname: "/category/[name]", params: { name: row.name, month: period, ...personLinks } })}
+                  style={[styles.row, i > 0 && styles.rowDivider]}
+                  accessibilityLabel={`Open ${row.name}`}
+                >
+                  <View style={styles.topRow}>
+                    <View style={[styles.dot, { backgroundColor: color }]} />
+                    <Text style={styles.name} numberOfLines={1}>
+                      {row.name}
+                    </Text>
+                    {change ? (
+                      <View style={[styles.pill, { backgroundColor: TONE[change.tone].bg }]}>
+                        <Text style={[styles.pillText, { color: TONE[change.tone].fg }]} numberOfLines={1}>
+                          {change.text}
+                        </Text>
+                      </View>
+                    ) : null}
+                    <Text style={styles.percent}>{row.percent.toFixed(1)}%</Text>
+                    <Text style={styles.amount}>{money(row.amount)}</Text>
+                  </View>
+                  <View style={styles.track}>
+                    <View style={[styles.fill, { width: `${row.bar * 100}%`, backgroundColor: color }]} />
+                  </View>
                   {row.charges > 0 ? (
                     <Text style={styles.detail} numberOfLines={1}>
                       {row.charges} {row.charges === 1 ? "charge" : "charges"}
                       {row.topStore ? ` · Most at ${row.topStore}` : ""}
                     </Text>
                   ) : null}
-                </View>
-              </Pressable>
-            );
-          })}
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -139,26 +153,33 @@ export default function CategoryDetailsScreen() {
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: colors.background },
-    container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.sm + 4 },
+    container: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xl, gap: spacing.sm },
     headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
     headerBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
     headerTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "700", color: colors.textPrimary },
-    hero: { borderRadius: radius.card, padding: spacing.md, gap: 4 },
-    heroLabel: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
-    heroValue: { fontSize: 30, fontWeight: "800", color: "#FFFFFF" },
-    heroSub: { fontSize: 13, fontWeight: "600", color: "#E9E4F5" },
-    note: { fontSize: 12, color: colors.textSecondary, textAlign: "center" },
-    card: { backgroundColor: colors.card, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, gap: 8 },
-    topRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-    dot: { width: 12, height: 12, borderRadius: 6 },
-    name: { flex: 1, fontSize: 15, fontWeight: "700", color: colors.textPrimary },
-    percent: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
-    amount: { fontSize: 15, fontWeight: "800", color: colors.textPrimary, minWidth: 78, textAlign: "right" },
-    track: { height: 7, borderRadius: 4, backgroundColor: colors.background, overflow: "hidden" },
-    fill: { height: 7, borderRadius: 4 },
-    bottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, minHeight: 22 },
-    pill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, flexShrink: 0 },
-    pillText: { fontSize: 12, fontWeight: "700" },
-    detail: { flex: 1, fontSize: 12, color: colors.textSecondary, textAlign: "right" },
+    hero: { borderRadius: 16, paddingHorizontal: spacing.md - 2, paddingVertical: 10, gap: 1 },
+    heroLabel: { fontSize: 12, fontWeight: "700", color: "#FFFFFF" },
+    heroValue: { fontSize: 22, fontWeight: "800", color: "#FFFFFF" },
+    heroSub: { fontSize: 12, fontWeight: "600", color: "#E9E4F5" },
+    note: { fontSize: 11, color: colors.textSecondary, textAlign: "center" },
+    sortRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    sortChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.card },
+    sortChipOn: { backgroundColor: "#4C1D95" },
+    sortText: { fontSize: 12, fontWeight: "700", color: colors.textSecondary },
+    sortTextOn: { color: "#FFFFFF" },
+    versus: { flex: 1, textAlign: "right", fontSize: 11, fontWeight: "600", color: colors.textSecondary },
+    list: { backgroundColor: colors.card, borderRadius: 16, paddingHorizontal: 12 },
+    row: { paddingVertical: 8, gap: 4 },
+    rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+    topRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    dot: { width: 8, height: 8, borderRadius: 4 },
+    name: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+    percent: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, minWidth: 40, textAlign: "right" },
+    amount: { fontSize: 14, fontWeight: "700", color: colors.textPrimary, minWidth: 70, textAlign: "right" },
+    track: { height: 3, borderRadius: 2, backgroundColor: colors.background, overflow: "hidden" },
+    fill: { height: 3, borderRadius: 2 },
+    pill: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.pill },
+    pillText: { fontSize: 11, fontWeight: "700" },
+    detail: { fontSize: 11, color: colors.textSecondary },
   });
 }

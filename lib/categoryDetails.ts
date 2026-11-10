@@ -119,12 +119,13 @@ const SAME = 0.005;
 
 export type ChangeTone = "up" | "down" | "same";
 
-// "▲ $66.40 vs October", or null with nothing to compare with.
-export function changeLine(row: CategoryDetail, label: string): { text: string; tone: ChangeTone } | null {
+// "▲ $66.40", or null with nothing to compare with. The page says once what
+// it's comparing against.
+export function changeLine(row: CategoryDetail): { text: string; tone: ChangeTone } | null {
   if (row.change === null) return null;
-  if (row.isNew) return { text: `New vs ${label}`, tone: "up" };
-  if (Math.abs(row.change) < SAME) return { text: `Same as ${label}`, tone: "same" };
-  return { text: `${row.change > 0 ? "▲" : "▼"} ${money(Math.abs(row.change))} vs ${label}`, tone: row.change > 0 ? "up" : "down" };
+  if (row.isNew) return { text: "New", tone: "up" };
+  if (Math.abs(row.change) < SAME) return { text: "Same", tone: "same" };
+  return { text: `${row.change > 0 ? "▲" : "▼"} ${money(Math.abs(row.change))}`, tone: row.change > 0 ? "up" : "down" };
 }
 
 // "Up $82.55 from October (4.2%)", or null with nothing to compare with.

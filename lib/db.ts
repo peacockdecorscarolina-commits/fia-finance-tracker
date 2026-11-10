@@ -2900,6 +2900,36 @@ export async function addWatch(
   return result.lastInsertRowId;
 }
 
+// Changes what a watch looks for. Flags still waiting that no longer match
+// go away, and anything uploaded since the watch began that now does is
+// flagged. Returns how many that was.
+export async function updateWatch(
+  db: SQLiteDatabase,
+  id: number,
+  w: { lookFor: string; note: string; amount: number | null; direction: WatchDirection | null; keepWatching: boolean }
+): Promise<number> {
+  const edited = { lookFor: w.lookFor.trim(), amount: w.amount, direction: w.direction };
+  await db.runAsync(
+    "UPDATE watches SET look_for = ?, note = ?, amount = ?, direction = ?, keep_watching = ? WHERE id = ?",
+    edited.lookFor,
+    w.note.trim(),
+    w.amount,
+    w.direction,
+    w.keepWatching ? 1 : 0,
+    id
+  );
+  const waiting = await db.getAllAsync<{ id: number; merchant: string; amount: number }>(
+    `SELECT transactions.id as id, transactions.merchant as merchant, transactions.amount as amount
+     FROM watch_flags JOIN transactions ON transactions.id = watch_flags.transaction_id
+     WHERE watch_flags.watch_id = ? AND watch_flags.status = 'flagged'`,
+    id
+  );
+  for (const t of waiting) {
+    if (!matchesWatch(edited, t)) await db.runAsync("DELETE FROM watch_flags WHERE watch_id = ? AND transaction_id = ?", id, t.id);
+  }
+  return scanWatches(db);
+}
+
 export async function deleteWatch(db: SQLiteDatabase, id: number) {
   await db.runAsync("DELETE FROM watch_flags WHERE watch_id = ?", id);
   await db.runAsync("DELETE FROM watches WHERE id = ?", id);
