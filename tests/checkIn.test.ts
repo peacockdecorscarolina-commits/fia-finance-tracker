@@ -158,13 +158,20 @@ describe("closing dates that move around", () => {
     const s = statementStatus(history(["2026-11-05"], 6), TODAY);
     expect(upcomingStatements(s, "2026-11", TODAY)?.line).toContain("Nov 6 statement in");
   });
-  it("still waits when the last statement is too far before the usual day", () => {
-    const s = statementStatus(history(["2026-10-30"], 6), TODAY);
+  it("counts transactions reaching close to the due date, even with no closing saved", () => {
+    for (const day of [5, 6, 7, 8]) {
+      const s = statementStatus(history(["2026-10-07"], day, { transactionDates: ["2026-10-06", "2026-11-04"], uploadedClosings: ["2026-10-07"] }), TODAY);
+      expect(s.readyMonths).toEqual([]);
+      expect(statementsDone([s], "2026-10")).toBe(true);
+    }
+  });
+  it("still waits when uploads stop well before the due date", () => {
+    const s = statementStatus(history(["2026-10-20"], 6, { transactionDates: ["2026-10-02", "2026-10-20"] }), TODAY);
     expect(s.nextExpected).toBe("2026-11-06");
     expect(monthEndStatementNeeded(s, "2026-10")).toBe("2026-11-06");
   });
   it("doesn't count a balance typed in by hand as that statement", () => {
-    const s = statementStatus(history(["2026-11-04"], 6, { uploadedClosings: [] }), TODAY);
+    const s = statementStatus(history(["2026-11-04"], 6, { transactionDates: ["2026-10-02"], uploadedClosings: [] }), TODAY);
     expect(s.nextExpected).toBe("2026-11-06");
   });
   it("leaves a statement on or after the usual day alone", () => {

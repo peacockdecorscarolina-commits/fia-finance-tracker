@@ -15,7 +15,7 @@ import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabe
 import { monthInsights, topMerchants, type Insight, type TopMerchant } from "./merchantInsights";
 import { matchesWatch, noteWithWatch, type Watch, type WatchDirection } from "./watches";
 import { buildCategoryDetails, comparisonPeriod, type CategoryDetails } from "./categoryDetails";
-import { periodRange } from "./period";
+import { monthsBetween, periodRange, shiftMonth } from "./period";
 import { forPerson, SHARED, settleUp, type Person, type PersonFilter, type SettleUp } from "./people";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
@@ -539,6 +539,22 @@ export async function setStatementDay(
     day === null ? null : setBy,
     accountId
   );
+}
+
+// "It's in": the user knows better than Fia. A month with a gap is marked
+// as having no statement; otherwise the one Fia is asking for counts as in.
+export async function markStatementIn(db: SQLiteDatabase, status: StatementStatus, month: string) {
+  if (status.missingMonths.includes(month)) {
+    await skipStatementMonth(db, status.accountId, month);
+    return;
+  }
+  if (!status.nextExpected) return;
+  await recordStatementClosing(db, status.accountId, status.nextExpected);
+  // Months up to that statement with nothing in them aren't gaps either, or
+  // settling this one would only move the complaint to the month before.
+  if (!status.coveredThrough) return;
+  const lastBefore = shiftMonth(status.nextExpected.slice(0, 7), -1);
+  for (const m of monthsBetween(lastBefore, status.coveredThrough.slice(0, 7))) await skipStatementMonth(db, status.accountId, m);
 }
 
 export async function recordStatementClosing(db: SQLiteDatabase, accountId: number, date: string) {
