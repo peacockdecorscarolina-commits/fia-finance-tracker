@@ -77,9 +77,9 @@ describe("sorting", () => {
 describe("the wording", () => {
   const row = (current: number, previous: number) => build([["A", current]], [["A", previous]]).rows[0];
   it("says which way and how much", () => {
-    expect(changeLine(row(166.4, 100), "October")).toEqual({ text: "▲ $66.40 vs October", tone: "up" });
-    expect(changeLine(row(90, 100), "Oct 1–9")).toEqual({ text: "▼ $10.00 vs Oct 1–9", tone: "down" });
-    expect(changeLine(row(100, 100), "October")).toEqual({ text: "Same as October", tone: "same" });
+    expect(changeLine(row(166.4, 100))).toEqual({ text: "▲ $66.40", tone: "up" });
+    expect(changeLine(row(90, 100))).toEqual({ text: "▼ $10.00", tone: "down" });
+    expect(changeLine(row(100, 100))).toEqual({ text: "Same", tone: "same" });
   });
   it("sums up the total", () => {
     expect(totalChangeLine({ total: 2056.3, previousTotal: 1973.75 }, "October")).toBe("Up $82.55 from October (4.2%)");

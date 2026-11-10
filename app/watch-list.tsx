@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { TransactionRow } from "../components/TransactionRow";
 import { autoBackup } from "../lib/autoBackup";
@@ -12,6 +12,7 @@ import {
   getWatches,
   getWatchFinds,
   reopenWatch,
+  updateWatch,
   type WatchWithFinds,
 } from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
@@ -54,6 +55,10 @@ export default function WatchListScreen() {
   const [keepWatching, setKeepWatching] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null);
   const [justAdded, setJustAdded] = useState<string | null>(null);
+  // The watch the form is changing; null when it's adding a new one.
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [savedEdit, setSavedEdit] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   // After any change: reload, and back it up to Drive like an upload.
   const changed = useCallback(() => {
@@ -90,6 +95,7 @@ export default function WatchListScreen() {
     setAmount(params.amount ?? "");
     setDirection(params.direction === "in" || params.direction === "out" ? params.direction : null);
     setKeepWatching(false);
+    setEditingId(null);
     setAdding(true);
     router.setParams({ lookFor: undefined, amount: undefined, direction: undefined, note: undefined });
   }, [params.lookFor, params.note, params.amount, params.direction]);
@@ -101,7 +107,24 @@ export default function WatchListScreen() {
     setDirection(null);
     setKeepWatching(false);
     setJustAdded(null);
+    setSavedEdit(null);
+    setEditingId(null);
     setAdding(true);
+  }
+
+  function openEdit(w: WatchWithFinds) {
+    setLookFor(w.lookFor);
+    setNote(w.note);
+    setAmount(w.amount === null ? "" : String(w.amount));
+    setDirection(w.direction);
+    setKeepWatching(w.keepWatching);
+    setJustAdded(null);
+    setSavedEdit(null);
+    setConfirmingDelete(null);
+    setEditingId(w.id);
+    setAdding(true);
+    // The form is at the top of the page.
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
   }
 
   const amountValue = amount.trim() ? Number(amount.replace(/[$,]/g, "")) : null;
@@ -111,8 +134,15 @@ export default function WatchListScreen() {
 
   async function save() {
     if (!canSave) return;
-    await addWatch(db, { lookFor, note, amount: amountValue, direction, keepWatching });
-    setJustAdded(watchTitle({ lookFor, amount: amountValue }));
+    const watch = { lookFor, note, amount: amountValue, direction, keepWatching };
+    if (editingId !== null) {
+      const found = await updateWatch(db, editingId, watch);
+      setSavedEdit(found > 0 ? `✓ Saved. Found ${found} already uploaded.` : "✓ Saved.");
+      setEditingId(null);
+    } else {
+      await addWatch(db, watch);
+      setJustAdded(watchTitle({ lookFor, amount: amountValue }));
+    }
     setAdding(false);
     changed();
   }
@@ -122,7 +152,7 @@ export default function WatchListScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
             <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
@@ -144,7 +174,7 @@ export default function WatchListScreen() {
 
         {adding ? (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Watch for a transaction</Text>
+            <Text style={styles.cardTitle}>{editingId !== null ? "Edit this watch" : "Watch for a transaction"}</Text>
             <Text style={styles.hint}>Fill in a vendor, an amount, or both.</Text>
             <Text style={styles.fieldLabel}>Vendor</Text>
             <TextInput
@@ -201,11 +231,17 @@ export default function WatchListScreen() {
               Fia checks every statement you upload from now on and flags a match with your note.
             </Text>
             <View style={styles.formActions}>
-              <Pressable onPress={() => setAdding(false)} style={styles.cancelBtn}>
+              <Pressable
+                onPress={() => {
+                  setAdding(false);
+                  setEditingId(null);
+                }}
+                style={styles.cancelBtn}
+              >
                 <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
               <Pressable onPress={save} disabled={!canSave} style={[styles.saveBtn, !canSave && { opacity: 0.5 }]}>
-                <Text style={styles.saveText}>Start watching</Text>
+                <Text style={styles.saveText}>{editingId !== null ? "Save changes" : "Start watching"}</Text>
               </Pressable>
             </View>
           </View>
@@ -215,6 +251,8 @@ export default function WatchListScreen() {
             <Text style={styles.addText}>Add a watch</Text>
           </Pressable>
         )}
+
+        {savedEdit && !adding && <Text style={styles.added}>{savedEdit}</Text>}
 
         {justAdded && !adding && (
           <Text style={styles.added}>
@@ -250,6 +288,10 @@ export default function WatchListScreen() {
                     {w.confirmed > 0 ? ` · found ${w.confirmed}` : ""}
                   </Text>
                   <FoundList list={finds.get(w.id)} styles={styles} />
+                  <Pressable onPress={() => openEdit(w)} hitSlop={8} style={styles.editBtn} accessibilityLabel={`Edit ${watchTitle(w)}`}>
+                    <Ionicons name="create-outline" size={13} color={colors.accent} />
+                    <Text style={styles.link}>Edit</Text>
+                  </Pressable>
                 </View>
                 <DeleteButton
                   confirming={confirmingDelete === w.id}
@@ -392,6 +434,7 @@ function makeStyles(colors: ThemeColors) {
     found: { fontSize: 12, color: "#16A34A", fontWeight: "600" },
     link: { fontSize: 12, fontWeight: "700", color: colors.accent, marginTop: 2 },
     deleteBtn: { paddingHorizontal: 4, paddingVertical: 2 },
+    editBtn: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginTop: 2 },
     deleteText: { fontSize: 12, fontWeight: "800", color: DANGER },
   });
 }
