@@ -14,6 +14,8 @@ import { closingOnOrAfter, statementStatus, type StatementStatus } from "./state
 import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
 import { monthInsights, topMerchants, type Insight, type TopMerchant } from "./merchantInsights";
 import { matchesWatch, noteWithWatch, type Watch, type WatchDirection } from "./watches";
+import { buildCategoryDetails, comparisonPeriod, type CategoryDetails } from "./categoryDetails";
+import { periodRange } from "./period";
 import { forPerson, SHARED, settleUp, type Person, type PersonFilter, type SettleUp } from "./people";
 import { detectRecurring, type Recurring, type RecurringOverride } from "./subscriptions";
 import { DEFAULT_CATEGORIES } from "./categories";
@@ -2265,6 +2267,38 @@ export async function getCategorySummary(
     PAYMENT_CATEGORY_NAME,
     ...(accountId !== undefined ? [accountId] : [])
   );
+}
+
+// The "View all" categories page for a period ("YYYY-MM" or "YYYY").
+export async function getCategoryDetails(
+  db: SQLiteDatabase,
+  key: string,
+  person?: PersonFilter
+): Promise<{ details: CategoryDetails; label: string }> {
+  const { start, end } = periodRange(key);
+  const comparison = comparisonPeriod(key, todayISO());
+  const [current, previous, spending] = await Promise.all([
+    getCategorySummary(db, key, undefined, person),
+    db.getAllAsync<CategoryTotal>(
+      `SELECT categories.name as categoryName, SUM(-${SPEND_AMOUNT} * ${personShareSql(person)}) as total
+       FROM transactions
+       JOIN categories ON categories.id = transactions.category_id
+       WHERE transactions.date >= ? AND transactions.date <= ? AND transactions.ignored = 0 AND ${NOT_BANK_INFLOW}
+         AND categories.is_income = 0 AND LOWER(categories.name) != LOWER(?) AND LOWER(categories.name) != LOWER(?)
+         AND categories.loan_amount IS NULL
+       GROUP BY categories.name
+       ${person ? "HAVING total != 0" : ""}`,
+      comparison.start,
+      comparison.end,
+      INCOME_CATEGORY_NAME,
+      PAYMENT_CATEGORY_NAME
+    ),
+    getSpending(db, start, end, person),
+  ]);
+  return {
+    details: buildCategoryDetails({ current, previous, spending, keyFor: merchantGroupKey, displayName: formatMerchantName }),
+    label: comparison.label,
+  };
 }
 
 // How much of a transaction counts for a person, in SQL (see shareOf).
