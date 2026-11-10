@@ -333,7 +333,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
 
   // A section's title with a chevron that folds it; while folded, `summary`
   // (e.g. its total) shows in place of the section's own link.
-  function sectionHeader(key: string, title: string, summary: string, link?: { label: string; onPress: () => void }) {
+  function sectionHeader(key: string, title: string, summary: string, link?: { label: string; onPress: () => void; pill?: boolean }) {
     const isCollapsed = !!collapsed[key];
     return (
       <View style={styles.stackTitleRow}>
@@ -349,8 +349,9 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
         {isCollapsed ? (
           <Text style={styles.sectionSummary}>{summary}</Text>
         ) : link ? (
-          <Pressable onPress={link.onPress}>
-            <Text style={styles.stackTitleLink}>{link.label}</Text>
+          <Pressable onPress={link.onPress} style={link.pill ? styles.viewAllBtn : undefined} hitSlop={link.pill ? 6 : undefined}>
+            <Text style={link.pill ? styles.viewAllText : styles.stackTitleLink}>{link.label}</Text>
+            {link.pill && <Ionicons name="chevron-forward" size={13} color="#4C1D95" />}
           </Pressable>
         ) : null}
       </View>
@@ -818,7 +819,14 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
 
         {section === "spending" && (
         <View>
-          {sectionHeader("byCategory", "By category", formatMoney(total))}
+          {sectionHeader(
+            "byCategory",
+            "By category",
+            formatMoney(total),
+            categoryTotals.length > 0
+              ? { label: "View all", pill: true, onPress: () => router.push({ pathname: "/category-details", params: { period: periodKey, ...viewParams } }) }
+              : undefined
+          )}
           {!collapsed.byCategory && (
           <View style={[styles.sectionCard, { marginTop: spacing.sm }]}>
             {loading ? null : categoryTotals.length === 0 ? (
@@ -1238,6 +1246,8 @@ function makeStyles(colors: ThemeColors) {
   sectionToggle: { flexDirection: "row", alignItems: "center", gap: 4 },
   sectionSummary: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
   stackTitleLink: { fontSize: 13, fontWeight: "600", color: colors.accent },
+  viewAllBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#EDE9FE", borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
+  viewAllText: { fontSize: 13, fontWeight: "800", color: "#4C1D95" },
   accountRow: {
     flexDirection: "row",
     alignItems: "center",
