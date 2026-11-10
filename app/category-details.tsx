@@ -7,8 +7,9 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "rea
 import { EmptyState } from "../components/EmptyState";
 import { changeLine, sortCategoryRows, totalChangeLine, type CategoryDetails, type CategorySort, type ChangeTone } from "../lib/categoryDetails";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getCategoryDetails } from "../lib/db";
+import { getCategoryDetails, getTransactionMonthBounds } from "../lib/db";
 import { personFilterFromParams } from "../lib/people";
+import { currentMonth, shiftMonth } from "../lib/period";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
 
@@ -28,6 +29,11 @@ function money(value: number): string {
   return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// The period before or after: a month, or a bare year.
+function stepPeriod(key: string, by: number): string {
+  return /^\d{4}$/.test(key) ? String(Number(key) + by) : shiftMonth(key, by);
+}
+
 function periodTitle(key: string): string {
   if (/^\d{4}$/.test(key)) return key;
   return new Date(`${key}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
@@ -39,7 +45,7 @@ export default function CategoryDetailsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
-  const { period, person, personName, peopleCount } = useLocalSearchParams<{
+  const { period: startPeriod, person, personName, peopleCount } = useLocalSearchParams<{
     period: string;
     person?: string;
     personName?: string;
@@ -47,13 +53,34 @@ export default function CategoryDetailsScreen() {
   }>();
   const [data, setData] = useState<{ details: CategoryDetails; label: string } | null>(null);
   const [sort, setSort] = useState<SortLabel>("Highest spend");
+  // Starts on the period picked on Summary; the arrows move it from there.
+  const [period, setPeriod] = useState(startPeriod);
+  const [bounds, setBounds] = useState<{ first: string; last: string } | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       if (!period) return;
-      getCategoryDetails(db, period, personFilterFromParams(person, peopleCount)).then(setData);
+      // Tapping quickly: only the period still showing gets to land.
+      let current = true;
+      getCategoryDetails(db, period, personFilterFromParams(person, peopleCount)).then((next) => {
+        if (current) setData(next);
+      });
+      getTransactionMonthBounds(db).then((b) => {
+        if (current) setBounds(b);
+      });
+      return () => {
+        current = false;
+      };
     }, [db, period, person, peopleCount])
   );
+
+  // From the first month with transactions up to this month (or later, if
+  // a statement has future-dated ones). A year compares by its first 4 digits.
+  const isYear = /^\d{4}$/.test(period ?? "");
+  const cut = (month: string) => (isYear ? month.slice(0, 4) : month);
+  const newest = bounds && bounds.last > currentMonth() ? bounds.last : currentMonth();
+  const canGoBack = !!bounds && !!period && period > cut(bounds.first);
+  const canGoForward = !!period && period < cut(newest);
 
   const personLinks = person && personName && peopleCount ? { person, personName, peopleCount } : {};
   const summary = data ? totalChangeLine(data.details, data.label) : null;
@@ -73,12 +100,22 @@ export default function CategoryDetailsScreen() {
 
         {data && (
           <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-            <Text style={styles.heroLabel}>
-              {periodTitle(period)}
-              {personName ? ` · ${personName} spending` : ""}
-            </Text>
-            <Text style={styles.heroValue}>{money(data.details.total)}</Text>
-            {summary ? <Text style={styles.heroSub}>{summary}</Text> : null}
+            <View style={styles.heroRow}>
+              <PeriodArrow direction="back" enabled={canGoBack} isYear={isYear} onPress={() => setPeriod(stepPeriod(period, -1))} styles={styles} />
+              <View style={styles.heroMiddle}>
+                <Text style={styles.heroLabel} numberOfLines={1}>
+                  {periodTitle(period)}
+                  {personName ? ` · ${personName} spending` : ""}
+                </Text>
+                <Text style={styles.heroValue}>{money(data.details.total)}</Text>
+                {summary ? (
+                  <Text style={styles.heroSub} numberOfLines={1}>
+                    {summary}
+                  </Text>
+                ) : null}
+              </View>
+              <PeriodArrow direction="forward" enabled={canGoForward} isYear={isYear} onPress={() => setPeriod(stepPeriod(period, 1))} styles={styles} />
+            </View>
           </LinearGradient>
         )}
 
@@ -150,6 +187,35 @@ export default function CategoryDetailsScreen() {
   );
 }
 
+function PeriodArrow({
+  direction,
+  enabled,
+  isYear,
+  onPress,
+  styles,
+}: {
+  direction: "back" | "forward";
+  enabled: boolean;
+  isYear: boolean;
+  onPress: () => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const word = direction === "back" ? "Previous" : "Next";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!enabled}
+      hitSlop={8}
+      style={[styles.arrow, !enabled && styles.arrowOff]}
+      accessibilityRole="button"
+      accessibilityLabel={`${word} ${isYear ? "year" : "month"}`}
+      accessibilityState={{ disabled: !enabled }}
+    >
+      <Ionicons name={direction === "back" ? "chevron-back" : "chevron-forward"} size={20} color="#FFFFFF" />
+    </Pressable>
+  );
+}
+
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: colors.background },
@@ -158,6 +224,10 @@ function makeStyles(colors: ThemeColors) {
     headerBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
     headerTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "700", color: colors.textPrimary },
     hero: { borderRadius: 16, paddingHorizontal: spacing.md - 2, paddingVertical: 10, gap: 1 },
+    heroRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    heroMiddle: { flex: 1, alignItems: "center", gap: 1, minWidth: 0 },
+    arrow: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#FFFFFF2E", alignItems: "center", justifyContent: "center" },
+    arrowOff: { opacity: 0.3 },
     heroLabel: { fontSize: 12, fontWeight: "700", color: "#FFFFFF" },
     heroValue: { fontSize: 22, fontWeight: "800", color: "#FFFFFF" },
     heroSub: { fontSize: 12, fontWeight: "600", color: "#E9E4F5" },
