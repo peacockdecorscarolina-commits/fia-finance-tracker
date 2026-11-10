@@ -11,9 +11,11 @@
 
 export const READY_AFTER_DAYS = 5;
 // Closing dates move around (Wells Fargo checking: the 6th, then the 8th,
-// then the 5th). A statement that closed up to this many days before the
-// usual day is that cycle's statement, not an early extra one.
-export const CLOSING_DRIFT_DAYS = 5;
+// then the 5th), and an account can go quiet for days before one closes. So
+// uploads reaching within this many days of when a statement was due count
+// as having it. Being a few days short only means the next upload has them;
+// asking for a statement someone already uploaded is the worse mistake.
+export const CLOSING_DRIFT_DAYS = 7;
 // Only look this far back for skipped months; older gaps aren't worth a nag.
 const MISSING_LOOKBACK_MONTHS = 24;
 
@@ -25,7 +27,8 @@ export type StatementHistory = {
   // Statement closing dates (the dates statement balances were saved for), sorted.
   statementDates: string[];
   // The closing dates that came from uploaded statements. statementDates
-  // also holds balances typed in by hand, which can be on any day.
+  // also holds balances typed in by hand, which can be on any day and say
+  // nothing about what's been uploaded.
   uploadedClosings?: string[];
   skippedMonths: string[];
   remindersOn: boolean;
@@ -115,14 +118,17 @@ export function statementStatus(h: StatementHistory, today: string): StatementSt
   if (!base) return { ...empty, coveredThrough: null, nextExpected: null };
 
   const skipped = new Set(h.skippedMonths);
+  // How far uploads really reach.
+  const uploadedThrough = [lastTransaction, ...(h.uploadedClosings ?? h.statementDates)]
+    .filter((d): d is string => d !== null)
+    .sort()
+    .pop();
   // The k-th statement closing after `base`.
   const day = h.statementDay;
   const closingAfter = (k: number) => {
     if (day === null) return addMonths(base, k);
     let d = nextOnDay(base, day);
-    if ((h.uploadedClosings ?? h.statementDates).includes(base) && d <= addDays(base, CLOSING_DRIFT_DAYS)) {
-      d = nextOnDay(d, day);
-    }
+    if (uploadedThrough && d <= addDays(uploadedThrough, CLOSING_DRIFT_DAYS)) d = nextOnDay(d, day);
     for (let i = 1; i < k; i++) d = nextOnDay(d, day);
     return d;
   };

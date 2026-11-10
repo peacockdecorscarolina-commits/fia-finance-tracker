@@ -4,6 +4,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useState } from "react";
 import { Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { autoBackup } from "../lib/autoBackup";
 import { getCategoryStyle } from "../lib/categoryStyle";
 import { accountMonthState, checkInMonth, checkInStreak, CHECK_IN_DAY, previousMonth, statementsDone, upcomingStatements, type AccountMonthState } from "../lib/checkIn";
 import {
@@ -17,6 +18,7 @@ import {
   getStatementStatuses,
   getTransactions,
   markCheckInDone,
+  markStatementIn,
   PAYMENT_CATEGORY_NAME,
   todayISO,
   type CategoryTotal,
@@ -250,6 +252,21 @@ export default function CheckInScreen() {
                   </Text>
                   <Text style={styles.stepText}>{state.line}</Text>
                 </View>
+                {/* Fia can be wrong about a statement; the person can overrule it. */}
+                {needsUpload && (state.kind === "missing" || (status.nextExpected !== null && status.nextExpected <= today)) && (
+                  <Pressable
+                    onPress={async () => {
+                      await markStatementIn(db, status, month);
+                      autoBackup(db);
+                      load();
+                    }}
+                    style={styles.outlineBtn}
+                    hitSlop={6}
+                    accessibilityLabel={`${status.accountName}: it's already in`}
+                  >
+                    <Text style={styles.outlineBtnText}>{"It's in"}</Text>
+                  </Pressable>
+                )}
                 {needsUpload && (
                   <Pressable
                     onPress={() => router.push({ pathname: "/upload", params: { accountId: String(status.accountId) } })}
@@ -503,6 +520,8 @@ function makeStyles(colors: ThemeColors) {
   waitingName: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
   smallBtn: { backgroundColor: ACCENT, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
   smallBtnText: { fontSize: 12, fontWeight: "700", color: "#FFFFFF" },
+  outlineBtn: { borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 5 },
+  outlineBtnText: { fontSize: 12, fontWeight: "700", color: colors.textSecondary },
   recapRow: { flexDirection: "row", gap: spacing.sm },
   recapBox: { flex: 1, backgroundColor: colors.background, borderRadius: radius.chip, padding: spacing.sm, gap: 2 },
   recapLabel: { fontSize: 11, fontWeight: "600", color: colors.textSecondary },

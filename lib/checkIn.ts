@@ -113,10 +113,10 @@ export function upcomingStatements(s: StatementStatus, month: string, today: str
     for (let d = s.nextExpected; d.slice(0, 7) <= month; d = addMonths(d, 1)) if (d.slice(0, 7) === month) closings.push(d);
   }
   if (closings.length === 0) return null;
-  // In, counting one that closed a few days before its usual day.
+  // In, counting uploads that reach within a few days of it.
   const uploaded = (d: string) =>
-    s.lastStatementDate !== null &&
-    (d <= s.lastStatementDate || (d <= addDays(s.lastStatementDate, CLOSING_DRIFT_DAYS) && s.nextExpected! > d));
+    (s.lastStatementDate !== null && d <= s.lastStatementDate) ||
+    (s.coveredThrough !== null && d <= addDays(s.coveredThrough, CLOSING_DRIFT_DAYS) && s.nextExpected! > d);
   const parts = closings.map((d) => {
     const rest = d.slice(0, 7) !== month ? ` (has the rest of ${name})` : "";
     if (uploaded(d)) return `✅ ${shortDate(d)} statement in`;
