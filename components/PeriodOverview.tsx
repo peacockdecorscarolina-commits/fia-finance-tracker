@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { comparisonPeriod } from "../lib/categoryDetails";
 import { autoBackup } from "../lib/autoBackup";
 import { personParams, type PersonFilter } from "../lib/people";
 import { usePeople } from "../lib/usePeople";
@@ -24,6 +25,7 @@ import {
   getAssetSummaries,
   getAssetTypeHistory,
   getCategorySummary,
+  getCategoryTotalsBetween,
   getSettleUps,
   markSettled,
   undoSettled,
@@ -381,12 +383,13 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
       setLoading(true);
       // The summary queries match dates by prefix, so a bare "YYYY" covers the whole year.
       const key = view === "Year" ? month.slice(0, 4) : month;
-      const prevKey = view === "Year" ? String(Number(key) - 1) : shiftMonth(month, -1);
+      // The period before; only its same days while this one is still going.
+      const compareTo = comparisonPeriod(key, todayIso());
       const { start, end } = periodRange(key);
       Promise.all([
         getCategorySummary(db, key, undefined, personFilter).then(setCategoryTotals),
         getAccountSummary(db, key).then(setAccountTotals),
-        getCategorySummary(db, prevKey, undefined, personFilter).then((rows) => setPrevTotal(rows.reduce((sum, r) => sum + r.total, 0))),
+        getCategoryTotalsBetween(db, compareTo.start, compareTo.end, personFilter).then((rows) => setPrevTotal(rows.reduce((sum, r) => sum + r.total, 0))),
         getCardPaymentsTotal(db, start, end).then(setPaymentTotal),
         // Owed as of the period's end, or today while it's still going.
         getCardsOwed(db, end < todayIso() ? end : todayIso()).then(setCardsOwed),
@@ -420,7 +423,8 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const periodWord = view === "Year" ? "this year" : "this month";
   // A year still in progress against a full previous year would always read
   // as a big drop, so the change is only shown once the year is over.
-  const showDelta = prevTotal > 0 && (view === "Month" || year < currentMonth().slice(0, 4));
+  const showDelta = prevTotal > 0;
+  const compareLabel = comparisonPeriod(periodKey, todayIso()).label;
   // Subscriptions & bills are about "right now", not the picked period.
   const activeRecurring = recurring.filter((r) => !r.isStopped);
   const recurringMonthly = activeRecurring.reduce((sum, r) => sum + r.monthlyCost, 0);
@@ -443,6 +447,19 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const pickerEdges = [currentMonth(), month, ...(monthBounds ? [monthBounds.first, monthBounds.last] : [])].sort();
   const pickerMonths = monthsBetween(pickerEdges[pickerEdges.length - 1], pickerEdges[0]);
   const pickerYears = [...new Set(pickerMonths.map((m) => m.slice(0, 4)))];
+  const newestMonth = pickerMonths[0];
+  const oldestMonth = pickerMonths[pickerMonths.length - 1];
+  const canStepBack = view === "Year" ? year > oldestMonth.slice(0, 4) : month > oldestMonth;
+  const canStepForward = view === "Year" ? year < newestMonth.slice(0, 4) : month < newestMonth;
+
+  // One month or year along, staying between the first month with
+  // transactions and the newest one.
+  function stepPeriod(by: number) {
+    setPickerOpen(false);
+    if (!month) return;
+    const target = view === "Year" ? `${Number(month.slice(0, 4)) + by}-${month.slice(5)}` : shiftMonth(month, by);
+    setMonth(target > newestMonth ? newestMonth : target < oldestMonth ? oldestMonth : target);
+  }
 
   const addItems: MoreItem[] = [
     { icon: "create-outline", label: "Add transaction", onPress: () => router.push("/add-transaction") },
@@ -476,10 +493,34 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
 
         <SegmentedControl options={VIEWS} value={view} onChange={setView} />
 
-        <Pressable onPress={() => setPickerOpen((v) => !v)} style={styles.monthPill}>
-          <Text style={styles.monthPillText}>📅 {view === "Year" ? year : formatMonthLabel(month)}</Text>
-          <Text style={styles.monthPillChevron}>{pickerOpen ? "▲" : "▼"}</Text>
-        </Pressable>
+        <View style={styles.periodRow}>
+          <Pressable
+            onPress={() => stepPeriod(-1)}
+            disabled={!canStepBack}
+            hitSlop={6}
+            style={[styles.periodArrow, !canStepBack && styles.periodArrowOff]}
+            accessibilityRole="button"
+            accessibilityLabel={view === "Year" ? "Previous year" : "Previous month"}
+            accessibilityState={{ disabled: !canStepBack }}
+          >
+            <Ionicons name="chevron-back" size={18} color={colors.textPrimary} />
+          </Pressable>
+          <Pressable onPress={() => setPickerOpen((v) => !v)} style={styles.monthPill}>
+            <Text style={styles.monthPillText}>📅 {view === "Year" ? year : formatMonthLabel(month)}</Text>
+            <Text style={styles.monthPillChevron}>{pickerOpen ? "▲" : "▼"}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => stepPeriod(1)}
+            disabled={!canStepForward}
+            hitSlop={6}
+            style={[styles.periodArrow, !canStepForward && styles.periodArrowOff]}
+            accessibilityRole="button"
+            accessibilityLabel={view === "Year" ? "Next year" : "Next month"}
+            accessibilityState={{ disabled: !canStepForward }}
+          >
+            <Ionicons name="chevron-forward" size={18} color={colors.textPrimary} />
+          </Pressable>
+        </View>
 
         {pickerOpen && (
           <ScrollView ref={pickerScrollRef} style={styles.monthDropdown} nestedScrollEnabled>
@@ -550,7 +591,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
               <Text style={styles.heroValue}>{formatMoney(total)}</Text>
               {showDelta && (
                 <Text style={[styles.heroDelta, { color: pctChange <= 0 ? "#86EFAC" : "#FCA5A5" }]}>
-                  {pctChange <= 0 ? "▼" : "▲"} {Math.abs(pctChange).toFixed(1)}% from last {view === "Year" ? "year" : "month"}
+                  {pctChange <= 0 ? "▼" : "▲"} {Math.abs(pctChange).toFixed(1)}% from {compareLabel}
                 </Text>
               )}
             </View>
@@ -1156,6 +1197,9 @@ function makeStyles(colors: ThemeColors) {
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
   },
+  periodRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
+  periodArrow: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
+  periodArrowOff: { opacity: 0.35 },
   monthPillText: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
   monthPillChevron: { fontSize: 9, color: colors.textSecondary },
   monthDropdown: {
