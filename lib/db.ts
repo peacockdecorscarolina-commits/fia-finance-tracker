@@ -10,7 +10,7 @@ import {
   type CatalogCard,
 } from "./cardBenefits";
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
-import { closingOnOrAfter, statementStatus, type StatementStatus } from "./statementReminders";
+import { closingOnOrAfter, misreadClosings, statementStatus, type StatementStatus } from "./statementReminders";
 import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
 import { monthInsights, topMerchants, type Insight, type TopMerchant } from "./merchantInsights";
 import { matchesWatch, noteWithWatch, type Watch, type WatchDirection } from "./watches";
@@ -352,6 +352,7 @@ export async function initDatabase(db: SQLiteDatabase) {
   // Catches transfers in data saved before auto-linking existed, and any
   // a manual add or restore made linkable since.
   await autoLinkTransfers(db);
+  await repairMisreadClosings(db);
   // No accounts are seeded -- a new user starts empty and adds their own
   // cards, rather than inheriting a hard-coded list.
   guardWrites(db);
@@ -504,6 +505,26 @@ export async function getStatementStatuses(db: SQLiteDatabase, today: string): P
       today
     )
   );
+}
+
+// See misreadClosings. Safe to run every time: it only finds anything to
+// fix once. A day the user typed in themselves is left alone.
+async function repairMisreadClosings(db: SQLiteDatabase) {
+  const accounts = await db.getAllAsync<{ id: number; setBy: string | null }>(
+    "SELECT id, statement_day_set_by as setBy FROM accounts WHERE type IN ('Checking', 'Savings')"
+  );
+  for (const account of accounts) {
+    const closings = await db.getAllAsync<{ date: string }>("SELECT date FROM statement_closings WHERE account_id = ?", account.id);
+    const balances = await db.getAllAsync<{ date: string }>("SELECT date FROM balance_checkpoints WHERE account_id = ? ORDER BY date", account.id);
+    const { remove, add } = misreadClosings(closings.map((c) => c.date), balances.map((b) => b.date));
+    if (remove.length === 0) continue;
+    for (const date of remove) await db.runAsync("DELETE FROM statement_closings WHERE account_id = ? AND date = ?", account.id, date);
+    for (const date of add) await recordStatementClosing(db, account.id, date);
+    if (account.setBy !== "user") {
+      const latest = balances[balances.length - 1].date;
+      await db.runAsync("UPDATE accounts SET statement_day = ?, statement_day_set_by = 'statement' WHERE id = ?", Number(latest.slice(8, 10)), account.id);
+    }
+  }
 }
 
 export async function setStatementDay(
@@ -2831,6 +2852,8 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     }
   }
   await restoreMigration();
+  // A backup can hold the same wrong dates.
+  await repairMisreadClosings(db);
   notifyPeopleChanged();
 }
 

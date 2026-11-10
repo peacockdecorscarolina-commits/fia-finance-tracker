@@ -162,6 +162,26 @@ export function statementStatus(h: StatementHistory, today: string): StatementSt
   return { ...empty, coveredThrough: base, nextExpected, readyMonths, missingMonths };
 }
 
+// Repairs a bank account's dates saved when a statement's monthly fee period
+// was misread as its closing date. Those are month-ends with no statement
+// balance on them, followed within a month by the real one. Returns the dates
+// to remove and the real closings to record in their place.
+export function misreadClosings(closings: string[], balances: string[]): { remove: string[]; add: string[] } {
+  const known = new Set(balances);
+  const sorted = [...balances].sort();
+  const remove: string[] = [];
+  const add = new Set<string>();
+  for (const closing of closings) {
+    if (known.has(closing) || closing !== onDay(closing.slice(0, 7), 31)) continue;
+    const limit = addDays(closing, 31);
+    const real = sorted.find((b) => b > closing && b <= limit);
+    if (!real) continue;
+    remove.push(closing);
+    add.add(real);
+  }
+  return { remove, add: [...add] };
+}
+
 export function monthName(month: string, withYear = false): string {
   const d = parse(`${month}-01`);
   return d.toLocaleString("en-US", { month: "long", timeZone: "UTC", ...(withYear ? { year: "numeric" } : {}) });
