@@ -18,7 +18,7 @@ import {
   getTransferCandidates,
   linkTransactions,
   setCategoryLoan,
-  setMerchantCategory,
+  changeCategory,
   setTransactionIgnored,
   unlinkTransaction,
 } from "../../lib/db";
@@ -152,8 +152,8 @@ export default function CategoryDrillDownScreen() {
     load();
   }
 
-  async function handleChangeCategory(transaction: Transaction, categoryId: number) {
-    await setMerchantCategory(db, transaction.merchant, categoryId);
+  async function handleChangeCategory(transaction: Transaction, categoryId: number, wholeStore: boolean) {
+    await changeCategory(db, transaction, categoryId, wholeStore);
     load();
   }
 

@@ -17,7 +17,7 @@ import {
   getTransferCandidates,
   linkTransactions,
   PAYMENT_CATEGORY_NAME,
-  setMerchantCategory,
+  changeCategory,
   setTransactionIgnored,
   unlinkTransaction,
 } from "../lib/db";
@@ -132,8 +132,8 @@ export default function AllTransactionsScreen() {
     load();
   }
 
-  async function handleChangeCategory(transaction: Transaction, categoryId: number) {
-    await setMerchantCategory(db, transaction.merchant, categoryId);
+  async function handleChangeCategory(transaction: Transaction, categoryId: number, wholeStore: boolean) {
+    await changeCategory(db, transaction, categoryId, wholeStore);
     load();
   }
 

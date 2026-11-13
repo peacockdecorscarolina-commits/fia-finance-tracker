@@ -2034,6 +2034,21 @@ export async function getNeedsReviewCount(db: SQLiteDatabase): Promise<number> {
 
 // Records the user's category choice for a merchant, then applies it to
 // every past transaction from that merchant too (not just future ones).
+// A category picked on one transaction: just that one, unless the user asks
+// for every charge from the store (which also sets it for future uploads).
+export async function changeCategory(
+  db: SQLiteDatabase,
+  transaction: { id: number; merchant: string },
+  categoryId: number,
+  wholeStore: boolean
+) {
+  if (wholeStore) {
+    await setMerchantCategory(db, transaction.merchant, categoryId);
+    return;
+  }
+  await db.runAsync("UPDATE transactions SET category_id = ?, needs_review = 0 WHERE id = ?", categoryId, transaction.id);
+}
+
 export async function setMerchantCategory(
   db: SQLiteDatabase,
   merchant: string,

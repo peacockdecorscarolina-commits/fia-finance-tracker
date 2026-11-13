@@ -38,7 +38,7 @@ import {
   getTransactions,
   getTransferCandidates,
   linkTransactions,
-  setMerchantCategory,
+  changeCategory,
   setTransactionIgnored,
   unlinkTransaction,
   type LoanSummary,
@@ -222,8 +222,8 @@ export default function TransactionsScreen() {
     load();
   }
 
-  async function handleChangeCategory(transaction: Transaction, categoryId: number) {
-    await setMerchantCategory(db, transaction.merchant, categoryId);
+  async function handleChangeCategory(transaction: Transaction, categoryId: number, wholeStore: boolean) {
+    await changeCategory(db, transaction, categoryId, wholeStore);
     load();
   }
 
