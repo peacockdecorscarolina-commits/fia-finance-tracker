@@ -29,7 +29,7 @@ import {
   getTransferCandidates,
   linkTransactions,
   todayISO,
-  setMerchantCategory,
+  changeCategory,
   setTransactionIgnored,
   unlinkTransaction,
   type CardOverview,
@@ -274,8 +274,8 @@ export default function AccountDrillDownScreen() {
     load();
   }
 
-  async function handleChangeCategory(transaction: Transaction, categoryId: number) {
-    await setMerchantCategory(db, transaction.merchant, categoryId);
+  async function handleChangeCategory(transaction: Transaction, categoryId: number, wholeStore: boolean) {
+    await changeCategory(db, transaction, categoryId, wholeStore);
     load();
   }
 

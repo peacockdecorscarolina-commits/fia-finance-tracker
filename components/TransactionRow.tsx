@@ -54,7 +54,8 @@ export function TransactionRow({
   transaction: Transaction;
   onToggleIgnored?: (transaction: Transaction) => void;
   categories?: Category[];
-  onChangeCategory?: (transaction: Transaction, categoryId: number) => void;
+  // wholeStore: every charge from this store, not just this one.
+  onChangeCategory?: (transaction: Transaction, categoryId: number, wholeStore: boolean) => void;
   onDelete?: (transaction: Transaction) => void;
   onFindTransferCandidates?: (transaction: Transaction) => Promise<Transaction[]>;
   onLinkTransfer?: (transaction: Transaction, candidateId: number) => void;
@@ -69,6 +70,7 @@ export function TransactionRow({
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [pickingCategory, setPickingCategory] = useState(false);
+  const [wholeStore, setWholeStore] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [pickingLink, setPickingLink] = useState(false);
   const [linkCandidates, setLinkCandidates] = useState<Transaction[] | null>(null);
@@ -318,7 +320,13 @@ export function TransactionRow({
 
       <View style={styles.actionsRow}>
         {categories && onChangeCategory && (
-          <Pressable onPress={() => setPickingCategory((v) => !v)} style={styles.actionBtn}>
+          <Pressable
+            onPress={() => {
+              setWholeStore(false);
+              setPickingCategory((v) => !v);
+            }}
+            style={styles.actionBtn}
+          >
             <Ionicons name="pricetag-outline" size={13} color={colors.accent} />
             <Text style={styles.actionLinkText}>{pickingCategory ? "Cancel" : "Category"}</Text>
           </Pressable>
@@ -575,21 +583,33 @@ export function TransactionRow({
       )}
 
       {pickingCategory && categories && onChangeCategory && (
-        <View style={styles.categoryRow}>
-          {categories.map((c) => (
-            <Pressable
-              key={c.id}
-              style={styles.categoryOption}
-              onPress={() => {
-                onChangeCategory(transaction, c.id);
-                setPickingCategory(false);
-              }}
-            >
-              <Text style={styles.categoryOptionText}>
-                {getCategoryStyle(c.name).emoji} {c.name}
-              </Text>
-            </Pressable>
-          ))}
+        <View style={{ gap: spacing.sm }}>
+          <View style={styles.categoryRow}>
+            {categories.map((c) => (
+              <Pressable
+                key={c.id}
+                style={styles.categoryOption}
+                onPress={() => {
+                  onChangeCategory(transaction, c.id, wholeStore);
+                  setPickingCategory(false);
+                }}
+              >
+                <Text style={styles.categoryOptionText}>
+                  {getCategoryStyle(c.name).emoji} {c.name}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {/* Only this transaction, unless asked. */}
+          <Pressable
+            onPress={() => setWholeStore((v) => !v)}
+            style={styles.wholeStoreRow}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: wholeStore }}
+          >
+            <Ionicons name={wholeStore ? "checkbox" : "square-outline"} size={18} color={colors.accent} />
+            <Text style={styles.meta}>Also change every {formatMerchantName(transaction.merchant)} charge</Text>
+          </Pressable>
         </View>
       )}
     </View>
@@ -659,6 +679,7 @@ function makeStyles(colors: ThemeColors) {
       borderColor: colors.border,
     },
     categoryOptionText: { color: colors.textPrimary, fontWeight: "600", fontSize: 13 },
+    wholeStoreRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     tagChip: {
       flexDirection: "row",
       alignItems: "center",
