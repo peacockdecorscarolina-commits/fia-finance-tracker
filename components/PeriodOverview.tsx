@@ -464,6 +464,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
   const addItems: MoreItem[] = [
     { icon: "create-outline", label: "Add transaction", onPress: () => router.push("/add-transaction") },
     { icon: "cloud-upload-outline", label: "Upload statement", onPress: () => router.push("/upload") },
+    { icon: "documents-outline", label: "Upload several statements", onPress: () => router.push("/upload-many") },
   ];
 
   return (
