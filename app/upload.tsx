@@ -336,6 +336,15 @@ export default function UploadScreen() {
           <Text style={styles.yearHint}>
             A PDF statement, or the CSV file from your bank's "Download transactions" option.
           </Text>
+          {status !== "preview" && (
+            <Pressable
+              onPress={() => router.push({ pathname: "/upload-many", params: accountId !== null ? { accountId: String(accountId) } : {} })}
+              style={styles.manyLink}
+            >
+              <Ionicons name="documents-outline" size={15} color={colors.accent} />
+              <Text style={styles.manyLinkText}>Have several statements? Upload them all at once ›</Text>
+            </Pressable>
+          )}
 
           {status !== "preview" && status !== "saved" && (
             <Pressable
@@ -662,6 +671,8 @@ function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   reportLink: { alignSelf: "center", paddingVertical: spacing.xs },
+  manyLink: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
+  manyLinkText: { fontSize: 13, fontWeight: "700", color: colors.accent },
   closingBox: { gap: spacing.sm, padding: spacing.sm, borderRadius: radius.chip, backgroundColor: colors.background },
   closingTitle: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
   closingText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
