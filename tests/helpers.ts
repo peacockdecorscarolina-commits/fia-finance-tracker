@@ -28,6 +28,8 @@ export function tx(date: string, merchant: string, amount: number, extra: Partia
     watchNote: null,
     personId: null,
     personName: null,
+    splitGroup: null,
+    splitTotal: null,
     ...extra,
   };
 }

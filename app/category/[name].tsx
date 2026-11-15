@@ -409,6 +409,7 @@ export default function CategoryDrillDownScreen() {
               onToggleIgnored={handleToggleIgnored}
               categories={categories}
               onChangeCategory={handleChangeCategory}
+              onSplitChanged={load}
               onDelete={handleDelete}
               onFindTransferCandidates={(t) => getTransferCandidates(db, t)}
               onLinkTransfer={handleLinkTransfer}

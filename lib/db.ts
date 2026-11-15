@@ -241,6 +241,10 @@ export async function initDatabase(db: SQLiteDatabase) {
     );
   }
 
+  if (!columns.some((c) => c.name === "split_group")) {
+    await db.execAsync("ALTER TABLE transactions ADD COLUMN split_group TEXT");
+    await db.execAsync("ALTER TABLE transactions ADD COLUMN split_total REAL");
+  }
   if (!columns.some((c) => c.name === "person_id")) {
     await db.execAsync("ALTER TABLE transactions ADD COLUMN person_id INTEGER");
   }
@@ -1634,7 +1638,9 @@ const TRANSACTION_SELECT = `
     (SELECT COALESCE(NULLIF(watches.note, ''), NULLIF(watches.look_for, ''), printf('About $%.2f', watches.amount)) FROM watch_flags JOIN watches ON watches.id = watch_flags.watch_id
        WHERE watch_flags.transaction_id = transactions.id AND watch_flags.status = 'flagged' LIMIT 1) as watchNote,
     transactions.person_id as personId,
-    (SELECT people.name FROM people WHERE people.id = transactions.person_id) as personName
+    (SELECT people.name FROM people WHERE people.id = transactions.person_id) as personName,
+    transactions.split_group as splitGroup,
+    transactions.split_total as splitTotal
   FROM transactions
   JOIN accounts ON accounts.id = transactions.account_id
   JOIN categories ON categories.id = transactions.category_id
@@ -1970,6 +1976,11 @@ export async function getDuplicateLookup(db: SQLiteDatabase, accountId: number):
   for (const t of rows) {
     const key = `${t.date}|${t.amount.toFixed(2)}`;
     if (!map.has(key)) map.set(key, t);
+    // A split charge was one line on the statement, at its whole amount.
+    if (t.splitTotal !== null) {
+      const whole = `${t.date}|${t.splitTotal.toFixed(2)}`;
+      if (!map.has(whole)) map.set(whole, t);
+    }
   }
   return map;
 }
@@ -2504,6 +2515,8 @@ export type DataSnapshot = {
     reimbursed?: number | null;
     reimbursedVia?: string | null;
     person?: string | null;
+    splitGroup?: string | null;
+    splitTotal?: number | null;
   }[];
   assets: { name: string; type: AssetType }[];
   assetBalances: { assetName: string; date: string; balance: number }[];
@@ -2591,9 +2604,13 @@ export async function exportAllData(db: SQLiteDatabase): Promise<DataSnapshot> {
     reimbursed: number | null;
     reimbursedVia: string | null;
     personId: number | null;
+    splitGroup: string | null;
+    splitTotal: number | null;
   }>(
     `SELECT
        transactions.person_id as personId,
+       transactions.split_group as splitGroup,
+       transactions.split_total as splitTotal,
        transactions.note as note,
        transactions.reimbursed as reimbursed,
        transactions.reimbursed_via as reimbursedVia,
@@ -2820,6 +2837,9 @@ export async function replaceAllData(db: SQLiteDatabase, snapshot: DataSnapshot)
     }
     if (t.reimbursed) {
       await setTransactionReimbursed(db, inserted.lastInsertRowId, t.reimbursed, t.reimbursedVia ?? null);
+    }
+    if (t.splitGroup) {
+      await db.runAsync("UPDATE transactions SET split_group = ?, split_total = ? WHERE id = ?", t.splitGroup, t.splitTotal ?? null, inserted.lastInsertRowId);
     }
   }
 
@@ -3217,4 +3237,72 @@ async function restorePeople(db: SQLiteDatabase, snapshot: DataSnapshot): Promis
     if (id !== null) await markSettled(db, s.month, id, s.amount);
   }
   return idFor;
+}
+
+// ---- Splitting a transaction across categories (see lib/splits.ts) ----
+
+// The first part keeps the transaction itself (its note, tags, links); the
+// rest are new rows on the same day, account and person. Parts must add up
+// to the original amount.
+export async function splitTransaction(db: SQLiteDatabase, id: number, parts: { categoryId: number; amount: number }[]): Promise<string> {
+  const original = await db.getFirstAsync<{
+    accountId: number;
+    date: string;
+    merchant: string;
+    amount: number;
+    ignored: number;
+    personId: number | null;
+    splitGroup: string | null;
+  }>(
+    `SELECT account_id as accountId, date, merchant, amount, ignored, person_id as personId, split_group as splitGroup
+     FROM transactions WHERE id = ?`,
+    id
+  );
+  if (!original) throw new Error("That transaction isn't there anymore.");
+  if (original.splitGroup) throw new Error("Unsplit it first.");
+  const sum = Math.round(parts.reduce((s, p) => s + p.amount, 0) * 100);
+  if (parts.length < 2 || sum !== Math.round(original.amount * 100)) throw new Error("The parts must add up to the transaction.");
+  const group = `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      "UPDATE transactions SET amount = ?, category_id = ?, needs_review = 0, split_group = ?, split_total = ? WHERE id = ?",
+      parts[0].amount,
+      parts[0].categoryId,
+      group,
+      original.amount,
+      id
+    );
+    for (const part of parts.slice(1)) {
+      await db.runAsync(
+        `INSERT INTO transactions (account_id, date, merchant, amount, category_id, needs_review, ignored, person_id, split_group, split_total)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+        original.accountId,
+        original.date,
+        original.merchant,
+        part.amount,
+        part.categoryId,
+        original.ignored,
+        original.personId,
+        group,
+        original.amount
+      );
+    }
+  });
+  return group;
+}
+
+// Back to one transaction at its original amount, in the first part's
+// category; the other parts go.
+export async function unsplitTransaction(db: SQLiteDatabase, group: string) {
+  const parts = await db.getAllAsync<{ id: number; splitTotal: number | null; amount: number }>(
+    "SELECT id, split_total as splitTotal, amount FROM transactions WHERE split_group = ? ORDER BY id",
+    group
+  );
+  if (parts.length === 0) return;
+  const total = parts[0].splitTotal ?? parts.reduce((s, p) => s + p.amount, 0);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync("UPDATE transactions SET amount = ?, split_group = NULL, split_total = NULL WHERE id = ?", total, parts[0].id);
+    for (const p of parts.slice(1)) await db.runAsync("DELETE FROM transactions WHERE id = ?", p.id);
+  });
+  await pruneTags(db);
 }

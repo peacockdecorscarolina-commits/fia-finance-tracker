@@ -1,3 +1,4 @@
+import { visitKey } from "./splits";
 import type { Transaction } from "./types";
 
 // What the user's own transactions say about where money goes: each
@@ -68,8 +69,8 @@ export function merchantHistory(transactions: Transaction[], today: string): Mer
   return {
     spent,
     refunded,
-    visits: charges.length,
-    average: charges.length ? spent / charges.length : 0,
+    visits: new Set(charges.map(visitKey)).size,
+    average: charges.length ? spent / new Set(charges.map(visitKey)).size : 0,
     firstDate: dates[0] ?? null,
     lastDate: dates[dates.length - 1] ?? null,
     months: lastMonths(today, 12).map((month) => ({ month, total: perMonth.get(month) ?? 0 })),
@@ -88,12 +89,15 @@ export function topMerchants(
   limit = 5
 ): TopMerchant[] {
   const byKey = new Map<string, TopMerchant>();
+  const counted = new Set<string>();
   for (const t of spending) {
     if (t.ignored || t.amount >= 0) continue;
     const key = keyFor(t.merchant);
     const entry = byKey.get(key) ?? { key, merchant: t.merchant, name: displayName(t.merchant), total: 0, visits: 0 };
     entry.total += spendOf(t);
-    entry.visits += 1;
+    // The parts of a split are one visit.
+    if (!counted.has(visitKey(t))) entry.visits += 1;
+    counted.add(visitKey(t));
     byKey.set(key, entry);
   }
   return [...byKey.values()].sort((a, b) => b.total - a.total).slice(0, limit);

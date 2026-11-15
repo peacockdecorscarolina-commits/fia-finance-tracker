@@ -67,6 +67,10 @@ export type Transaction = {
   // nobody yet. The name is null unless it's a person.
   personId: number | null;
   personName: string | null;
+  // Set on each part of a transaction split across categories: the group
+  // they share, and the original transaction's amount.
+  splitGroup: string | null;
+  splitTotal: number | null;
 };
 
 // Shape returned by the extraction step (currently on-device, rule-based —
