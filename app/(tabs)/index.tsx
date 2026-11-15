@@ -543,6 +543,7 @@ export default function TransactionsScreen() {
               onToggleIgnored={handleToggleIgnored}
               categories={categories}
               onChangeCategory={handleChangeCategory}
+              onSplitChanged={load}
               onDelete={handleDelete}
               onFindTransferCandidates={(t) => getTransferCandidates(db, t)}
               onLinkTransfer={handleLinkTransfer}

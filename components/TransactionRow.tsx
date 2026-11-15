@@ -15,7 +15,10 @@ import {
   setTransactionNote,
   setTransactionPerson,
   setTransactionReimbursed,
+  splitTransaction,
+  unsplitTransaction,
 } from "../lib/db";
+import { checkSplit, signedParts, type SplitPart } from "../lib/splits";
 import { SHARED } from "../lib/people";
 import { usePeople } from "../lib/usePeople";
 import type { RecurringOverride } from "../lib/subscriptions";
@@ -50,6 +53,7 @@ export function TransactionRow({
   onWatchAnswered,
   onPersonChanged,
   historyParams,
+  onSplitChanged,
 }: {
   transaction: Transaction;
   onToggleIgnored?: (transaction: Transaction) => void;
@@ -64,6 +68,8 @@ export function TransactionRow({
   onWatchAnswered?: () => void;
   // Added to the link to this store's history (e.g. whose spending it's for).
   historyParams?: Record<string, string>;
+  // Splitting or unsplitting changes the list, so the screen reloads it.
+  onSplitChanged?: () => void;
   // After choosing who this transaction belongs to.
   onPersonChanged?: () => void;
 }) {
@@ -101,6 +107,11 @@ export function TransactionRow({
     setPersonId(transaction.personId);
   }, [transaction.personId]);
   const [pickingPerson, setPickingPerson] = useState(false);
+  // Split across categories: the parts being typed, and which part's
+  // category list is open.
+  const [splitParts, setSplitParts] = useState<SplitPart[] | null>(null);
+  const [splitPicking, setSplitPicking] = useState<number | null>(null);
+  const [splitError, setSplitError] = useState<string | null>(null);
   const tagsKey = transaction.tags.join(",");
   useEffect(() => {
     setNote(transaction.note);
@@ -220,6 +231,49 @@ export function TransactionRow({
   const personLabel =
     personId === SHARED ? "Shared" : (people.find((p) => p.id === personId)?.name ?? transaction.personName);
 
+  const isSplit = transaction.splitGroup !== null;
+
+  function openSplit() {
+    if (splitParts) {
+      setSplitParts(null);
+      return;
+    }
+    setSplitError(null);
+    setSplitPicking(null);
+    setSplitParts([
+      { categoryId: transaction.categoryId, amount: Math.abs(transaction.amount).toFixed(2) },
+      { categoryId: null, amount: "" },
+    ]);
+  }
+
+  function changePart(index: number, change: Partial<SplitPart>) {
+    setSplitParts((parts) => parts && parts.map((p, i) => (i === index ? { ...p, ...change } : p)));
+  }
+
+  async function saveSplit() {
+    if (!splitParts) return;
+    const { problem } = checkSplit(transaction.amount, splitParts);
+    if (problem) {
+      setSplitError(problem);
+      return;
+    }
+    try {
+      await splitTransaction(db, transaction.id, signedParts(transaction.amount, splitParts));
+      setSplitParts(null);
+      autoBackup(db);
+      onSplitChanged?.();
+    } catch (err) {
+      setSplitError(err instanceof Error ? err.message : "Couldn't split it.");
+    }
+  }
+
+  async function unsplit() {
+    if (!transaction.splitGroup) return;
+    await unsplitTransaction(db, transaction.splitGroup);
+    autoBackup(db);
+    onSplitChanged?.();
+  }
+
   async function answerWatch(isIt: boolean) {
     if (!watchFlag) return;
     if (isIt) setNote(await confirmWatchFlag(db, watchFlag.id, transaction.id));
@@ -286,6 +340,7 @@ export function TransactionRow({
             {transaction.ignored && <Chip label="ignored" />}
             {transaction.linkedTransactionId && <Chip label="transfer" tone="warning" />}
             {people.length > 1 && personLabel ? <Chip label={personLabel} tone="positive" /> : null}
+            {isSplit && transaction.splitTotal !== null ? <Chip label={`split from $${Math.abs(transaction.splitTotal).toFixed(2)}`} /> : null}
             {tags.map((tag) => (
               <Pressable
                 key={tag}
@@ -354,6 +409,12 @@ export function TransactionRow({
             <Text style={styles.actionLinkText}>{pickingPerson ? "Cancel" : "Person"}</Text>
           </Pressable>
         )}
+        {categories && onSplitChanged && !transaction.linkedTransactionId && (
+          <Pressable onPress={isSplit ? unsplit : openSplit} style={styles.actionBtn}>
+            <Ionicons name={isSplit ? "git-merge-outline" : "git-branch-outline"} size={13} color={colors.accent} />
+            <Text style={styles.actionLinkText}>{isSplit ? "Unsplit" : splitParts ? "Cancel" : "Split"}</Text>
+          </Pressable>
+        )}
         <Pressable onPress={watchForThis} style={styles.actionBtn}>
           <Ionicons name="eye-outline" size={13} color={colors.accent} />
           <Text style={styles.actionLinkText}>{isCharge ? "Watch for refund" : "Watch"}</Text>
@@ -385,6 +446,93 @@ export function TransactionRow({
           </Pressable>
         )}
       </View>
+
+      {splitParts && categories && (
+        <View style={styles.noteEditor}>
+          <Text style={styles.meta}>
+            Split ${Math.abs(transaction.amount).toFixed(2)} across categories
+          </Text>
+          {splitParts.map((part, i) => {
+            const category = categories.find((c) => c.id === part.categoryId);
+            return (
+              <View key={i} style={{ gap: spacing.xs }}>
+                <View style={styles.splitRow}>
+                  <Pressable onPress={() => setSplitPicking(splitPicking === i ? null : i)} style={styles.splitCategory} accessibilityLabel={`Part ${i + 1} category`}>
+                    <Text style={styles.splitCategoryText} numberOfLines={1}>
+                      {category ? `${getCategoryStyle(category.name).emoji} ${category.name}` : "Pick a category"}
+                    </Text>
+                    <Ionicons name={splitPicking === i ? "chevron-up" : "chevron-down"} size={13} color={colors.textSecondary} />
+                  </Pressable>
+                  <TextInput
+                    value={part.amount}
+                    onChangeText={(v) => {
+                      changePart(i, { amount: v });
+                      setSplitError(null);
+                    }}
+                    placeholder="0.00"
+                    placeholderTextColor={colors.textSecondary}
+                    keyboardType="decimal-pad"
+                    style={[styles.noteInput, styles.splitAmount]}
+                    accessibilityLabel={`Part ${i + 1} amount`}
+                  />
+                  {splitParts.length > 2 && (
+                    <Pressable onPress={() => setSplitParts(splitParts.filter((_, n) => n !== i))} hitSlop={8} accessibilityLabel={`Remove part ${i + 1}`}>
+                      <Ionicons name="close-circle-outline" size={18} color={colors.textSecondary} />
+                    </Pressable>
+                  )}
+                </View>
+                {splitPicking === i && (
+                  <View style={styles.categoryRow}>
+                    {categories.map((c) => (
+                      <Pressable
+                        key={c.id}
+                        style={styles.categoryOption}
+                        onPress={() => {
+                          changePart(i, { categoryId: c.id });
+                          setSplitPicking(null);
+                          setSplitError(null);
+                        }}
+                      >
+                        <Text style={styles.categoryOptionText}>
+                          {getCategoryStyle(c.name).emoji} {c.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+            );
+          })}
+          {(() => {
+            const { remaining } = checkSplit(transaction.amount, splitParts);
+            return (
+              <View style={styles.splitFooter}>
+                <Pressable
+                  onPress={() => {
+                    // A new part starts with whatever's left.
+                    setSplitParts([...splitParts, { categoryId: null, amount: remaining > 0 ? remaining.toFixed(2) : "" }]);
+                  }}
+                  hitSlop={6}
+                >
+                  <Text style={styles.actionLinkText}>+ Add a part</Text>
+                </Pressable>
+                <Text style={[styles.meta, { marginBottom: 0 }, remaining !== 0 && { color: "#B45309", fontWeight: "700" }]}>
+                  {remaining === 0 ? "Adds up ✓" : remaining > 0 ? `$${remaining.toFixed(2)} left` : `$${(-remaining).toFixed(2)} too much`}
+                </Text>
+              </View>
+            );
+          })()}
+          {splitError && <Text style={styles.splitError}>{splitError}</Text>}
+          <View style={styles.noteActions}>
+            <Pressable onPress={() => setSplitParts(null)} style={styles.noteCancelBtn}>
+              <Text style={styles.noteCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable onPress={saveSplit} style={styles.noteSaveBtn}>
+              <Text style={styles.noteSaveText}>Save split</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       {pickingPerson && (
         <View style={styles.noteEditor}>
@@ -693,6 +841,23 @@ function makeStyles(colors: ThemeColors) {
     recurringOptionActive: { borderColor: "#4C1D95", backgroundColor: "#EDE9FE" },
     recurringOptionTextActive: { color: "#4C1D95" },
     tagChipText: { fontSize: 12, fontWeight: "700", color: "#4C1D95" },
+    splitRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    splitCategory: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.chip,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 9,
+    },
+    splitCategoryText: { flex: 1, fontSize: 13, fontWeight: "600", color: colors.textPrimary },
+    splitAmount: { width: 96, textAlign: "right" },
+    splitFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    splitError: { fontSize: 12, fontWeight: "600", color: "#DC2626" },
     personChoices: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
     personChoice: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
     personChoiceOn: { backgroundColor: "#4C1D95", borderColor: "#4C1D95" },
