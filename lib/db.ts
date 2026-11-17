@@ -3433,6 +3433,17 @@ export async function sortRefundWithoutPurchase(db: SQLiteDatabase, refundId: nu
   await db.runAsync("UPDATE transactions SET category_id = ?, needs_review = 0 WHERE id = ?", categoryId, refundId);
 }
 
+// Where refunds go when the user doesn't know what they're for: their own
+// category, so they still bring total spending down without making any real
+// category look smaller than it was.
+export const UNKNOWN_REFUNDS_CATEGORY = "Refunds & credits";
+
+export async function sortRefundAsUnknown(db: SQLiteDatabase, refundId: number) {
+  await db.runAsync("INSERT OR IGNORE INTO categories (name) VALUES (?)", UNKNOWN_REFUNDS_CATEGORY);
+  const row = await db.getFirstAsync<{ id: number }>("SELECT id FROM categories WHERE LOWER(name) = LOWER(?)", UNKNOWN_REFUNDS_CATEGORY);
+  if (row) await sortRefundWithoutPurchase(db, refundId, row.id);
+}
+
 export async function undoRefundWithoutPurchase(db: SQLiteDatabase, refundId: number) {
   await db.runAsync("DELETE FROM refund_dismissals WHERE refund_id = ? AND purchase_id = ?", refundId, NO_PURCHASE);
 }

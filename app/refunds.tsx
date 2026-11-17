@@ -9,6 +9,7 @@ import {
   getCategories,
   getRefunds,
   matchRefundTo,
+  sortRefundAsUnknown,
   sortRefundWithoutPurchase,
   undoRefundWithoutPurchase,
   unmatchRefund,
@@ -70,6 +71,13 @@ export default function RefundsScreen() {
     load();
   }
 
+  async function sortAsUnknown(refund: Transaction) {
+    await sortRefundAsUnknown(db, refund.id);
+    setSorting(null);
+    autoBackup(db);
+    load();
+  }
+
   async function undoSorted(refund: Transaction) {
     await undoRefundWithoutPurchase(db, refund.id);
     autoBackup(db);
@@ -90,7 +98,7 @@ export default function RefundsScreen() {
         </View>
 
         <Text style={styles.intro}>
-          Fia matches a card refund to the purchase it came from, and gives the refund that purchase’s category. Check the matches here.
+          Fia matches a card refund to the purchase it came from, and gives the refund that purchase’s category. Check the matches here. Not sure what one is for? Tap I don’t know: it goes in Refunds & credits, so it still lowers your total spending.
         </Text>
 
         {data && data.open.length > 0 && (
@@ -127,11 +135,16 @@ export default function RefundsScreen() {
                       )}
                     </>
                   )}
-                  <Pressable onPress={() => setSorting(sorting === refund.id ? null : refund.id)} hitSlop={6} style={styles.noneBtn}>
-                    <Text style={styles.noneText}>
-                      {sorting === refund.id ? "Cancel" : suggestions.length ? "Not from any of these — pick a category" : "Pick a category for it"}
-                    </Text>
-                  </Pressable>
+                  <View style={styles.noneRow}>
+                    <Pressable onPress={() => setSorting(sorting === refund.id ? null : refund.id)} hitSlop={6} style={styles.noneBtn}>
+                      <Text style={styles.noneText}>
+                        {sorting === refund.id ? "Cancel" : suggestions.length ? "Not from any of these — pick a category" : "Pick a category for it"}
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => sortAsUnknown(refund)} hitSlop={6} style={styles.unknownBtn} accessibilityLabel={`I don't know what the ${formatMerchantName(refund.merchant)} refund is for`}>
+                      <Text style={styles.unknownText}>{"I don't know"}</Text>
+                    </Pressable>
+                  </View>
                   {sorting === refund.id && (
                     <View style={styles.categoryGrid}>
                       {categories.map((c) => (
@@ -241,7 +254,10 @@ function makeStyles(colors: ThemeColors) {
     matchBtn: { backgroundColor: ACCENT, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
     matchText: { fontSize: 12, fontWeight: "700", color: "#FFFFFF" },
     link: { fontSize: 13, fontWeight: "700", color: colors.accent, textAlign: "center" },
-    noneBtn: { alignSelf: "flex-start", paddingVertical: 4 },
+    noneRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", justifyContent: "space-between", gap: spacing.sm },
+    noneBtn: { flexShrink: 1, paddingVertical: 4 },
+    unknownBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
+    unknownText: { fontSize: 13, fontWeight: "700", color: colors.textSecondary },
     noneText: { fontSize: 13, fontWeight: "700", color: colors.accent },
     categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
     categoryChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },

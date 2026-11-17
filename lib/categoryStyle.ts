@@ -27,6 +27,7 @@ const KNOWN: Record<string, { emoji: string; color: string }> = {
   subscriptions: { emoji: "🔁", color: "#7C3AED" },
   income: { emoji: "💰", color: "#16A34A" },
   payment: { emoji: "💳", color: "#0F172A" },
+  "refunds & credits": { emoji: "↩️", color: "#0D9488" },
   rent: { emoji: "🏠", color: "#B45309" },
   insurance: { emoji: "🛡️", color: "#0891B2" },
   education: { emoji: "🎓", color: "#2563EB" },
