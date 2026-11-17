@@ -5,14 +5,24 @@ import { useCallback, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { autoBackup } from "../lib/autoBackup";
 import { getCategoryStyle } from "../lib/categoryStyle";
-import { getRefunds, matchRefundTo, unmatchRefund, type OpenRefund, type RefundPair } from "../lib/db";
+import {
+  getCategories,
+  getRefunds,
+  matchRefundTo,
+  sortRefundWithoutPurchase,
+  undoRefundWithoutPurchase,
+  unmatchRefund,
+  type OpenRefund,
+  type RefundPair,
+} from "../lib/db";
 import { formatMerchantName } from "../lib/formatMerchant";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
-import type { Transaction } from "../lib/types";
+import type { Category, Transaction } from "../lib/types";
 
 const ACCENT = "#4C1D95";
 const SHOWN = 30;
+const SUGGESTED = 3;
 
 function money(value: number): string {
   return `$${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -28,11 +38,16 @@ export default function RefundsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const db = useSQLiteContext();
-  const [data, setData] = useState<{ matched: RefundPair[]; open: OpenRefund[] } | null>(null);
+  const [data, setData] = useState<{ matched: RefundPair[]; open: OpenRefund[]; noPurchase: Transaction[] } | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [showAll, setShowAll] = useState(false);
+  // Per refund: showing every possible purchase, or picking a category.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [sorting, setSorting] = useState<number | null>(null);
 
   const load = useCallback(() => {
     getRefunds(db).then(setData);
+    getCategories(db).then(setCategories);
   }, [db]);
   useFocusEffect(load);
 
@@ -44,6 +59,19 @@ export default function RefundsScreen() {
 
   async function match(refund: Transaction, purchase: Transaction) {
     await matchRefundTo(db, refund.id, purchase.id);
+    autoBackup(db);
+    load();
+  }
+
+  async function sortWithoutPurchase(refund: Transaction, categoryId: number) {
+    await sortRefundWithoutPurchase(db, refund.id, categoryId);
+    setSorting(null);
+    autoBackup(db);
+    load();
+  }
+
+  async function undoSorted(refund: Transaction) {
+    await undoRefundWithoutPurchase(db, refund.id);
     autoBackup(db);
     load();
   }
@@ -68,28 +96,56 @@ export default function RefundsScreen() {
         {data && data.open.length > 0 && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No purchase found ({data.open.length})</Text>
-            {data.open.map(({ refund, suggestions }) => (
-              <View key={refund.id} style={styles.block}>
-                <RefundLine t={refund} styles={styles} />
-                {suggestions.length === 0 ? (
-                  <Text style={styles.hint}>No purchase on this card fits. It may be from before your first upload. Sort it on Review.</Text>
-                ) : (
-                  <>
-                    <Text style={styles.hint}>Could be for:</Text>
-                    {suggestions.map((p) => (
-                      <View key={p.id} style={styles.suggestion}>
-                        <Text style={styles.suggestionText} numberOfLines={1}>
-                          {formatMerchantName(p.merchant)} · {money(p.amount)} · {shortDate(p.date)}
-                        </Text>
-                        <Pressable onPress={() => match(refund, p)} style={styles.matchBtn} accessibilityLabel={`Match with ${formatMerchantName(p.merchant)} on ${shortDate(p.date)}`}>
-                          <Text style={styles.matchText}>Match</Text>
+            {data.open.map(({ refund, suggestions }) => {
+              const open = expanded.has(refund.id);
+              const shown = open ? suggestions : suggestions.slice(0, SUGGESTED);
+              return (
+                <View key={refund.id} style={styles.block}>
+                  <RefundLine t={refund} styles={styles} />
+                  {suggestions.length === 0 ? (
+                    <Text style={styles.hint}>No purchase on this card fits. It may be from before your first upload.</Text>
+                  ) : (
+                    <>
+                      <Text style={styles.hint}>{open ? "Purchases on this card it could be for:" : "Could be for:"}</Text>
+                      {shown.map((p) => (
+                        <View key={p.id} style={styles.suggestion}>
+                          <Text style={styles.suggestionText} numberOfLines={1}>
+                            {formatMerchantName(p.merchant)} · {money(p.amount)} · {shortDate(p.date)}
+                          </Text>
+                          <Pressable onPress={() => match(refund, p)} style={styles.matchBtn} accessibilityLabel={`Match with ${formatMerchantName(p.merchant)} on ${shortDate(p.date)}`}>
+                            <Text style={styles.matchText}>Match</Text>
+                          </Pressable>
+                        </View>
+                      ))}
+                      {suggestions.length > SUGGESTED && (
+                        <Pressable
+                          onPress={() => setExpanded((s) => { const n = new Set(s); if (n.has(refund.id)) n.delete(refund.id); else n.add(refund.id); return n; })}
+                          hitSlop={6}
+                        >
+                          <Text style={styles.link}>{open ? "Show fewer" : `Show ${suggestions.length - SUGGESTED} more purchases`}</Text>
                         </Pressable>
-                      </View>
-                    ))}
-                  </>
-                )}
-              </View>
-            ))}
+                      )}
+                    </>
+                  )}
+                  <Pressable onPress={() => setSorting(sorting === refund.id ? null : refund.id)} hitSlop={6} style={styles.noneBtn}>
+                    <Text style={styles.noneText}>
+                      {sorting === refund.id ? "Cancel" : suggestions.length ? "Not from any of these — pick a category" : "Pick a category for it"}
+                    </Text>
+                  </Pressable>
+                  {sorting === refund.id && (
+                    <View style={styles.categoryGrid}>
+                      {categories.map((c) => (
+                        <Pressable key={c.id} onPress={() => sortWithoutPurchase(refund, c.id)} style={styles.categoryChip} accessibilityLabel={`Put the refund in ${c.name}`}>
+                          <Text style={styles.categoryChipText}>
+                            {getCategoryStyle(c.name).emoji} {c.name}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -121,6 +177,24 @@ export default function RefundsScreen() {
                 <Text style={styles.link}>Show all {data.matched.length}</Text>
               </Pressable>
             )}
+          </View>
+        )}
+        {data && data.noPurchase.length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Sorted without a purchase ({data.noPurchase.length})</Text>
+            {data.noPurchase.map((refund) => (
+              <View key={refund.id} style={styles.block}>
+                <RefundLine t={refund} styles={styles} />
+                <View style={styles.forRow}>
+                  <Text style={styles.category}>
+                    {getCategoryStyle(refund.categoryName).emoji} {refund.categoryName}
+                  </Text>
+                  <Pressable onPress={() => undoSorted(refund)} hitSlop={8} accessibilityLabel={`Undo sorting the ${formatMerchantName(refund.merchant)} refund`}>
+                    <Text style={styles.link}>Undo</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
           </View>
         )}
       </ScrollView>
@@ -167,5 +241,10 @@ function makeStyles(colors: ThemeColors) {
     matchBtn: { backgroundColor: ACCENT, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
     matchText: { fontSize: 12, fontWeight: "700", color: "#FFFFFF" },
     link: { fontSize: 13, fontWeight: "700", color: colors.accent, textAlign: "center" },
+    noneBtn: { alignSelf: "flex-start", paddingVertical: 4 },
+    noneText: { fontSize: 13, fontWeight: "700", color: colors.accent },
+    categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+    categoryChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
+    categoryChipText: { fontSize: 13, fontWeight: "600", color: colors.textPrimary },
   });
 }

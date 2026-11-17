@@ -1741,7 +1741,7 @@ async function pruneTags(db: SQLiteDatabase) {
     DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM transaction_tags);
     DELETE FROM watch_flags WHERE transaction_id NOT IN (SELECT id FROM transactions);
     UPDATE transactions SET refund_of = NULL WHERE refund_of IS NOT NULL AND refund_of NOT IN (SELECT id FROM transactions);
-    DELETE FROM refund_dismissals WHERE refund_id NOT IN (SELECT id FROM transactions) OR purchase_id NOT IN (SELECT id FROM transactions);
+    DELETE FROM refund_dismissals WHERE refund_id NOT IN (SELECT id FROM transactions) OR (purchase_id != 0 AND purchase_id NOT IN (SELECT id FROM transactions));
     UPDATE watches SET after_transaction_id = MIN(after_transaction_id, (SELECT COALESCE(MAX(id), 0) FROM transactions));
   `);
 }
@@ -2545,7 +2545,8 @@ export type DataSnapshot = {
     // and amount on the same account.
     refundOf?: { date: string; merchant: string; amount: number } | null;
   }[];
-  refundDismissals?: { accountName: string; refund: { date: string; merchant: string; amount: number }; purchase: { date: string; merchant: string; amount: number } }[];
+  // purchase null: sorted without a purchase.
+  refundDismissals?: { accountName: string; refund: { date: string; merchant: string; amount: number }; purchase: { date: string; merchant: string; amount: number } | null }[];
   assets: { name: string; type: AssetType }[];
   assetBalances: { assetName: string; date: string; balance: number }[];
   // Optional so backups made before the name setting existed still restore.
@@ -3348,6 +3349,10 @@ export async function unsplitTransaction(db: SQLiteDatabase, group: string) {
 
 const REFUNDS_MATCHED_KEY = "refunds_matched_v1";
 
+// Stands for "not from any purchase" in refund_dismissals: the user sorted
+// the refund into a category themselves.
+const NO_PURCHASE = 0;
+
 // Card refunds still on their own: money back on a card that isn't a payment,
 // income or a linked transfer.
 const OPEN_REFUNDS = `
@@ -3358,7 +3363,9 @@ const OPEN_REFUNDS = `
   JOIN categories ON categories.id = transactions.category_id
   WHERE accounts.type = 'Credit Card' AND transactions.amount > 0 AND transactions.refund_of IS NULL
     AND transactions.linked_transaction_id IS NULL AND categories.is_income = 0
-    AND LOWER(categories.name) != LOWER('${PAYMENT_CATEGORY_NAME}')`;
+    AND LOWER(categories.name) != LOWER('${PAYMENT_CATEGORY_NAME}')
+    AND transactions.id NOT IN (SELECT refund_id FROM refund_dismissals WHERE purchase_id = ${NO_PURCHASE})`;
+
 
 async function cardPurchases(db: SQLiteDatabase): Promise<RefundTx[]> {
   return db.getAllAsync<RefundTx>(
@@ -3419,9 +3426,20 @@ export async function matchRefundTo(db: SQLiteDatabase, refundId: number, purcha
 export type RefundPair = { refund: Transaction; purchase: Transaction };
 export type OpenRefund = { refund: Transaction; suggestions: Transaction[] };
 
+// "Not from any of these": the refund goes in the category the user picks
+// and stops being offered purchases.
+export async function sortRefundWithoutPurchase(db: SQLiteDatabase, refundId: number, categoryId: number) {
+  await db.runAsync("INSERT OR IGNORE INTO refund_dismissals (refund_id, purchase_id) VALUES (?, ?)", refundId, NO_PURCHASE);
+  await db.runAsync("UPDATE transactions SET category_id = ?, needs_review = 0 WHERE id = ?", categoryId, refundId);
+}
+
+export async function undoRefundWithoutPurchase(db: SQLiteDatabase, refundId: number) {
+  await db.runAsync("DELETE FROM refund_dismissals WHERE refund_id = ? AND purchase_id = ?", refundId, NO_PURCHASE);
+}
+
 // The Refunds page: matched pairs, newest first, and refunds with no purchase
 // yet, each with up to three purchases it could be for.
-export async function getRefunds(db: SQLiteDatabase): Promise<{ matched: RefundPair[]; open: OpenRefund[] }> {
+export async function getRefunds(db: SQLiteDatabase): Promise<{ matched: RefundPair[]; open: OpenRefund[]; noPurchase: Transaction[] }> {
   const all = await getTransactions(db);
   const byId = new Map(all.map((t) => [t.id, t]));
   const matched = all
@@ -3436,23 +3454,32 @@ export async function getRefunds(db: SQLiteDatabase): Promise<{ matched: RefundP
     .map((r) => ({
       refund: byId.get(r.id)!,
       suggestions: refundCandidates(r, purchases, normalizeMerchantKey, (id) => taken.has(id) || ruledOut(r.id, id))
-        .slice(0, 3)
+        .slice(0, 20)
         .map((p) => byId.get(p.id))
         .filter((p): p is Transaction => !!p),
     }));
-  return { matched, open };
+  const noPurchaseIds = new Set(
+    (await db.getAllAsync<{ id: number }>("SELECT refund_id as id FROM refund_dismissals WHERE purchase_id = ?", NO_PURCHASE)).map((r) => r.id)
+  );
+  const noPurchase = all.filter((t) => noPurchaseIds.has(t.id));
+  return { matched, open, noPurchase };
 }
 
 async function exportRefundDismissals(db: SQLiteDatabase): Promise<NonNullable<DataSnapshot["refundDismissals"]>> {
   return (
-    await db.getAllAsync<{ accountName: string; rd: string; rm: string; ra: number; pd: string; pm: string; pa: number }>(
+    await db.getAllAsync<{ accountName: string; rd: string; rm: string; ra: number; pd: string | null; pm: string | null; pa: number | null }>(
       `SELECT a.name as accountName, r.date as rd, r.merchant as rm, r.amount as ra, p.date as pd, p.merchant as pm, p.amount as pa
        FROM refund_dismissals d
        JOIN transactions r ON r.id = d.refund_id
-       JOIN transactions p ON p.id = d.purchase_id
-       JOIN accounts a ON a.id = r.account_id`
+       LEFT JOIN transactions p ON p.id = d.purchase_id
+       JOIN accounts a ON a.id = r.account_id
+       WHERE d.purchase_id = ${NO_PURCHASE} OR p.id IS NOT NULL`
     )
-  ).map((d) => ({ accountName: d.accountName, refund: { date: d.rd, merchant: d.rm, amount: d.ra }, purchase: { date: d.pd, merchant: d.pm, amount: d.pa } }));
+  ).map((d) => ({
+    accountName: d.accountName,
+    refund: { date: d.rd, merchant: d.rm, amount: d.ra },
+    purchase: d.pd !== null && d.pm !== null && d.pa !== null ? { date: d.pd, merchant: d.pm, amount: d.pa } : null,
+  }));
 }
 
 // After a restore's transactions are in: matched refunds and ruled-out pairs
@@ -3478,8 +3505,8 @@ async function restoreRefunds(db: SQLiteDatabase, snapshot: DataSnapshot) {
   }
   for (const d of snapshot.refundDismissals ?? []) {
     const refundId = await find(d.accountName, d.refund);
-    const purchaseId = await find(d.accountName, d.purchase);
-    if (refundId && purchaseId) await db.runAsync("INSERT OR IGNORE INTO refund_dismissals (refund_id, purchase_id) VALUES (?, ?)", refundId, purchaseId);
+    const purchaseId = d.purchase ? await find(d.accountName, d.purchase) : NO_PURCHASE;
+    if (refundId && purchaseId !== null) await db.runAsync("INSERT OR IGNORE INTO refund_dismissals (refund_id, purchase_id) VALUES (?, ?)", refundId, purchaseId);
   }
   // Refunds the backup never matched get a look too.
   await matchRefunds(db);
