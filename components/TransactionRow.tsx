@@ -341,6 +341,11 @@ export function TransactionRow({
             {transaction.linkedTransactionId && <Chip label="transfer" tone="warning" />}
             {people.length > 1 && personLabel ? <Chip label={personLabel} tone="positive" /> : null}
             {isSplit && transaction.splitTotal !== null ? <Chip label={`split from $${Math.abs(transaction.splitTotal).toFixed(2)}`} /> : null}
+            {transaction.refundOf !== null && transaction.refundOfMerchant ? (
+              <Pressable onPress={() => router.push("/refunds")} accessibilityLabel="See refund matches">
+                <Chip label={`↩ refund for ${formatMerchantName(transaction.refundOfMerchant)}${transaction.refundOfDate ? ` · ${transaction.refundOfDate.slice(5)}` : ""}`} tone="positive" />
+              </Pressable>
+            ) : null}
             {tags.map((tag) => (
               <Pressable
                 key={tag}

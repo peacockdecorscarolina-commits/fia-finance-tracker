@@ -71,6 +71,11 @@ export type Transaction = {
   // they share, and the original transaction's amount.
   splitGroup: string | null;
   splitTotal: number | null;
+  // A refund matched to the purchase it undoes: that purchase's id, store
+  // and date.
+  refundOf: number | null;
+  refundOfMerchant: string | null;
+  refundOfDate: string | null;
 };
 
 // Shape returned by the extraction step (currently on-device, rule-based —

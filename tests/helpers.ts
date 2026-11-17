@@ -30,6 +30,9 @@ export function tx(date: string, merchant: string, amount: number, extra: Partia
     personName: null,
     splitGroup: null,
     splitTotal: null,
+    refundOf: null,
+    refundOfMerchant: null,
+    refundOfDate: null,
     ...extra,
   };
 }
