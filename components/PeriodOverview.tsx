@@ -87,7 +87,9 @@ function formatShortDate(date: string): string {
 type SummaryView = (typeof VIEWS)[number];
 
 function formatMoney(value: number): string {
-  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // More money back than spent shows as "−$359.76", not "$-359.76".
+  const sign = value < 0 ? "−" : "";
+  return `${sign}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function currentMonth(): string {
@@ -110,7 +112,9 @@ function formatMonthLabel(month: string): string {
 const DONUT_SIZE = 140;
 const DONUT_HOLE_SIZE = 92;
 
-function Donut({ slices, total }: { slices: { name: string; value: number; color: string }[]; total: number }) {
+// `total` sizes the slices; `centerTotal`, when given, is the figure in the
+// middle (the period's total after refunds and credits).
+function Donut({ slices, total, centerTotal }: { slices: { name: string; value: number; color: string }[]; total: number; centerTotal?: number }) {
   const { colors } = useTheme();
   const donutStyles = useMemo(() => makeDonutStyles(colors), [colors]);
   const [selected, setSelected] = useState<number | null>(null);
@@ -156,7 +160,7 @@ function Donut({ slices, total }: { slices: { name: string; value: number; color
   return (
     <Pressable onPress={handlePress} style={[donutStyles.donut, { backgroundImage: gradient } as object]}>
       <View style={donutStyles.donutHole}>
-        <Text style={donutStyles.donutValue}>{formatMoney(active ? active.value : total)}</Text>
+        <Text style={donutStyles.donutValue}>{formatMoney(active ? active.value : (centerTotal ?? total))}</Text>
         <Text style={donutStyles.donutLabel} numberOfLines={1}>
           {active ? active.name : "Total"}
         </Text>
@@ -875,18 +879,24 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
               <EmptyState icon="📊" title="Nothing here yet" subtitle={`No spending recorded ${periodWord}.`} />
             ) : (
               <View style={styles.categoryRow}>
+                {/* A category that's money back overall (refunds) has no slice:
+                    the chart is spending, and the list shows it as an amount. */}
                 <Donut
-                  total={total}
-                  slices={categoryTotals.map((c) => ({
-                    name: c.categoryName,
-                    value: c.total,
-                    color: getCategoryStyle(c.categoryName).color,
-                  }))}
+                  centerTotal={total}
+                  total={categoryTotals.reduce((sum, c) => sum + Math.max(0, c.total), 0)}
+                  slices={categoryTotals
+                    .filter((c) => c.total > 0)
+                    .map((c) => ({
+                      name: c.categoryName,
+                      value: c.total,
+                      color: getCategoryStyle(c.categoryName).color,
+                    }))}
                 />
                 <View style={styles.legend}>
                   {categoryTotals.map((c) => {
                     const style = getCategoryStyle(c.categoryName);
-                    const pct = total > 0 ? (c.total / total) * 100 : 0;
+                    const spent = categoryTotals.reduce((sum, x) => sum + Math.max(0, x.total), 0);
+                    const pct = spent > 0 && c.total > 0 ? (c.total / spent) * 100 : 0;
                     return (
                       <Pressable
                         key={c.categoryName}
@@ -902,7 +912,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                         <Text style={styles.legendName} numberOfLines={1}>
                           {style.emoji} {c.categoryName}
                         </Text>
-                        <Text style={styles.legendPct}>{pct.toFixed(1)}%</Text>
+                        <Text style={styles.legendPct}>{c.total < 0 ? `−${formatMoney(-c.total)}` : `${pct.toFixed(1)}%`}</Text>
                       </Pressable>
                     );
                   })}
