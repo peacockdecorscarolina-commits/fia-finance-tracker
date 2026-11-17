@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { SQLiteProvider } from "expo-sqlite";
 import { AccessGate } from "../components/AccessGate";
 import { clearDatabaseReloads, ErrorBoundary } from "../components/ErrorBoundary";
+import { ReleaseDatabaseOnLeave } from "../components/ReleaseDatabaseOnLeave";
 import { initDatabase } from "../lib/db";
 import { ThemeProvider } from "../lib/ThemeContext";
 
@@ -16,6 +17,7 @@ export default function RootLayout() {
             clearDatabaseReloads();
           }}
         >
+          <ReleaseDatabaseOnLeave />
           <AccessGate>
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(tabs)" />
