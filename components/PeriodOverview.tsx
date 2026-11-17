@@ -713,6 +713,7 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
               const share = total > 0 ? (a.total / total) * 100 : 0;
               const account = accounts.find((acc) => acc.name === a.accountName);
               const balance = account ? accountBalances[account.id] : undefined;
+              const isBank = account?.type === "Checking" || account?.type === "Savings";
               const color = getAccountCardColor(a.accountName, accounts);
               const initials = a.accountName
                 .split(/\s+/)
@@ -738,20 +739,20 @@ export function PeriodOverview({ section }: { section: "spending" | "accounts" }
                       <Text style={styles.accountRowName} numberOfLines={1}>
                         {a.accountName}
                       </Text>
-                      <Text style={styles.accountRowSub}>
-                        {account && (account.type === "Checking" || account.type === "Savings")
-                          ? `${account.type} account`
-                          : `${share.toFixed(1)}% of spend`}
+                      <Text style={styles.accountRowSub} numberOfLines={1}>
+                        {isBank
+                          ? `${account!.type} account`
+                          : `${share.toFixed(1)}% of spend${balance !== undefined && -balance > 0 ? ` · owe ${formatMoney(-balance)}` : ""}`}
                       </Text>
                     </View>
+                    {/* A card shows what was spent on it; a bank account its balance
+                        (when one is known -- otherwise what went out of it). */}
                     <View style={{ alignItems: "flex-end" }}>
                       <Text style={styles.accountRowAmount}>
-                        {balance === undefined
-                          ? formatMoney(a.total)
-                          : formatMoney(account?.type === "Credit Card" ? -balance : balance)}
+                        {isBank && balance !== undefined ? formatMoney(balance) : formatMoney(a.total)}
                       </Text>
                       <Text style={styles.accountRowSub}>
-                        {balance === undefined ? periodWord : account?.type === "Credit Card" ? "owed" : `balance as of ${periodKey}`}
+                        {isBank && balance !== undefined ? `balance as of ${periodKey}` : `spent ${periodWord}`}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.7)" />
