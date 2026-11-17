@@ -181,6 +181,7 @@ export function MoreMenu({ visible, onClose }: { visible: boolean; onClose: () =
       title: "Fix data",
       items: [
         { key: "transfers", label: "Find Transfers", short: "Transfers", icon: "git-compare-outline", onPress: go("/find-transfers") },
+        { key: "refunds", label: "Refunds", short: "Refunds", icon: "arrow-undo-outline", onPress: go("/refunds") },
         { key: "move", label: "Move transactions", short: "Move", icon: "swap-horizontal-outline", onPress: go("/move-transactions") },
         { key: "delete", label: "Delete transactions", short: "Delete", icon: "trash-outline", onPress: go("/delete-transactions"), danger: true },
       ],
