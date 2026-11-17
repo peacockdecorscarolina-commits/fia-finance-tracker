@@ -7,6 +7,8 @@ import { TransactionRow } from "../components/TransactionRow";
 import { autoBackup } from "../lib/autoBackup";
 import {
   addWatch,
+  changeCategory,
+  getCategories,
   deleteWatch,
   getFlaggedTransactions,
   getWatches,
@@ -18,7 +20,7 @@ import {
 import { formatMerchantName } from "../lib/formatMerchant";
 import { radius, spacing } from "../lib/theme";
 import { useTheme, type ThemeColors } from "../lib/ThemeContext";
-import type { Transaction } from "../lib/types";
+import type { Category, Transaction } from "../lib/types";
 import { describeWatch, watchTitle, type WatchDirection } from "../lib/watches";
 
 const ACCENT = "#4C1D95";
@@ -45,6 +47,7 @@ export default function WatchListScreen() {
   const params = useLocalSearchParams<{ lookFor?: string; amount?: string; direction?: string; note?: string }>();
   const [watches, setWatches] = useState<WatchWithFinds[]>([]);
   const [flagged, setFlagged] = useState<Transaction[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [finds, setFinds] = useState<Map<number, Transaction[]>>(new Map());
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -68,7 +71,8 @@ export default function WatchListScreen() {
   }, [db]);
 
   const load = useCallback(async () => {
-    const [list, flags] = await Promise.all([getWatches(db), getFlaggedTransactions(db)]);
+    const [list, flags, cats] = await Promise.all([getWatches(db), getFlaggedTransactions(db), getCategories(db)]);
+    setCategories(cats);
     const done = list.filter((w) => w.closedAt).slice(0, DONE_SHOWN);
     const found = new Map<number, Transaction[]>();
     for (const w of [...done, ...list.filter((w) => !w.closedAt && w.confirmed > 0)]) {
@@ -167,7 +171,18 @@ export default function WatchListScreen() {
               👀 Found {flagged.length} · is {flagged.length === 1 ? "this" : "each"} the one?
             </Text>
             {flagged.map((t) => (
-              <TransactionRow key={t.id} transaction={t} onWatchAnswered={load} />
+              <TransactionRow
+                key={t.id}
+                transaction={t}
+                onWatchAnswered={load}
+                categories={categories}
+                onChangeCategory={async (tx, categoryId, wholeStore) => {
+                  await changeCategory(db, tx, categoryId, wholeStore);
+                  autoBackup(db);
+                  load();
+                }}
+                onSplitChanged={load}
+              />
             ))}
           </View>
         )}

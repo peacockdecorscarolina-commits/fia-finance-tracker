@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Animated, PanResponder, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { Animated, PanResponder, Pressable, SafeAreaView, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { EmptyState } from "../components/EmptyState";
 import { formatAmount } from "../components/AmountText";
 import { getCategoryStyle } from "../lib/categoryStyle";
@@ -29,6 +29,9 @@ const TAG_COLOR = "#16A34A";
 
 const SWIPE_X_THRESHOLD = 90;
 const SWIPE_Y_THRESHOLD = 70;
+// A quick flick counts even when it doesn't travel the full distance.
+const FLICK_DISTANCE = 25;
+const FLICK_SPEED = 0.35;
 const FLY_DISTANCE = 560;
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -135,6 +138,7 @@ export default function ReviewScreen() {
                   onTag={handleTag}
                   onIgnore={handleIgnore}
                   onSkip={handleSkip}
+                  canSkip={queue.length > 1}
                   people={people}
                   onPerson={(personId) => handlePerson(t, personId)}
                 />
@@ -193,6 +197,7 @@ function ReviewCard({
   onTag,
   onIgnore,
   onSkip,
+  canSkip,
   people,
   onPerson,
 }: {
@@ -204,6 +209,8 @@ function ReviewCard({
   onTag: (categoryId: number) => void;
   onIgnore: () => void;
   onSkip: () => void;
+  // Nothing to skip to with one card left.
+  canSkip: boolean;
 }) {
   const pan = useRef(new Animated.ValueXY()).current;
 
@@ -215,15 +222,42 @@ function ReviewCard({
     Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false, speed: 20, bounciness: 6 }).start();
   }
 
+  // The gesture handler is made once, so it reads the latest canSkip here.
+  const canSkipRef = useRef(canSkip);
+  canSkipRef.current = canSkip;
+  const startedAt = useRef(0);
+  // Where the finger first touched. The gesture handler only takes over once
+  // the finger has moved, and on the web its distances leave out that first
+  // stretch -- a 45-pixel flick read as about 25 -- so short swipes snapped back.
+  const touchStart = useRef({ x: 0, y: 0, at: 0 });
+
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 4 || Math.abs(gesture.dy) > 4,
+      // The card keeps the gesture: on a phone the page would otherwise take
+      // a vertical swipe as a scroll and cancel it halfway.
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        startedAt.current = Date.now();
+      },
       onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
-      onPanResponderRelease: (_, gesture) => {
-        const vertical = Math.abs(gesture.dy) > Math.abs(gesture.dx);
-        if (vertical && gesture.dy < -SWIPE_Y_THRESHOLD) {
+      onPanResponderRelease: (evt, gesture) => {
+        // The whole swipe, from where the finger first touched; the handler's
+        // own numbers when that wasn't seen (a mouse, say).
+        const start = touchStart.current;
+        const seen = start.at > 0 && Date.now() - start.at < 10000 && typeof evt.nativeEvent.pageX === "number";
+        const dx = seen ? evt.nativeEvent.pageX - start.x : gesture.dx;
+        const dy = seen ? evt.nativeEvent.pageY - start.y : gesture.dy;
+        touchStart.current = { x: 0, y: 0, at: 0 };
+        // Speed over the whole swipe, in pixels per millisecond.
+        const ms = Math.max(1, Date.now() - (seen ? start.at : startedAt.current));
+        const fast = (distance: number) => Math.abs(distance) / ms > FLICK_SPEED;
+        const vertical = Math.abs(dy) > Math.abs(dx);
+        const up = vertical && (dy < -SWIPE_Y_THRESHOLD || (dy < -FLICK_DISTANCE && fast(dy)));
+        const left = !vertical && (dx < -SWIPE_X_THRESHOLD || (dx < -FLICK_DISTANCE && fast(dx)));
+        if (up && canSkipRef.current) {
           flyOff(0, -FLY_DISTANCE, onSkip);
-        } else if (!vertical && gesture.dx < -SWIPE_X_THRESHOLD) {
+        } else if (left) {
           flyOff(-FLY_DISTANCE, 40, onIgnore);
         } else {
           settleBack();
@@ -244,6 +278,10 @@ function ReviewCard({
   return (
     <Animated.View
       {...panResponder.panHandlers}
+      onTouchStart={(e) => {
+        const touch = e.nativeEvent.touches?.[0] ?? e.nativeEvent;
+        touchStart.current = { x: touch.pageX, y: touch.pageY, at: Date.now() };
+      }}
       style={[
         styles.card,
         { zIndex: 20, transform: [{ translateX: pan.x }, { translateY: pan.y }, { rotate }] },
@@ -308,7 +346,11 @@ function ReviewCard({
           <Ionicons name="eye-off-outline" size={14} color={IGNORE_COLOR} />
           <Text style={[styles.actionBtnText, { color: IGNORE_COLOR }]}>Ignore</Text>
         </Pressable>
-        <Pressable onPress={() => flyOff(0, -FLY_DISTANCE, onSkip)} style={styles.actionBtn}>
+        <Pressable
+          onPress={() => (canSkip ? flyOff(0, -FLY_DISTANCE, onSkip) : undefined)}
+          style={[styles.actionBtn, !canSkip && { opacity: 0.4 }]}
+          disabled={!canSkip}
+        >
           <Ionicons name="arrow-redo-outline" size={14} color={SKIP_COLOR} />
           <Text style={[styles.actionBtnText, { color: SKIP_COLOR }]}>Skip for now</Text>
         </Pressable>
@@ -351,7 +393,10 @@ function makeStyles(colors: ThemeColors) {
       backgroundColor: colors.card,
       borderRadius: radius.card,
       padding: spacing.md,
-    },
+      // Web: swipes on the card move the card, not the page.
+      touchAction: "none",
+      userSelect: "none",
+    } as ViewStyle,
     peekCard: { justifyContent: "flex-start" },
     cardTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
     avatar: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
