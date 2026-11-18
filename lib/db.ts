@@ -10,7 +10,8 @@ import {
   type CatalogCard,
 } from "./cardBenefits";
 import { simulateLoan, type LoanKind, type LoanStatus, type TrackedLoan } from "./loan";
-import { closingOnOrAfter, misreadClosings, statementStatus, type StatementStatus } from "./statementReminders";
+import { addDays, closingOnOrAfter, misreadClosings, statementStatus, type StatementStatus } from "./statementReminders";
+import { FUTURE_SLACK_DAYS, yearEarlier } from "./parseStatement";
 import { groupIncomeSources, looksLikePaycheck, type IncomeKind, type IncomeLabel, type IncomeSource } from "./incomeSources";
 import { monthInsights, topMerchants, type Insight, type TopMerchant } from "./merchantInsights";
 import { matchesWatch, noteWithWatch, type Watch, type WatchDirection } from "./watches";
@@ -493,16 +494,23 @@ export async function getStatementStatuses(db: SQLiteDatabase, today: string): P
   const accounts = await db.getAllAsync<{ id: number; name: string; remindersOn: number; statementDay: number | null }>(
     "SELECT id, name, statement_reminders as remindersOn, statement_day as statementDay FROM accounts ORDER BY name"
   );
+  // Nothing dated after today counts: a statement can't have closed in the
+  // future, and such dates come from a misread year (see getFutureDated).
+  const latest = futureLimit(today);
   const txDates = await db.getAllAsync<{ accountId: number; date: string }>(
-    "SELECT DISTINCT account_id as accountId, date FROM transactions ORDER BY date"
+    "SELECT DISTINCT account_id as accountId, date FROM transactions WHERE date <= ? ORDER BY date",
+    latest
   );
   const closings = await db.getAllAsync<{ accountId: number; date: string }>(
-    `SELECT account_id as accountId, date FROM balance_checkpoints
-     UNION SELECT account_id as accountId, date FROM statement_closings
-     ORDER BY date`
+    `SELECT account_id as accountId, date FROM balance_checkpoints WHERE date <= ?
+     UNION SELECT account_id as accountId, date FROM statement_closings WHERE date <= ?
+     ORDER BY date`,
+    latest,
+    latest
   );
   const uploaded = await db.getAllAsync<{ accountId: number; date: string }>(
-    "SELECT account_id as accountId, date FROM statement_closings"
+    "SELECT account_id as accountId, date FROM statement_closings WHERE date <= ?",
+    latest
   );
   const skips = await db.getAllAsync<{ accountId: number; month: string }>(
     "SELECT account_id as accountId, month FROM statement_skips"
@@ -3521,4 +3529,68 @@ async function restoreRefunds(db: SQLiteDatabase, snapshot: DataSnapshot) {
   }
   // Refunds the backup never matched get a look too.
   await matchRefunds(db);
+}
+
+// ---- Dates in the future (a statement's year misread) ----
+
+const FUTURE_KEPT_KEY = "future_dates_kept";
+
+function futureLimit(today: string): string {
+  return addDays(today, FUTURE_SLACK_DAYS);
+}
+
+export type FutureDated = { accountId: number; accountName: string; count: number; latest: string; ids: number[] };
+
+// Accounts with transactions dated after today, minus any the user said are
+// right.
+export async function getFutureDated(db: SQLiteDatabase, today: string): Promise<FutureDated[]> {
+  let kept: number[] = [];
+  try {
+    kept = JSON.parse((await getSetting(db, FUTURE_KEPT_KEY)) || "[]");
+  } catch {
+    kept = [];
+  }
+  const rows = await db.getAllAsync<{ id: number; accountId: number; accountName: string; date: string }>(
+    `SELECT transactions.id as id, transactions.account_id as accountId, accounts.name as accountName, transactions.date as date
+     FROM transactions JOIN accounts ON accounts.id = transactions.account_id
+     WHERE transactions.date > ? ORDER BY transactions.date`,
+    futureLimit(today)
+  );
+  const byAccount = new Map<number, FutureDated>();
+  for (const r of rows) {
+    if (kept.includes(r.id)) continue;
+    const entry = byAccount.get(r.accountId) ?? { accountId: r.accountId, accountName: r.accountName, count: 0, latest: r.date, ids: [] };
+    entry.count += 1;
+    entry.latest = r.date > entry.latest ? r.date : entry.latest;
+    entry.ids.push(r.id);
+    byAccount.set(r.accountId, entry);
+  }
+  return [...byAccount.values()];
+}
+
+// "Move back a year": the account's transactions, statement closings and
+// balances dated after today go back a year.
+export async function moveFutureDatesBack(db: SQLiteDatabase, accountId: number, today: string) {
+  const limit = futureLimit(today);
+  const txs = await db.getAllAsync<{ id: number; date: string }>("SELECT id, date FROM transactions WHERE account_id = ? AND date > ?", accountId, limit);
+  for (const t of txs) await db.runAsync("UPDATE transactions SET date = ? WHERE id = ?", yearEarlier(t.date), t.id);
+  for (const table of ["statement_closings", "balance_checkpoints"]) {
+    const rows = await db.getAllAsync<{ date: string }>(`SELECT date FROM ${table} WHERE account_id = ? AND date > ?`, accountId, limit);
+    for (const r of rows) {
+      // If that day a year earlier is already there, the misdated copy just goes.
+      await db.runAsync(`UPDATE OR IGNORE ${table} SET date = ? WHERE account_id = ? AND date = ?`, yearEarlier(r.date), accountId, r.date);
+      await db.runAsync(`DELETE FROM ${table} WHERE account_id = ? AND date = ?`, accountId, r.date);
+    }
+  }
+}
+
+// "They're right": leave these alone and stop asking.
+export async function keepFutureDates(db: SQLiteDatabase, ids: number[]) {
+  let kept: number[] = [];
+  try {
+    kept = JSON.parse((await getSetting(db, FUTURE_KEPT_KEY)) || "[]");
+  } catch {
+    kept = [];
+  }
+  await setSetting(db, FUTURE_KEPT_KEY, JSON.stringify([...new Set([...kept, ...ids])]));
 }

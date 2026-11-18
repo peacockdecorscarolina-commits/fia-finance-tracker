@@ -407,9 +407,39 @@ function moveDecemberBeforeJanuary(transactions: ExtractedTransaction[]): Extrac
 // a 2027 statement"); it replaces the guess from findStatementYear, which can
 // grab an unrelated printed date. Years printed on the statement itself
 // still win -- this only fills in dates that have none.
-export function parseStatement(text: string, statementYear?: number): ExtractedTransaction[] {
+export function parseStatement(text: string, statementYear?: number, today = localToday()): ExtractedTransaction[] {
   const year = statementYear ?? findStatementYear(text);
-  return moveDecemberBeforeJanuary(parseTransactions(text, findStatementPeriod(text, year), year));
+  const rows = moveDecemberBeforeJanuary(parseTransactions(text, findStatementPeriod(text, year), year));
+  // With the year guessed (not picked by the user), dates that land in the
+  // future got the wrong one -- often from an unrelated date printed on the
+  // statement ("offer ends Dec 31, 2026"). A statement is never from the future.
+  return statementYear === undefined ? rows.map((r) => ({ ...r, date: notInFuture(r.date, today) })) : rows;
+}
+
+// Dates up to this many days ahead are left alone (time zones, pending lines).
+export const FUTURE_SLACK_DAYS = 2;
+
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function daysAfter(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// The same day a year earlier (Feb 29 becomes Feb 28).
+export function yearEarlier(date: string): string {
+  const year = Number(date.slice(0, 4)) - 1;
+  const monthDay = date.slice(5) === "02-29" ? "02-28" : date.slice(5);
+  return `${year}-${monthDay}`;
+}
+
+// A guessed date past today (beyond the slack) moved back a year.
+export function notInFuture(date: string, today: string): string {
+  return date > daysAfter(today, FUTURE_SLACK_DAYS) ? yearEarlier(date) : date;
 }
 
 // Checking/savings statements (Wells Fargo, seen so far) print their own
@@ -430,9 +460,11 @@ export function findStatementEndingBalance(
   const day = Number(match[2]);
   const fallbackYear = statementYear ?? findStatementYear(text);
   const year = inferYearForMonth(month, findStatementPeriod(text, fallbackYear), fallbackYear);
+  const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   return {
     balance: Number(match[3].replace(/,/g, "")),
-    date: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    // Same as the transactions: a guessed year can't put it in the future.
+    date: statementYear === undefined ? notInFuture(date, localToday()) : date,
   };
 }
 
