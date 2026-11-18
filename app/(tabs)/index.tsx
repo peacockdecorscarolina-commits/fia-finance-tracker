@@ -13,6 +13,7 @@ import { DataSafetyBanner } from "../../components/DataSafetyBanner";
 import { GettingStarted } from "../../components/GettingStarted";
 import { RestoreOffer } from "../../components/RestoreOffer";
 import { WatchFoundCard } from "../../components/WatchFoundCard";
+import { FutureDatesCard } from "../../components/FutureDatesCard";
 import { EmptyState } from "../../components/EmptyState";
 import { Greeting } from "../../components/Greeting";
 import { LineChart } from "../../components/LineChart";
@@ -278,6 +279,7 @@ export default function TransactionsScreen() {
       <RestoreOffer />
       <GettingStarted />
       <DataSafetyBanner />
+      <FutureDatesCard onChanged={() => setCheckInKey((k) => k + 1)} />
       <WatchFoundCard />
       <CheckInCard key={checkInKey} />
       <BenefitReminder />
